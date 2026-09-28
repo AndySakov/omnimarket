@@ -160,6 +160,13 @@ ClickHouse rows are keyed by (chain, block hash, log index) and carry a status a
 
 ## Testing & operations
 
+### Chaos fuzzing with reproducible seeds (D49)
+Beyond named load scenarios, a fuzzer mixes every lever we control at random (traffic bursts, price crashes, reorgs, dropped preconfirmations, RPC and Kafka faults, engine kills, token tax flips) while continuously checking invariants: exactly-once firing, nothing below its signed minimum, undo equals recompute. Every run is seeded, failures are shrunk to a minimal reproducer, and each one becomes a permanent regression test.
+- **Say it as:** "We don't just test the failures we imagined; we fuzz for the combinations we didn't."
+
+### Deterministic simulation of the hot path (D49)
+The engine and execution cores run deterministically given their inputs, with time, network and RPC injectable. That lets the same code run in a simulated world at thousands of hours per hour, where any failure replays exactly from its seed. It's the approach FoundationDB and TigerBeetle use, applied to a trading engine.
+
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)
 The full pipeline (quote → build → simulate against live state → sign) runs against real mainnet data and stops just before broadcast. Load tests (flash crowds, stop-loss cascades, copy-trade fan-out) hit real conditions without spending money.
 
