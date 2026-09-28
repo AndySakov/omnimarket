@@ -25,7 +25,7 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 **Decision:** Support three EVM chains from day one.
 
 **Why:** Three chains with very different profiles force a real multi-chain abstraction instead of a single-chain design with a chain ID bolted on:
-- **MegaETH** — real-time chain with ~10ms mini-blocks and ~1s EVM blocks **(verify)**. Stress-tests ingestion throughput and what "confirmed" means.
+- **MegaETH** — real-time chain with ~10ms mini-blocks and ~1s EVM blocks (verified, MegaETH docs). Stress-tests ingestion throughput and what "confirmed" means.
 - **Base** — the main EVM memecoin venue. OP-stack L2, sequencer-ordered, private-ish mempool.
 - **BNB Chain** — high retail volume, public mempool, so MEV/sandwich protection matters. PancakeSwap-dominated.
 
@@ -284,7 +284,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 | Chain | Fast stream | Notifications/month |
 |---|---|---|
 | MegaETH | Filtered `logs` subscription (mini-block latency) | Scales with swap volume |
-| Base | `newFlashblocks` (one payload per 200ms flashblock) | ~13M, fixed |
+| Base | `newFlashblocks` tick + one filtered `getLogs` (pending) per 200ms flashblock (amended, see consequences) | ~26M, fixed |
 | BNB | `newHeads` + one `getLogs` per block | ~11.5M, fixed |
 
 **Rejected:**
@@ -300,7 +300,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 - Before paying: measure real event rates per chain (one day of `getLogs` over the active pool set) and confirm the plan tier.
 - Before paying: verify on each pricing page the per-event cost for WebSocket pushes, and that Chainstack serves MegaETH mini-block `logs`.
 - The engine needs a provider abstraction with failover per chain (primary → fallback), and the reconciler fills any gap left by a switch.
-- Base: the raw Flashblocks feed carries receipts (logs) in its `metadata` object, which Base marks as unstable. **(verify)** that the provider's `newFlashblocks` subscription returns logs in a stable shape; if not, fall back to filtered `pendingLogs` (per-log billing) for Base.
+- Base (checked 2026-09-28, see [verification.md](verification.md)): receipts were removed from the Flashblocks WebSocket payload in Base's v1 upgrade, and an open issue asks to bring them back. So `newFlashblocks` is used as a **tick** only: on each flashblock, one filtered `eth_getLogs` at the `pending` tag fetches our events. Still fixed cost (~26M requests/month: tick + call). Fallback if that proves unreliable: filtered `pendingLogs` (per-log billing).
 
 ---
 
@@ -410,9 +410,10 @@ Chart candles are built from actual swap prices (the universal convention), not 
 | Uniswap v3 + forks (PancakeSwap v3) | All | Concentrated liquidity, tick walk |
 | Uniswap v4 standard | All | v3 math, singleton PoolManager |
 | Uniswap v4 hooks | All | Per hook: modelled, or opaque → simulated (D14) |
+| PancakeSwap Infinity CL / bin pools (+ hooks) | BNB | CL: v4-like · bin pools: own math, to spec (added after verification) |
 | Aerodrome volatile / stable | Base | Constant product / stable curve (x³y + y³x) |
 | Aerodrome Slipstream | Base | v3-style concentrated liquidity |
-| MegaETH venues | MegaETH | Kumbaya (largest by TVL) and Algebra-based pools **(verify which forks and fee models)** |
+| MegaETH venues | MegaETH | Kumbaya: concentrated-liquidity (v3-like) but with non-standard pool bytecode and unverified source, so **quoted by simulation until our math passes the shadow check**. Algebra-based pools: Algebra's own math (dynamic fees). |
 
 **Rejected:**
 - *Simulate every quote.* Always exactly right, but an RPC round trip per quote (milliseconds, and D16 budget) where in-memory takes microseconds. Can't keep up with triggers and routing at MegaETH rates.
@@ -538,7 +539,7 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 
 **Consequence:**
 - Contract work enters phase 1: Solidity router with fork tests per DEX type, fuzzing, and invariant tests (zero residual balance, `minOut` always enforced).
-- **(verify)** Permit2 is deployed at its canonical address on MegaETH, Base and BNB.
+- Permit2 is deployed at its canonical address on MegaETH, Base and BNB (verified).
 - Signing a permit adds a signature per trade; with Privy delegated signing (D4) that's on the hot path, so its latency needs measuring. → `execution.md`
 - Fee design (rate, taken in input or output token) → routing open question.
 
@@ -610,7 +611,7 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 - **Everything else:** warn with badges (Trojan-style), never block.
 - **Sells are never blocked** by our checks: a user must always be able to try to exit.
 - Measured taxes feed slippage defaults (D27) and switch the token to simulated quoting (D21).
-- **Optional second opinion:** GoPlus Security API (free, 30 calls/min) for Base and BNB, asynchronously, never on the trade path. MegaETH coverage **(verify)**.
+- **Optional second opinion:** GoPlus Security API (free, 30 calls/min) for Base and BNB, asynchronously, never on the trade path. GoPlus doesn't list MegaETH; there, the Etherscan API (chain ID 4326) supplies verified-source checks instead.
 
 **Rejected:**
 - *Static analysis only.* Misses honeypots whose sell-block only triggers at runtime.
@@ -621,7 +622,7 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Simulation is the only check that catches runtime traps, and state overrides make it free of deployments and gas. Behavioural signals turn data the indexer already has into a continuous safety monitor.
 
 **Consequence:**
-- **(verify)** Each chain's provider supports `eth_call` state overrides.
+- `eth_call` state overrides: supported by the node software on all three chains and documented for MegaETH (QuickNode also documents `eth_simulateV1`, which simulates a buy and sell as two real transactions without an injected contract). Chainstack support to confirm with the first test call.
 - Simulation calls count toward the RPC budget (D16); the re-check interval is a tuning parameter.
 - Holder concentration (top-10 share, deployer balance) needs a holder index or GoPlus; deferred.
 - Token taxes can change at any block; badges show when each check last ran.

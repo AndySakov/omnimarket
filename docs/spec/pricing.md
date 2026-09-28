@@ -39,7 +39,9 @@ In-memory math per pool type, exact to the contract's rounding; simulation only 
 | Uniswap v3/v4 + forks | All | Concentrated liquidity, tick walk |
 | v4 hooks | All | Modelled or simulated (D14) |
 | Aerodrome volatile / stable / Slipstream | Base | Constant product / stable curve / concentrated |
-| Kumbaya, Algebra-based | MegaETH | **(verify)** |
+| Kumbaya | MegaETH | v3-like, non-standard bytecode: simulated until shadow check passes |
+| Algebra-based | MegaETH | Algebra concentrated liquidity, dynamic fees |
+| PancakeSwap Infinity (CL + bin pools, hooks) | BNB | CL: v4-like · bin pools: own math **(to spec)** |
 
 ## Recompute cadence (D22)
 
@@ -61,7 +63,7 @@ Biggest first:
 
 1. ~~USD conversion~~ → **decided (D19).**
 2. ~~Trigger manipulation protection~~ → **decided (D20): none beyond a slippage limit**, Trojan-style instant triggers.
-3. ~~Per-DEX math~~ → **decided (D21): in memory**, simulation for opaque venues. Still to verify: MegaETH venue list.
+3. ~~Per-DEX math~~ → **decided (D21): in memory**, simulation for opaque venues. MegaETH venues checked; PancakeSwap Infinity bin pools added to scope.
 4. ~~Recompute cadence~~ → **decided (D22).**
 5. ~~Cross-chain fair price~~ → **decided (D23).**
 6. ~~Liquidity measure~~ → **decided (D24): ±2% depth.**

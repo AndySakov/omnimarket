@@ -59,7 +59,7 @@ An active on-chain trader who today switches between a chart site, a block explo
 |---|---|---|
 | Base | Uniswap v2/v3/v4, Aerodrome | Aerodrome uses Solidly-style pools, so it needs its own pricing math |
 | BNB Chain | PancakeSwap v2/v3 (+ Infinity) | Public mempool, so sandwich risk is real |
-| MegaETH | **(verify)** — pick the dominant 1–2 venues | Newest chain with the thinnest tooling; highest ingest rate |
+| MegaETH | Kumbaya (dominant, ~80% of chain TVL early 2026) + Algebra-based pools | Newest chain with the thinnest tooling; highest ingest rate |
 
 ## Draft performance targets
 
@@ -79,5 +79,5 @@ Placeholders to be hardened in `slas.md`. Listed now so they shape design discus
 1. ~~Demo environment~~ → decided in D5 (live reads, shadow execution, real-funds proof).
 2. **Router contract:** our own on-chain router (fees, bundling approve + swap, safety checks on-chain) vs calling DEX routers directly.
 3. **Frontend depth:** full terminal UI vs a thin UI that exists to demo the backend.
-4. **Prop AMMs as a venue class.** Proprietary AMMs (Tessera, ElfomoFi on Base; HumidiFi-style on Solana) quote from market-maker pricing that updates several times per block, so their output can't be computed from indexed state. Supporting them means a simulation-based quote adapter with very short quote lifetimes. Relevant mainly for major-pair legs (e.g. USDC → ETH), not memecoin pools. Which chains have them: Base confirmed, BNB and MegaETH **(verify)**. → `routing.md`
+4. **Prop AMMs as a venue class.** Proprietary AMMs (Tessera, ElfomoFi on Base; HumidiFi-style on Solana) quote from market-maker pricing that updates several times per block, so their output can't be computed from indexed state. Supporting them means a simulation-based quote adapter with very short quote lifetimes. Relevant mainly for major-pair legs (e.g. USDC → ETH), not memecoin pools. Which chains have them: Base and BNB confirmed (BNB: e.g. LunarBase on BNB/USDT, BTCB/USDT); none found on MegaETH yet. → `routing.md`
 5. **Historical backfill:** how much history to index per chain (days vs from genesis of each DEX).
