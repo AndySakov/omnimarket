@@ -1,6 +1,6 @@
 # Routing
 
-**Status:** Draft. Decisions: D25–D27.
+**Status:** Draft. Decisions: D25–D29.
 
 ## Route shapes (D25)
 
@@ -51,10 +51,27 @@ Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay or
 - Re-quote at send time; `minOut = fresh quote × (1 − slippage)`. If the fresh quote is worse than the displayed one beyond slippage, don't send: show the new quote.
 - Defaults (user-adjustable): new/thin 15% · established 3% · major/stable 0.5% · stop-loss/trailing ×2 · fee-on-transfer + tax.
 
+## Fees (D28)
+
+1% per successful trade (0.9% with referral), taken by the router in the native/quote asset: from the input on buys, from the proceeds on sells. Quotes and `minOut` are net of fee.
+
+## Token safety (D29)
+
+| Layer | Catches | Method | Runs |
+|---|---|---|---|
+| Round-trip simulation | Honeypot, buy/sell tax, tx limits | `eth_call` + state-override simulator contract | Discovery, promotion, periodic, on alarm |
+| Contract inspection | Owner powers: mint, blacklist, pause, set-tax, proxy | Bytecode selector scan | Once, and on ownership change |
+| Liquidity safety | Unlocked LP, deployer-held liquidity, pool age | Engine state | Discovery, liquidity events |
+| Behavioural | Sells failing, tax drift, liquidity pulls | Our own swap/transfer stream | Continuously |
+
+Policy: block buys on confirmed honeypots; warn on everything else; never block sells. GoPlus as an async second opinion on Base/BNB.
+
 ## Open questions
 
 1. ~~Own router contract~~ → **decided (D26).**
 2. ~~Quote lifetime & slippage defaults~~ → **decided (D27).**
-3. **Fees.** Whether and how the platform takes a fee.
-4. **Token safety checks** before routing (honeypots, taxes, blacklists).
-5. **Penalty values** per cue (tuning, measured via the loop above).
+3. ~~Fees~~ → **decided (D28).**
+4. ~~Token safety checks~~ → **decided (D29).**
+5. **Penalty values** per cue: tuning, set from measurements via the logging loop, not decided up front.
+
+Still to verify: Permit2 on each chain (D26); `eth_call` state overrides on each provider and GoPlus MegaETH coverage (D29).

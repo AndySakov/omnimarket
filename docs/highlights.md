@@ -98,6 +98,13 @@ Our router is immutable (no admin key to steal), must end every call with a zero
 Slippage is both a fill guarantee and the amount a sandwich bot can take. Defaults follow what the router already knows: 15% for new pairs, 3% for established tokens, 0.5% for majors, doubled for stop-losses that must land. The displayed quote is never executed as-is: the route is re-quoted at send time.
 - **Say it as:** "Your slippage depends on what you're trading and why, not on a global setting."
 
+### Honeypot checks without deploying anything (D29)
+To test whether a token can be sold, the engine runs one read-only `eth_call` in which a simulator contract is *injected* through a state override at a throwaway address, given native coin, and made to buy then sell against the live pool. A sell that reverts means a honeypot; value missing from the round trip is the tax. No deployment, no gas, no on-chain footprint.
+- **Say it as:** "We test-sell every token in a simulation before anyone can buy it."
+
+### The indexer is also a safety monitor (D29)
+The swap and transfer stream we already index shows when sells stop succeeding while buys continue, when the realised tax drifts from the simulated one, or when liquidity is pulled. Those behavioural signals trigger an immediate re-check at no extra RPC cost.
+
 ### Heuristics are measured, not guessed (D25, D5)
 Every routing decision and its outcome (quoted vs filled, reverts) is logged. Shadow mode replays the same order flow under different penalty settings to compare.
 

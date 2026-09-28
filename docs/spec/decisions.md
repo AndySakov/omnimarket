@@ -569,3 +569,59 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 **Consequence:**
 - The UI shows the default chosen and why ("new pair: 15%").
 - Tax detection (fee-on-transfer) must run before routing. → token safety checks, routing open question.
+
+---
+
+## D28 — Fees: Trojan's 1%, taken in the native/quote asset
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Mirror Trojan: **1% per successful trade** (0.9% with a referral). The router contract (D26) takes the fee in the same transaction, always in the native or quote asset (ETH, BNB, stablecoin):
+- **Buys:** taken from what the user pays, before the swap.
+- **Sells:** taken from the native/quote proceeds, after the swap.
+
+Quotes, `minOut` and the UI show amounts net of the fee.
+
+**Rejected:**
+- *Take the fee from the token on sells* (literally "on pay" for both sides). Leaves the treasury holding memecoins that must be sold later (extra price impact, possible transfer taxes, honeypot risk), and adds a token transfer per sell.
+- *Fee on output for buys.* Same problem: the fee would be in the memecoin.
+
+**Why:** Parity with the reference product. Taking fees only in native/quote assets keeps the treasury clean and the router simple.
+
+**Consequence:** Referral tiers (Trojan has multi-level referrals) are a product feature for later; the router takes a fee rate per trade so referral discounts need no contract change.
+
+---
+
+## D29 — Token safety: simulate, inspect, and watch; block only confirmed honeypots
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Four layers of checks, results cached per token and shown as badges.
+
+| Layer | What | How | When |
+|---|---|---|---|
+| 1. Round-trip simulation | Honeypot (can't sell), buy tax, sell tax, max-tx / max-wallet limits | One `eth_call` with a state override: a simulator contract injected at a throwaway address, funded with native coin, buys then sells against the live pool | New pool discovered; pool promoted (D11); every few minutes while active; immediately on a behavioural alarm |
+| 2. Contract inspection | Owner not renounced; mint, blacklist, pause, set-fee / set-tax, max-tx functions; upgradeable proxy | Bytecode function-selector scan + owner read | Once per token, again on ownership change |
+| 3. Liquidity safety | LP burned or locked (v2), deployer-owned share of liquidity (v3/v4), pool age | Reads from state the engine already holds | On pool discovery and liquidity events |
+| 4. Behavioural signals | Sells stop succeeding while buys continue; realised tax drifts from simulated; sudden liquidity pull | Derived from the swap and transfer stream we already index | Continuously, free |
+
+**Policy:**
+- **Confirmed honeypot** (buy simulates, sell reverts or returns dust): **buys blocked**, no override.
+- **Everything else:** warn with badges (Trojan-style), never block.
+- **Sells are never blocked** by our checks: a user must always be able to try to exit.
+- Measured taxes feed slippage defaults (D27) and switch the token to simulated quoting (D21).
+- **Optional second opinion:** GoPlus Security API (free, 30 calls/min) for Base and BNB, asynchronously, never on the trade path. MegaETH coverage **(verify)**.
+
+**Rejected:**
+- *Static analysis only.* Misses honeypots whose sell-block only triggers at runtime.
+- *Third-party API as the primary check.* Rate limits, added latency, and chain coverage we don't control.
+- *Simulate before every trade.* Adds an RPC round trip to the hot path; the router's `minOut` (D26) already protects each trade, and behavioural signals catch changes between re-checks.
+- *Block all risky tokens.* Most memecoins have some red flag; blocking would empty the product.
+
+**Why:** Simulation is the only check that catches runtime traps, and state overrides make it free of deployments and gas. Behavioural signals turn data the indexer already has into a continuous safety monitor.
+
+**Consequence:**
+- **(verify)** Each chain's provider supports `eth_call` state overrides.
+- Simulation calls count toward the RPC budget (D16); the re-check interval is a tuning parameter.
+- Holder concentration (top-10 share, deployer balance) needs a holder index or GoPlus; deferred.
+- Token taxes can change at any block; badges show when each check last ran.
