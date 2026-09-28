@@ -481,3 +481,37 @@ Chart candles are built from actual swap prices (the universal convention), not 
 **Why:** The standard depth measure on crypto data sites (e.g. CoinGecko's ±2% order-book depth). Works identically across v2, v3, v4 and Aerodrome, so pools of different types compare fairly.
 
 **Consequence:** Computed in memory from reserves or ticks, refreshed on mint/burn and whenever price crosses a tick. D11's liquidity floor is expressed in ±2% depth per chain (value still TBD in tuning).
+
+---
+
+## D25 — Routing: adaptive hybrid, chosen per order from situational cues
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** The router can produce three route shapes (single pool, multi-hop, and split across pools) and picks per order. Everything is quoted in memory (D21), so the router prices the candidates and chooses by:
+
+> **score = output − extra gas − Σ risk penalty per extra pool**
+
+The risk penalty is set by cues inferred from the order, the market, the pools, and our own order flow. Limits: at most 2 hops, intermediate tokens only from the D19 quote-asset set, at most 3 pools in a split, split search in 5% chunks.
+
+**Phase 1 cues:**
+1. **Size vs depth.** Trade < ~1% of the best pool's ±2% depth → single pool; skip the split search.
+2. **Order origin.** Stop-loss/trailing: reliability first (fewest pools, no simulated venues). Manual: default. Take-profit/limit: price first. New-pair buy: single pool, speed. Copy trade: the leader's pool where possible.
+5. **Liquidity concentration.** One pool holds >90% of depth → skip the split search.
+8. **Venue trust.** Penalise or exclude opaque (simulated) venues, very new pools, and fee-on-transfer tokens; excluded outright for urgent orders.
+11. **Own-flow awareness.** Our in-flight orders are applied to the in-memory pool state before quoting the next order, so copy-trade fan-out and stop cascades see realistic prices and spread across pools.
+
+**Later cues:** (3) user's slippage setting as an urgency signal, (4) pool heat (recent update rate), (6) live gas price, (7) chain MEV profile (splits reduce sandwich profit on BNB's public mempool), (9) state confidence (provisional or just-reorged pools), (10) recent revert history per pool.
+
+**Tuning:** every routing decision and its outcome (quoted vs filled, reverts) is logged to ClickHouse; shadow mode (D5) replays the same order flow under different penalties to compare.
+
+**Rejected:**
+- *Single pool only (Trojan-style).* Simplest and fastest, but loses price on large trades in multi-pool tokens.
+- *Full aggregator search (1inch/0x/Odos-style).* Best price on large or unusual trades, but the search is too costly at MegaETH update rates, and long exotic paths are where traps hide.
+- *One fixed shape for every order.* A stop-loss in a crash and a patient limit buy want opposite trade-offs.
+
+**Why:** Most trades are small and get the fast single-pool path automatically, as on Trojan. Large or patient orders get aggregator-quality prices. Own-flow awareness is something an outside aggregator can't do, because only we see our order flow.
+
+**Consequence:**
+- Splits across different DEXes need our own router contract. → routing question 3.
+- The in-flight order overlay needs execution (D8) to report submitted, landed and failed orders back to the engine promptly, so the overlay is removed when trades land or fail.
