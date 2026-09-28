@@ -158,6 +158,25 @@ On BNB most new memecoins start on a four.meme bonding curve, not a DEX pool. We
 ### Reorgs are new versions, not deletes (D41)
 ClickHouse rows are keyed by (chain, block hash, log index) and carry a status and a version. A correction inserts a newer version (including "removed" for reorged-out events) and the table keeps the latest. Backfills can restart and overlap the live feed without duplicates, and nothing is ever mutated in place.
 
+## Observability, safeguards & security
+
+### Cypherpunk brakes (D52, D56)
+Every safeguard can stop our automation, and none can touch user funds. Funds stay in users' own wallets, the router has no owner or pause, and users can always export keys or submit their own signed intents even with all our services off. Every brake is logged publicly and expires in an hour unless someone renews it.
+- **Say it as:** "We can stop ourselves; we can never stop you."
+
+### Every outcome traces back to its cause (D53)
+Every record carries the IDs of what caused it, from the chain event through pricing, the trigger, the route, the simulation and the transaction to the position update. "Why did my stop fire?" is one query, and so is "what did this bad price touch?". Money paths are traced 100%, never sampled.
+
+### A flight recorder for the trading engine (D54)
+Every input the engine and execution see is recorded. Because their cores are deterministic, any moment in production can be replayed exactly and inspected with a debugger after the fact. The same recordings gate deploys: a release replays real production traffic and every decision that changes is reviewed before it ships.
+- **Say it as:** "Any incident can be re-run, not just read about."
+
+### A watcher that doesn't trust the system it watches (D55)
+A separate service with its own code, provider and region reconciles every on-chain fill against our records. A mismatch pauses all executors. Our audit log is hash-chained and its root is anchored on-chain daily, so anyone can check we never rewrote history.
+
+### Every key is weaker than it looks (D57, D58)
+Users sign their own intents when they're present, so the server key only covers absent-user flows, capped by policy. Executor keys hold only gas. The treasury is a multisig. Intents name who may submit them, so a leaked intent is useless to anyone but us and the user.
+
 ## Testing & operations
 
 ### Chaos fuzzing with reproducible seeds (D49)
