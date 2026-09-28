@@ -423,3 +423,25 @@ Chart candles are built from actual swap prices (the universal convention), not 
 - Each pool type needs a quoter whose results match the contract to the wei, tested against on-chain simulation (fork tests in CI; D17 keeps them free).
 - Shadow-check mismatch rate is a monitored SLA line; a pool type that drifts is demoted to simulated until fixed.
 - Fee-on-transfer and rebasing tokens break reserve math; they need detection (from the safety check) and quoting by simulation. → `routing.md`
+
+---
+
+## D22 — Recompute cadence: prices and triggers on every update, screens throttled
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Token price and trigger evaluation:** on every pool update, no batching. Triggers are kept in levels sorted per token, so an update only checks orders between the old and new price.
+- **Client pushes:** throttled per token (default ≤10/s, latest value wins). The ≤100ms tick → client target still holds.
+- **Quote-asset moves (e.g. ETH/USD):** trigger levels are stored in the pool's quote asset. A quote-asset price change converts the USD levels at the new rate and checks only orders between the old and new converted boundary, instead of repricing every token and scanning every trigger.
+
+**Rejected:**
+- *Coalesce per mini-block / block.* Saves a little CPU, adds up to a block of delay to triggers (D20 is instant).
+- *Push every update to clients.* Up to ~100 messages/s per token on MegaETH that nobody can read, multiplied by every subscriber.
+- *Eagerly reprice all tokens on a quote-asset move.* Thousands of recomputes and trigger scans per ETH tick, almost all of which fire nothing.
+
+**Why:** Spend work only where speed changes an outcome (triggers), and cap it where it doesn't (human eyes).
+
+**Consequence:**
+- Trigger index is keyed by (token, quote asset, level) with a USD view derived from quote-asset price. → `triggers.md`
+- Display-price consumers that need USD (UI, PnL) compute it lazily from quote price × quote-asset USD price.

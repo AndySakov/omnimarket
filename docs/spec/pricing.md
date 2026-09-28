@@ -41,6 +41,14 @@ In-memory math per pool type, exact to the contract's rounding; simulation only 
 | Aerodrome volatile / stable / Slipstream | Base | Constant product / stable curve / concentrated |
 | Kumbaya, Algebra-based | MegaETH | **(verify)** |
 
+## Recompute cadence (D22)
+
+| Work | When |
+|---|---|
+| Token price, trigger check | Every pool update |
+| Client push | Throttled, ≤10/s per token, latest wins |
+| Quote-asset (ETH/BNB/stable) move | Convert levels, check only orders crossed; USD prices derived lazily |
+
 ## Open questions
 
 Biggest first:
@@ -48,6 +56,6 @@ Biggest first:
 1. ~~USD conversion~~ → **decided (D19).**
 2. ~~Trigger manipulation protection~~ → **decided (D20): none beyond a slippage limit**, Trojan-style instant triggers.
 3. ~~Per-DEX math~~ → **decided (D21): in memory**, simulation for opaque venues. Still to verify: MegaETH venue list.
-4. **Recompute cadence.** Every pool update vs coalescing per mini-block at MegaETH rates.
+4. ~~Recompute cadence~~ → **decided (D22).**
 5. **Cross-chain fair price** (D7).
 6. **Liquidity measure** for v3/v4 weighting (depth within ±x% of mid?).
