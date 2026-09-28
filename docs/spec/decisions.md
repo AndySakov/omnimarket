@@ -42,7 +42,7 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 **Rejected:**
 - *Server-held encrypted keys (classic Telegram-bot model).* Fastest, but the operator is a single point of total loss — a honeypot for attackers.
 - *Connect-your-own-wallet (MetaMask).* Every trade needs a user click, which kills automated orders and speed.
-- *Smart accounts with session keys (ERC-4337 / EIP-7702).* Promising and elegant, but not yet what terminals ship, and support varies across our three chains. Kept as a stretch comparison.
+- *Smart accounts with session keys (ERC-4337 / EIP-7702).* Promising and elegant, but not yet what terminals ship, and support varies across our three chains. Kept as a stretch comparison. *(Revisited in D47: EIP-7702 is now live on all three chains; still set aside for blast radius and latency.)*
 
 ---
 
@@ -1050,7 +1050,7 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 | Metric | Draft (product.md) | Target |
 |---|---|---|
-| Price move → trigger broadcast (internal) | ≤ 300ms | **≤ 50ms** |
+| Price move → trigger broadcast (internal) | ≤ 300ms | **≤ 75ms** (Base ~25ms; BNB/MegaETH ~35–50ms, bounded by remote simulation) |
 | Click → broadcast | ≤ 150ms | **≤ 100ms** (any payment token) |
 | Quote latency | ≤ 25ms | **≤ 10ms** |
 | Price tick → client | ≤ 100ms | ≤ 100ms |
@@ -1060,7 +1060,7 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 | Quote accuracy | — | < 0.1% shadow-check mismatches (D21) |
 | Concurrent orders | 100k | 100k per chain |
 
-- **Trigger path does not wait on simulation**, except where it's local (Base node, < 5ms). The signed minimum output bounds the outcome; a revert costs only executor gas and is retried per D34. Manual trades keep simulation in parallel with the Privy signature.
+- **Simulation always blocks the send** (revised same day at the user's call): nothing is broadcast without a passing simulation. On Base it's local (< 5ms, D44); on BNB and MegaETH it's a call to a co-located provider (~10–30ms). Manual trades run it in parallel with the Privy signature.
 - **Measurement:** every trade carries per-step timestamps as a trace; Prometheus + Grafana (free, D17) chart p99 per step.
 
 **Rejected:**
@@ -1069,4 +1069,35 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 **Why:** Targets close to the budgets make regressions visible, and step-level traces point straight at the cause.
 
-**Consequence:** Amends D34 (simulation is non-blocking on the trigger path). Budgets per step → `slas.md`; load scenarios that exercise them → `loadtest.md`.
+**Consequence:** Budgets per step → `slas.md`; load scenarios that exercise them → `loadtest.md`. Lever for later: own BNB/MegaETH nodes (D44 evaluation) or in-process simulation would bring BNB/MegaETH down to Base's number.
+
+---
+
+## D47 — Intent carrier: Permit2 in phase 1; EIP-7702 delegate as a phase 2 candidate; no ERC-4337 smart wallets
+
+**Date:** 2026-09-28 · **Status:** Decided (confirms D42 after reviewing Privy's smart-wallet and EIP-7702 support)
+
+**Context:** Privy supports ERC-4337 smart wallets (Kernel/ZeroDev, Safe, Alchemy, Biconomy, Coinbase, Thirdweb) with session keys, signing EIP-7702 authorizations for embedded wallets, native gas sponsorship, and a policy engine that can restrict EIP-712 signing by domain. EIP-7702 is live on all three chains: BNB (Pascal, March 2025), Base (Isthmus), MegaETH (Rex hardfork, based on Isthmus).
+
+**Decision:**
+- **Keep D42's model:** every trade carries a minimum output signed by the user (or signed at order creation for triggers).
+- **Phase 1 carrier: Permit2 intents.** Privy's policy engine restricts delegated EIP-712 signing to our router's domain.
+- **Phase 2 candidate: an EIP-7702 delegate.** The user's EOA delegates to our own minimal, immutable contract that verifies the same signed intent and executes it. It removes WETH wrapping and per-token Permit2 approvals (native coin works directly), at the cost of our code controlling the whole account.
+- **ERC-4337 smart wallets: rejected** for the trade path.
+
+| Option | Signed minimum per trade | Latency | Extra costs | Blast radius if our code or key fails |
+|---|---|---|---|---|
+| **Permit2 intents** (chosen) | Yes | Executor signs locally | Wrap native; one approval per token | Only signed intents, on their terms |
+| EIP-7702 delegate + intents | Yes | Same | New delegate contract to audit | Delegate bug touches the whole account |
+| EIP-7702 / 4337 session keys (no per-trade intent) | No: key can trade within caps at any price | Same (7702) or + bundler hop (4337) | Session-key policy design | Compromised key can dump holdings at bad prices, within caps |
+| ERC-4337 smart wallets (Privy-native) | Optional | + bundler hop per trade | Bundler/paymaster per chain; new account addresses | Depends on account + session setup |
+
+**Why:**
+- Session keys trade per-trade user protection for convenience; a signed minimum on every trade is the security core of D42.
+- Bundlers add a hop that the latency budget (D46) can't afford.
+- Permit2 is audited and widely deployed; a 7702 delegate is new code with account-wide power, better introduced after launch with the router proven.
+- Privy's gas sponsorship isn't needed: executors already pay gas and recover it (D42).
+
+**Consequence:**
+- D3's reason for setting smart accounts aside ("support varies across our three chains") no longer holds; the reason now is blast radius and latency.
+- Copy trades keep one Privy signature at copy time (a session key would remove it, but without a signed minimum).

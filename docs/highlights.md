@@ -127,8 +127,8 @@ On BNB, the same signed transaction goes to several private block builders in pa
 Users never send transactions. Each trade is a signed intent ("sell exactly N for at least X before T, output to me"), and our executor wallets submit it and pay the gas, recovered from the trade. Trigger intents are signed when the order is created, so when a stop fires there is no signing round trip to the wallet vendor: the executor signs locally in under a millisecond. Executor keys hold only gas money; they can only carry out intents users already signed, on the signed terms. Same model as UniswapX, CoW Swap and 1inch Fusion, applied to a trading terminal.
 - **Say it as:** "When your stop fires, nothing needs your signature: you signed it when you set it."
 
-### From ~130ms to ~15–30ms by questioning every "fixed" cost (D42–D44)
-We re-examined each large latency item instead of accepting it: intents removed the wallet-vendor signature from triggers, persistent WebSocket submission and per-chain co-location cut network hops, and a local Base node turns simulation into a < 5ms local call.
+### From ~130ms to ~25–50ms by questioning every "fixed" cost (D42–D46)
+We re-examined each large latency item instead of accepting it: intents removed the wallet-vendor signature from triggers, persistent WebSocket submission and per-chain co-location cut network hops, and a local Base node turns simulation into a < 5ms local call. Simulation still blocks every send: speed never comes from skipping a safety check.
 
 ### A nonce ledger that survives crashes and unblocks itself (D32)
 Only our executor wallets have sequential nonces (user intents use unordered ones). Nonces come from an in-memory counter (no RPC call per trade), but every assigned nonce is also recorded in a durable ledger with compare-and-set status writes. If a transaction is dropped, a watchdog re-sends it with a higher fee or burns the nonce with a 0-value self-transfer so the wallet isn't stuck.

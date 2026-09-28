@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D44. **Complete** (tuning and measurements aside).
+**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D47. **Complete** (tuning and measurements aside).
 
 One Execution service per chain (D8): route → build → simulate → sign → submit → track. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -27,7 +27,8 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 - Executor keys hold only gas money: they can execute only intents users signed, on the signed terms.
 - Balances kept as WETH/WBNB (auto-wrap on deposit). Permit2 approvals sent from the user's wallet in the background: base assets at setup, each new token right after its buy lands.
 - Armed triggers are fire-ready: intent signed, route candidates and gas estimates cached.
-- Privy policy: sign Permit2 intents for our router, plus background approve/wrap transactions only.
+- Privy policy: sign Permit2 intents for our router's EIP-712 domain, plus background approve/wrap transactions only.
+- Carrier reviewed against Privy's smart wallets and EIP-7702 (D47): Permit2 in phase 1; a 7702 delegate is a phase 2 candidate; no 4337 smart wallets on the trade path.
 
 ## Nonces (D32)
 
@@ -58,7 +59,7 @@ Levels follow live landed tips per chain; per-trade fee cap; user override. Gas 
 ## Tracking & failures (D34)
 
 - `signed → submitted → preconfirmed → confirmed → final` | `reverted | dropped | replaced`.
-- Manual trades: simulate in parallel with the Privy signature; a failing simulation cancels the send. Trigger path: simulation is non-blocking (except local on Base), since the signed minimum bounds the outcome (D46).
+- Simulation always blocks the send. Manual trades run it in parallel with the Privy signature; triggers run it before the executor signs (local on Base, co-located provider elsewhere). A failing simulation cancels the send.
 - Landing detected from our own indexer by transaction hash (MegaETH: receipt from the send call).
 - Revert handling: stop-loss auto-retry ×3 · TP/limit re-arm · manual: tell the user · copy: one retry.
 
