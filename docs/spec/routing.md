@@ -1,6 +1,6 @@
 # Routing
 
-**Status:** Draft. Decisions: D25–D26.
+**Status:** Draft. Decisions: D25–D27.
 
 ## Route shapes (D25)
 
@@ -46,10 +46,15 @@ Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay or
 - Immutable, holds no funds between transactions (zero-balance invariant).
 - Approvals via Permit2: one-time approval to Permit2, then a signed exact-amount, short-lived permit per trade. New router versions need no re-approvals.
 
+## Quotes & slippage (D27)
+
+- Re-quote at send time; `minOut = fresh quote × (1 − slippage)`. If the fresh quote is worse than the displayed one beyond slippage, don't send: show the new quote.
+- Defaults (user-adjustable): new/thin 15% · established 3% · major/stable 0.5% · stop-loss/trailing ×2 · fee-on-transfer + tax.
+
 ## Open questions
 
 1. ~~Own router contract~~ → **decided (D26).**
-2. **Quote lifetime & slippage defaults.**
+2. ~~Quote lifetime & slippage defaults~~ → **decided (D27).**
 3. **Fees.** Whether and how the platform takes a fee.
 4. **Token safety checks** before routing (honeypots, taxes, blacklists).
 5. **Penalty values** per cue (tuning, measured via the loop above).

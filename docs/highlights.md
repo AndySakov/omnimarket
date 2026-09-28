@@ -94,6 +94,10 @@ When a copied whale buys and 500 copy trades follow within milliseconds, a norma
 Our router is immutable (no admin key to steal), must end every call with a zero balance, and only ever spends via Permit2 permits: exact amount, short-lived, one per trade. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
 - **Say it as:** "The contract that touches user funds has no owner, no balance, and no standing permission."
 
+### Slippage is chosen by situation, not one flat number (D27)
+Slippage is both a fill guarantee and the amount a sandwich bot can take. Defaults follow what the router already knows: 15% for new pairs, 3% for established tokens, 0.5% for majors, doubled for stop-losses that must land. The displayed quote is never executed as-is: the route is re-quoted at send time.
+- **Say it as:** "Your slippage depends on what you're trading and why, not on a global setting."
+
 ### Heuristics are measured, not guessed (D25, D5)
 Every routing decision and its outcome (quoted vs filled, reverts) is logged. Shadow mode replays the same order flow under different penalty settings to compare.
 

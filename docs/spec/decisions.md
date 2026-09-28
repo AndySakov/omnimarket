@@ -541,3 +541,31 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 - **(verify)** Permit2 is deployed at its canonical address on MegaETH, Base and BNB.
 - Signing a permit adds a signature per trade; with Privy delegated signing (D4) that's on the hot path, so its latency needs measuring. → `execution.md`
 - Fee design (rate, taken in input or output token) → routing open question.
+
+---
+
+## D27 — Quotes rebuilt at send time; slippage defaults set by situation
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Quote lifetime:** a displayed quote is never executed. The route is re-quoted at the moment of sending, and `minOut = fresh quote × (1 − slippage)`. If the fresh quote is already worse than the displayed one by more than the user's slippage, the trade is not sent; the user sees the new quote instead. Trigger orders quote at firing time.
+- **Slippage defaults by situation** (always user-adjustable; starting values, tuned via the D25 logging loop):
+
+| Situation | Default |
+|---|---|
+| New pair (inside D11 grace window) or thin token (D20) | 15% |
+| Established token (pool above liquidity floor) | 3% |
+| Major / stable pair (quote-asset set, D19) | 0.5% |
+| Stop-loss / trailing stop sell | The row's value × 2 (landing matters more than price) |
+| Fee-on-transfer token | + the detected tax |
+
+**Rejected:**
+- *Trojan's flat 15%.* Right for sniping, but generous everywhere else. On BNB's public mempool, sandwich bots can take up to the full allowance.
+- *Execute the displayed quote.* Prices move every 10–200ms; a quote seen on screen is already stale when the user clicks.
+
+**Why:** Slippage is both a fill guarantee and the amount a sandwich bot can take. The right trade-off depends on how fast the market is moving and how much the order needs to land, and we already know both from the D25 cues.
+
+**Consequence:**
+- The UI shows the default chosen and why ("new pair: 15%").
+- Tax detection (fee-on-transfer) must run before routing. → token safety checks, routing open question.
