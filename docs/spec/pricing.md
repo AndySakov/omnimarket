@@ -7,7 +7,7 @@
 | Price | Used for | Definition |
 |---|---|---|
 | Display | Ticker, token page, PnL marks, fair price | Liquidity-weighted mid across active pools above the liquidity floor |
-| Trigger | Stops, take-profits, limits | Display price + manipulation protection (open) |
+| Trigger | Stops, take-profits, limits | Display price, fired instantly (D20) |
 | Execution | Trades | Router quote at trade size |
 
 Candles come from swap prices. Token pages also show the deepest pool's price.
@@ -20,7 +20,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 
 - `mid(p)`: the pool's marginal price, converted to USD (D19).
 - `liquidity(p)`: value on the pool's quote side in USD; for concentrated liquidity (v3/v4), liquidity near the current price, not total deposits **(define precisely)**.
-- No pools above the floor → token is **unpriced (thin)**: shown with a warning, no trigger evaluation on the display price.
+- No pools above the floor → priced from its deepest pool and flagged **thin** in the UI; triggers still evaluate (D20).
 - Recomputed on every pool update affecting T, in the Chain Engine.
 
 ### USD conversion (D19)
@@ -34,7 +34,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 Biggest first:
 
 1. ~~USD conversion~~ → **decided (D19).**
-2. **Trigger manipulation protection.** Minimum liquidity, confirmation delay, short smoothing window, or a combination. Decides whether the ≤300ms price move → trigger target is honest.
+2. ~~Trigger manipulation protection~~ → **decided (D20): none beyond a slippage limit**, Trojan-style instant triggers.
 3. **Per-DEX math.** Uniswap v2/v3/v4 (incl. hook pools, D14), Aerodrome stable curves, PancakeSwap, opaque simulated venues.
 4. **Recompute cadence.** Every pool update vs coalescing per mini-block at MegaETH rates.
 5. **Cross-chain fair price** (D7).

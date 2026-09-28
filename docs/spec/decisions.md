@@ -331,7 +331,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 | Price | Used for | Definition |
 |---|---|---|
 | **Display** | UI ticker, token pages, PnL marks, fair price (D7) | Liquidity-weighted mid across the token's active pools above the liquidity floor (D11). A single-pool token gets that pool's price. |
-| **Trigger** | Stop-loss, take-profit, limit orders | Built on the display price, with manipulation protection. → open, `pricing.md` |
+| **Trigger** | Stop-loss, take-profit, limit orders | The display price itself, evaluated instantly (D20). |
 | **Execution** | What a trade actually gets | Router quote at the trade's size. Never a "price". |
 
 Chart candles are built from actual swap prices (the universal convention), not from the mid. The token page also shows the main (deepest) pool's price so users comparing with DexScreener can see where any gap comes from.
@@ -348,7 +348,7 @@ Chart candles are built from actual swap prices (the universal convention), not 
 
 **Consequence:**
 - Every stop-loss explanation must be showable on the chart: the UI can draw the trigger price alongside the display price.
-- Pools below the liquidity floor never move the display price, even when they're the only venue. Then the token shows as "unpriced / thin" rather than a manipulable number. → `pricing.md`
+- Pools below the liquidity floor don't count toward the weighted mid. If a token has *no* pool above the floor, it is priced from its deepest pool and flagged **thin** in the UI (amended by D20, which keeps triggers working on new memecoins). → `pricing.md`
 
 ---
 
@@ -370,3 +370,28 @@ Chart candles are built from actual swap prices (the universal convention), not 
 **Consequence:**
 - Reference pool lists are per-chain config, reviewed when liquidity moves. The tokens that quote everything else (quote assets) are limited to the native token and the reference stablecoins in phase 1. A token paired only with some other token is unpriced until promoted into that set **(verify coverage on each chain)**.
 - A change in native/USD reprices every token on the chain at once; the recompute path must handle that fan-out (→ recompute cadence question).
+
+---
+
+## D20 — Triggers: Trojan-style, instant on the display price
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Match what Trojan ships. Trigger orders evaluate the display price (D18) and fire the moment the level is hit, on provisional state, with no persistence window or smoothing.
+- **Trigger types:** price, market cap (price × supply), or ± % change from entry; trailing stop-loss (% below the highest price since the order was created); optional expiry.
+- **Execution guard:** each order carries a slippage limit (user-set, sensible default; Trojan defaults to 15%). That's the only protection between trigger and fill.
+- **Thin tokens:** triggers work on tokens with no pool above the liquidity floor (priced from the deepest pool, flagged thin), because new memecoins are exactly where users set stops.
+
+**Rejected:**
+- *Persistence window (~300ms) by default, fast mode opt-in.* Harder to stop-hunt, but slower than the product we're modelling, and an extra concept to explain.
+- *Smoothed "mark price" (perps style).* Lags in real crashes; users can't see why an order fired.
+- *Confirmed blocks only.* Adds a full block (1–2s) and throws away the fast stream (D10).
+
+**Why:** Parity with the reference product. Speed is what memecoin traders pay for, and they accept wick risk. The slippage limit bounds the damage of a bad fill.
+
+**Consequence:**
+- Stop hunting on thin pools is a known, accepted risk. The UI states that triggers fire on the live price.
+- The ≤300ms price move → broadcast target (product.md) stands as written.
+- Market-cap triggers need a supply figure per token (total supply at bootstrap, tracked via mint/burn if it changes). → `triggers.md`
+- Trojan's event triggers (e.g. bonding-curve migration, dev sell) and scheduled orders are candidates for `triggers.md`, not decided here.
+- Protected mode (persistence window) stays a possible later addition; the engine should keep the trigger rule pluggable per order.
