@@ -6,7 +6,11 @@
 
 Build a **walking skeleton on Base first**: every layer thin but real, from chain events to a landed trade and a firing stop-loss, demoable in shadow mode (D5). Then add depth (venues, order types, safety) and breadth (BNB, MegaETH).
 
-**Why Base first:** the best tooling, a free public Flashblocks feed for dev (D17), Uniswap v2/v3/v4 math that the other chains reuse, and no public mempool, so private submission (D30) can wait for BNB.
+**Why Base first:** the first chain's job is to prove the architecture.
+- Base's Flashblocks exercise the full provisional → confirmed → undo machinery (D10, D12); BNB has no preconfirmations to test it with.
+- The fewest unverified pieces: Permit2, Privy, a free public Flashblocks feed (D17) and the own-node plan (D44) are all confirmed.
+- Uniswap v2/v3/v4 math carries over to PancakeSwap on BNB and Kumbaya on MegaETH.
+- No public mempool, so private submission (D30), four.meme and Infinity bin pools can wait for BNB.
 
 ## Repository layout
 
@@ -45,6 +49,8 @@ omnimarket/
 3. **Every input is recordable** (D54): each `det` implementation has a recording wrapper.
 4. **Shadow mode is the default** everywhere outside the real-funds demos (D5).
 5. **Decisions stay logged:** anything that changes a D-entry gets an amendment note and a new entry.
+6. **Boring Rust (D45):** well-known crates, plain structs and enums, no clever generics or custom macros in core logic, explicit error types, comments on non-obvious ownership or async. Readable by someone learning Rust on the job.
+7. **Single-threaded cores:** engine and execution cores are state machines driven by one task; I/O runs on tasks around them (D49).
 
 ## Milestones
 

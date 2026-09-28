@@ -1046,15 +1046,18 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ---
 
-## D45 — Rust is the lead candidate for engines and execution
+## D45 — Rust for engines and execution
 
-**Date:** 2026-09-28 · **Status:** Leaning (final in build mode)
+**Date:** 2026-09-28 · **Status:** Decided (confirmed after weighing Go; see consequence)
 
 **Decision:** The Chain Engine and Execution service are planned in Rust. Cold-path services (candles, history job, API) are chosen per service in build mode.
 
 **Why:** p99 targets are dominated by tail latency, and garbage-collection pauses are the usual cause of p99 spikes in Go or Java. The EVM tooling is strong in Rust too (reth, alloy, revm for local simulation).
 
-**Consequence:** Confirmed or revised when we switch to build mode.
+**Consequence:**
+- **Go was weighed and set aside.** Go would cost roughly 1–5ms of a 20–75ms budget and is easier for the project lead to read, but Rust was kept for tail latency, compile-time safety in money code, and the Rust EVM stack (alloy, revm). The learning curve is the lead's to absorb, with AI assistance.
+- **"Boring Rust" rule** so the codebase stays readable while the team learns: well-known crates (tokio, alloy, revm, serde, prost), plain structs and enums over clever generics, no custom macros in core logic, explicit error types, and comments on anything non-obvious about ownership or async.
+- **Deterministic cores:** each engine and execution core is a single-threaded state machine (inputs in, decisions out) with I/O on tasks around it (D49).
 
 ---
 
