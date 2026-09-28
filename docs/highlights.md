@@ -20,6 +20,13 @@ The terminal (taker side) is designed so a proprietary AMM (maker side) can reus
 
 ---
 
+### Recovery replays values, not history (D40)
+The engine snapshots its pool state every ~30s. On restart it loads the snapshot and replays the pool updates published to Kafka since then. Each update already carries its after-state (D12), so recovery is applying values: no RPC calls, no recomputation, back in under 10 seconds.
+
+### A standby that can't double-fire (D40)
+The standby stays warm by applying the primary's Kafka stream (no extra RPC cost, identical state). Only the holder of a short lease may fire, every firing carries the lease's epoch, and execution rejects stale epochs, so a primary that freezes and wakes up can't act. Deterministic firing IDs (D35) cover the moment of the switch.
+- **Say it as:** "Leases decide who fires, fencing stops a zombie from firing, and firing IDs make the overlap harmless."
+
 ## Indexing
 
 ### A fast stream plus a reconciler, and one correction mechanism for both (D10)

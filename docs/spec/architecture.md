@@ -45,6 +45,6 @@
 ## Open for spec
 
 - ~~Exactly-once trigger firing across engine → execution (D8)~~ → decided (D35)
-- Engine recovery: snapshot format, replay window, time to recover
-- Standby and failover: how the standby stays warm, how double-firing of triggers is prevented
+- ~~Engine recovery~~ → snapshot every ~30s + Kafka replay + reconciler catch-up, < 10s (D40)
+- ~~Standby and failover~~ → Kafka-fed warm standby, leader lease with fencing epochs, ~3–5s failover (D40)
 - ~~Where trigger orders live durably~~ → Postgres; engine memory is a cache (D35)

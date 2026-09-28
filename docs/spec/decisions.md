@@ -874,3 +874,36 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Matches how traders think about their orders, survives failover without per-tick writes, and keeps urgent exits first under load.
 
 **Consequence:** The 1s candle table becomes part of engine recovery, so it needs to be complete up to at least the last trailing-stop save. → `data.md`
+
+---
+
+## D40 — Engine recovery: snapshot + Kafka replay; standby fed from Kafka, lease + fencing
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+
+**Recovery (target: serving again in < 10s)**
+1. Every ~30s, a background snapshot of all active pool state (reserves, ticks, liquidity), stamped with the block it reflects.
+2. On restart: load the latest snapshot at block B, then replay pool updates published to Kafka since B. Each carries its after-state (D12), so replay is value application: no RPC, no recompute.
+3. Resubscribe to the fast streams; the reconciler fills the last few blocks via `getLogs`.
+4. Orders reload from Postgres (D35); trailing highs recover per D39.
+
+**Standby (failover ≈ 3–5s detect + ~1s catch-up)**
+- **Fed from Kafka:** the standby applies the primary's published pool updates, staying milliseconds behind with identical state and no extra RPC cost. On takeover it opens its own subscriptions and the reconciler closes the gap.
+- **Leader lease:** only the holder of a short Kubernetes lease (renewed ~1s) may fire triggers.
+- **Fencing token:** each lease carries an increasing epoch; every firing includes it; execution rejects firings from an older epoch, so a primary that stalls and wakes after losing the lease can't fire.
+- **Overlap:** deterministic firing IDs (D35) mean any firing both engines emit near the switch executes once.
+
+**Rejected:**
+- *Standby with its own subscriptions.* Fully independent, but doubles pushed-event cost (D16) and can drift from the primary.
+- *Cold standby (start on failure).* Recovery time instead of failover time.
+- *Replay from the chain only.* Slower and RPC-heavy; Kafka already holds the after-states.
+- *Lease without fencing.* A paused process can still act after losing leadership.
+
+**Why:** Reuses what exists (Kafka's after-states, deterministic firing IDs, Postgres orders) so recovery and failover add almost no new machinery.
+
+**Consequence:**
+- Snapshot storage and format (versioned, compressed) → `data.md`.
+- Kafka pool-update retention must cover at least the snapshot interval plus recovery time (already exceeded by D12's finality requirement).
+- Failover drills (kill the primary under load) belong in `loadtest.md`.
