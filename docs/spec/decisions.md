@@ -730,3 +730,54 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Consequence:**
 - Each execution service keeps a rolling view of landed tips per chain (from the blocks the indexer already reads).
 - On MegaETH, fees are tiny and tips rarely change ordering; levels are kept for consistency.
+
+---
+
+## D34 — Trade tracking: simulate while signing, detect landing from the indexer, retry by order type
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Lifecycle:** `signed → submitted → preconfirmed → confirmed → final`, or `reverted | dropped | replaced`. Tracked per trade, above the nonce ledger (D32).
+- **Simulate in parallel with signing.** The unsigned transaction is simulated while Privy signs it; hot-path cost is the slower of the two, not the sum. A failing simulation cancels the send.
+- **Landing detection from our own indexer.** Our swaps appear in the pool events the engine already streams; matching by transaction hash gives preconfirmation in 10–200ms at no extra RPC cost. MegaETH's `realtime_sendRawTransaction` returns the receipt directly.
+- **Reorgs:** a landed trade reorged out returns to `submitted`; the D32 watchdog handles it if it doesn't re-land.
+- **Reverts** are diagnosed (price past `minOut`, deadline, tax change, allowance expired, insufficient balance) and handled by order type:
+
+| Order type | On revert |
+|---|---|
+| Stop-loss / trailing | Auto-retry with a fresh quote, up to 3 times |
+| Take-profit / limit | Re-arm; fires again if the level still holds |
+| Manual | No auto-retry; tell the user why, show a fresh quote |
+| Copy trade | One retry, then skip and notify |
+
+**Rejected:**
+- *Simulate, then sign (sequential).* Adds a full simulation round trip to every trade.
+- *Poll receipts per transaction.* An RPC call per trade per poll, for information the indexer already has.
+- *One retry policy for all orders.* A stop-loss must get out; a manual trade must not surprise the user.
+
+**Why:** Keeps the hot path to one signature plus submission, reuses data we already ingest, and matches retry behaviour to what each order is for.
+
+**Consequence:** The engine keeps a set of our pending transaction hashes per chain to match against incoming events; outcomes go to Kafka and user notifications.
+
+---
+
+## D35 — Exactly-once trigger firing: deterministic firing IDs, dedupe in execution, orders in Postgres
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+1. **Deterministic firing ID** = hash(order ID, per-order firing count). The main engine and the standby compute the same ID for the same firing.
+2. **Execution dedupes by firing ID**, stored when the firing is accepted (alongside the nonce ledger, D32). A repeat gets "already handled", not a second trade.
+3. **Engine retries until acknowledged.** Always safe because of 2.
+4. **One firing per order at a time.** A fired order is `firing` until execution reports the outcome; further price crossings are ignored until then.
+5. **Orders are durable in Postgres.** The engine's in-memory trigger index (D22) is a cache rebuilt from Postgres on startup and failover.
+
+**Rejected:**
+- *At-most-once (fire and forget).* A lost call means a stop-loss that never fires.
+- *Random firing IDs.* The standby would generate different IDs and double-fire after failover.
+- *Orders only in engine memory.* A crash loses every armed order.
+
+**Why:** Turns "exactly once" into two simple rules: retries are always safe, and duplicates are always recognised.
+
+**Consequence:** Closes the architecture open questions on exactly-once firing and on where trigger orders live durably. Postgres schema for orders and firings → `data.md`.

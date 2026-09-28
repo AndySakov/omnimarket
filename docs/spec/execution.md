@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30–D33.
+**Status:** Draft. Decisions: D8, D30–D35. **Complete** (tuning and measurements aside).
 
 One Execution service per chain (D8): build → simulate → sign → submit → track. Sole owner of every wallet's nonce on its chain. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -39,6 +39,19 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 
 Levels follow live landed tips per chain; per-trade fee cap; user override. Gas is always paid by the user's wallet.
 
+## Tracking & failures (D34)
+
+- `signed → submitted → preconfirmed → confirmed → final` | `reverted | dropped | replaced`.
+- Simulate in parallel with signing; a failing simulation cancels the send.
+- Landing detected from our own indexer by transaction hash (MegaETH: receipt from the send call).
+- Revert handling: stop-loss auto-retry ×3 · TP/limit re-arm · manual: tell the user · copy: one retry.
+
+## Exactly-once firing (D35)
+
+- Firing ID = hash(order ID, firing count): deterministic, so the standby matches.
+- Execution dedupes by firing ID; engine retries until acknowledged.
+- One firing per order at a time. Orders durable in Postgres; engine index is a cache.
+
 ## Open questions
 
 Biggest first:
@@ -46,5 +59,7 @@ Biggest first:
 1. ~~Signing latency~~ → **decided (D31).** Still to measure: Privy latency per region.
 2. ~~Nonces~~ → **decided (D32).**
 3. ~~Gas and priority fees~~ → **decided (D33).**
-4. **Tracking and failure handling.** Stuck, dropped, reverted; replace and cancel.
-5. **Exactly-once trigger firing** across engine → execution (D8).
+4. ~~Tracking and failure handling~~ → **decided (D34).**
+5. ~~Exactly-once trigger firing~~ → **decided (D35).**
+
+Still to measure: Privy signing latency per region; builder inclusion latency on BNB.

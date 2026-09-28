@@ -124,6 +124,16 @@ Everything that can be prepared before a trigger fires is prepared: the allowanc
 Nonces come from an in-memory counter (no RPC call per trade), but every assigned nonce is also recorded in a durable ledger with compare-and-set status writes. If a transaction is dropped, a watchdog re-sends it with a higher fee or burns the nonce with a 0-value self-transfer so the wallet isn't stuck.
 - **Say it as:** "Fast like a counter, recoverable like a ledger, and a dropped transaction never freezes a wallet."
 
+### Simulate while signing (D34)
+The pre-send simulation doesn't need the signature, so it runs in parallel with the Privy signing call. The hot path pays for the slower of the two, not both.
+
+### Our indexer doubles as our receipt service (D34)
+Our own swaps show up in the pool events we already stream, so matching by transaction hash tells us a trade landed within 10–200ms, without polling for receipts.
+
+### Exactly-once by making retries safe (D35)
+Every trigger firing has a deterministic ID (order ID + firing count), so the standby engine computes the same ID after failover. Execution remembers IDs it has handled, so the engine can retry freely and a duplicate is always recognised.
+- **Say it as:** "Retries are always safe, duplicates are always recognised, so a stop-loss fires exactly once."
+
 ## Testing & operations
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)
