@@ -29,6 +29,8 @@ OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live 
 
 Talking points: [../highlights.md](../highlights.md), the design choices worth explaining to others.
 
+Build plan (draft, for review): [../build-plan.md](../build-plan.md).
+
 Background primers (not spec) live in [../primers/](../primers/): [indexing](../primers/indexing.md), [case study: iTRY](../primers/case-study-itry.md).
 
 ## Working rules
