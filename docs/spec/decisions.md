@@ -99,6 +99,8 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D7 — Two phases: terminal first, prop AMM on MegaETH second
 
+*(Amended by D63: the "≈1 month" estimate for phase 1 is withdrawn; no timeline commitment.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -1488,3 +1490,17 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 - **API first:** the API contract (REST + WebSocket, types generated from our Protobuf schemas) is the boundary between backend and both UIs, and a mock server driven by recorded data (D54) lets the frontend be built without a running backend. Details in `frontend.md`.
 
 **Why:** Traders switch terminals easily and punish unfamiliar layouts; familiarity where it helps, differentiation where it matters.
+
+---
+
+## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** The build follows [build-plan.md](../build-plan.md): a walking skeleton on Base first (M0–M5, ending in the first real-funds trade), then depth on Base (M6–M7), BNB (M8), MegaETH (M9), copy trading and event orders (M10), hardening (M11), and launch readiness (M12). The frontend track starts at M2 against a mock server.
+
+**Timeline:** none committed. Development is AI-assisted and pace is measured, not promised. The plan's size estimates stay as a rough sense of relative effort only. D7's "≈1 month" is withdrawn.
+
+**Why:** One chain end to end proves the architecture with the fewest unknowns; widening after that reuses what the skeleton built.
+
+**Consequence:** Build mode starts only when explicitly switched on; until then the repo stays docs-only.

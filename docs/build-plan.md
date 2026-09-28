@@ -1,6 +1,6 @@
 # Build Plan
 
-**Status:** Draft, for review before switching to build mode. Implements decisions D1–D62 in [spec/decisions.md](spec/decisions.md).
+**Status:** Approved (D63). Build mode not yet started. Implements decisions D1–D63 in [spec/decisions.md](spec/decisions.md).
 
 ## Approach: one chain end to end, then widen
 
@@ -78,7 +78,7 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 
 From [verification.md](spec/verification.md): event rates per chain · Chainstack MegaETH mini-block `logs` · quote-asset coverage · MegaETH finality lag · Privy signing latency (server and browser) · BNB builder inclusion latency · provider delivery delay · Base sequencer direct submission · sequencer and builder locations · Kumbaya launchpad · Chainstack state overrides.
 
-## Timeline: D7's "≈1 month" no longer holds
+## Relative effort (no timeline commitment, D63)
 
 D7 set phase 1 at about a month, before the scope grew to three chains, intents, bonding curves, copy trading, chaos fuzzing and the observability design. An honest rough sizing, for one backend developer with the frontend in parallel:
 
@@ -90,4 +90,4 @@ D7 set phase 1 at about a month, before the scope grew to three chains, intents,
 | M11–M12 (hardening, launch) | 4–6 weeks |
 | **Total** | **~5–6 months** |
 
-These are estimates to be replaced by measured velocity after M1. The walking skeleton (M5) is the first point where the project is demoable end to end.
+Rough relative sizes only, before AI assistance; no dates are committed (D63). The walking skeleton (M5) is the first point where the project is demoable end to end.
