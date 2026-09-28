@@ -222,3 +222,82 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 - Pool-update events carry before + after state (larger payloads).
 - Kafka retention on pool-update topics must exceed each chain's finality window.
 - After any tier-2 undo, spot-check restored pools against contract reads; a mismatch escalates to tier 3.
+
+---
+
+## D13 — Bootstrap reads are batched
+
+**Date:** 2026-09-28 · **Status:** Decided (implementation deferred)
+
+**Decision:** Pool bootstrap and promotion read state in batches (multicall, or a lens contract that returns many ticks per call), never one RPC call per pool or per tick.
+
+**Rejected:**
+- *One call per pool/tick.* Uniswap v3 liquidity is spread across many ticks; thousands of pools becomes hundreds of thousands of calls per cold start.
+
+**Why:** Cold-start time and RPC spend (D16) both scale with call count, not data size.
+
+**Consequence:** Implementation details (multicall vs lens, batch size, per-provider limits on call gas and response size) go in `indexer.md` when we build.
+
+---
+
+## D14 — Uniswap v4 hooks: full support in phase 1
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Hook pools are supported in phase 1. Where a hook's pricing can be replicated in memory, we do so. Where it can't, the pool is an **opaque venue** quoted by simulation against live state.
+
+**Rejected:**
+- *Exclude hook pools in phase 1.* Simpler, but v4 is where new liquidity is going on our chains, so routes would miss it.
+- *Opaque-only for every hook pool.* Simulation for all of them costs latency and RPC calls where a local model works.
+
+**Why:** The router already asks venues for quotes without assuming how they're computed (D7). This makes the opaque venue type a phase 1 requirement instead of a phase 2 one.
+
+**Consequence:** Quote-by-simulation is on the phase 1 hot path, so simulation calls count toward the RPC budget (D16). Hook classification (replicable vs opaque) is a per-hook registry. → `pricing.md`, `routing.md`
+
+---
+
+## D15 — History job: build it ourselves
+
+**Date:** 2026-09-28 · **Status:** Decided (backfill depth open)
+
+**Decision:** The history job (D9) is custom: the same `getLogs` loop as the reconciler, run over past block ranges, writing replay-safe into ClickHouse.
+
+**Rejected:**
+- *Envio HyperSync.* ~$70–480/mo.
+- *Goldsky.* Billed per worker-hour after a $100 credit.
+
+**Why:** Rule for build vs buy: if a managed service costs extra money, build. Here building costs almost nothing extra: it reuses reconciler code and runs on the RPC plan we pay for anyway (D16). It also covers skills worth having: backfill throughput, the backfill → live hand-off, and idempotent writes.
+
+**Consequence:** ClickHouse writes must be idempotent (keyed by chain, block hash, log index) so backfills can restart and overlap the live feed. Backfill depth is still a product choice. → `indexer.md`, `data.md`
+
+---
+
+## D16 — RPC: Chainstack primary, QuickNode fallback, per-block streams
+
+**Date:** 2026-09-28 · **Status:** Decided (numbers **(verify)** by measurement)
+
+**Decision:**
+- **Development:** free tiers and public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint).
+- **Load tests and launch:** Chainstack Pro (~$199/mo, all three chains) as primary; a QuickNode Build key (~$49/mo) as failover on a separate provider.
+- **Fast-loop streams are one message per block, not one per log, wherever the chain allows** (amends D10):
+
+| Chain | Fast stream | Notifications/month |
+|---|---|---|
+| MegaETH | Filtered `logs` subscription (mini-block latency) | Scales with swap volume |
+| Base | `newFlashblocks` (one payload per 200ms flashblock) | ~13M, fixed |
+| BNB | `newHeads` + one `getLogs` per block | ~11.5M, fixed |
+
+**Rejected:**
+- *Alchemy.* Bills WebSocket pushes by bytes (0.04 CU/byte), which makes streaming the most expensive thing we do.
+- *Flat-rate plans* (Chainstack Unlimited from $149 at 25 RPS, QuickNode flat rate from $799). Pushed events likely count against the RPS cap, so the cheap tier would throttle the fast stream in bursts, and the adequate tiers cost 3–4× more.
+- *dRPC.* Competitive price, but MegaETH Realtime API support unconfirmed and no Flashblocks upstreams on the free tier.
+- *Per-log subscriptions on every chain.* Every provider bills per pushed event; per-log streams on all three chains are an estimated 100–250M events/month that grows with trading volume.
+- *Self-hosted nodes now.* ~$150–250/mo per chain plus real ops work, and it's unclear whether MegaETH's replica node is available to outside operators. Revisit for Base when simulation volume grows.
+
+**Why:** Pushed events are over 80% of the estimated load, and every provider bills them. Per-block streams make the Base and BNB cost fixed regardless of volume, and bring the whole budget to ~50–70M requests/month, which fits a per-request plan.
+
+**Consequence:**
+- Before paying: measure real event rates per chain (one day of `getLogs` over the active pool set) and confirm the plan tier.
+- Before paying: verify on each pricing page the per-event cost for WebSocket pushes, and that Chainstack serves MegaETH mini-block `logs`.
+- The engine needs a provider abstraction with failover per chain (primary → fallback), and the reconciler fills any gap left by a switch.
+- Base: the raw Flashblocks feed carries receipts (logs) in its `metadata` object, which Base marks as unstable. **(verify)** that the provider's `newFlashblocks` subscription returns logs in a stable shape; if not, fall back to filtered `pendingLogs` (per-log billing) for Base.
