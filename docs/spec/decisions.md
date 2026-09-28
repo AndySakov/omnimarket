@@ -1101,3 +1101,128 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Consequence:**
 - D3's reason for setting smart accounts aside ("support varies across our three chains") no longer holds; the reason now is blast radius and latency.
 - Copy trades keep one Privy signature at copy time (a session key would remove it, but without a signed minimum).
+
+---
+
+## D48 — Load testing: swappable event source, forked-node simulation, nine named scenarios
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Event source is an interface** with three implementations: *live* (mainnet feeds), *replay* (recorded streams at 1×/5×/10×), and *synthetic* (scripted events over real pool state: crashes, dropped preconfirmations, reorgs).
+- **Execution in tests** runs the full pipeline (signed intent, route, blocking simulation, executor-signed transaction) and stops before broadcast (D5). Simulations run against a **local forked node** (Anvil or reth fork), so load tests stay free (D17).
+- **Named scenarios:** steady state, flash crowd, stop-loss cascade, copy-trade fan-out, MegaETH firehose, failover under load, reorgs and dropped preconfirmations, provider trouble, 24h soak. Pass criteria are the D46 targets plus exactly-once firing.
+- **Tools:** k6, Toxiproxy, Anvil/reth fork, Prometheus + Grafana. Each run publishes its dashboard and a results note to the repo.
+
+**Rejected:**
+- *Load test against provider RPCs.* Thousands of simulations per second would exceed free tiers and measure the provider, not us.
+- *Live traffic only.* Can't produce crashes, reorgs or flash crowds on demand.
+
+**Why:** Controls both sides, user traffic and what the chain appears to do, so every hot-path decision can be exercised on purpose.
+
+**Consequence:** The engine's event input and execution's broadcast step are interfaces from day one (build mode).
+
+---
+
+## D49 — Chaos fuzzing: randomised combinations of every lever, invariants checked continuously
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** A fuzz mode that pushes the system on all fronts at once, mixing load and failure modes at random to find edge cases no named scenario covers.
+
+**Levers (fuzz dimensions):**
+
+| Category | Levers |
+|---|---|
+| User traffic | Rate, burst shape, order-type mix, concentration on one token, order edits/cancels racing fills |
+| Market | Price paths: crash, pump, whipsaw across trigger levels, one-block wicks, liquidity pulls |
+| Chain | Reorg depth and frequency, dropped preconfirmations, delayed or empty blocks, gas spikes, builder non-inclusion |
+| Tokens | Tax changes mid-run, honeypot flips, mint/burn supply changes, bonding-curve graduation mid-order |
+| Infrastructure | RPC latency, drops and stale responses; Kafka broker loss and consumer lag; Postgres slowness and failover; Privy latency and errors; engine kills; engine ↔ execution partitions; clock skew |
+
+**Invariants (checked continuously; any violation stops the run and saves it):**
+- Every trigger whose condition held fires exactly once; none fire from a stale epoch (D35, D40).
+- No trade fills below its signed minimum; the router ends every call with a zero balance (D26, D42).
+- Pool state after any undo equals state recomputed from canonical events (D12).
+- Order and trade state machines only make legal transitions; positions' cost basis matches their fills.
+- Executor nonce ledger matches the chain after re-sync; no gap outlives the watchdog (D32).
+- Prices are finite and within the range of their pools' mids.
+- Memory stays bounded. SLO breaches are recorded (soft invariant), not fatal.
+
+**Search strategy:**
+1. Every run has a **seed**; the same seed replays the same run.
+2. Levers are drawn at random with weights; intensity **escalates** until an invariant or SLO breaks, recording the breaking point.
+3. A failing run is **shrunk**: levers and duration are removed one at a time while it still fails, down to a minimal reproducer.
+4. Minimal reproducers join the named scenario library as regression tests.
+5. **Coverage feedback:** the fuzzer tracks which state transitions and lever combinations it has seen and biases toward unseen ones.
+
+**Two tiers:**
+- **System tier:** the real deployment (Kubernetes, Toxiproxy, forked nodes) under chaos. Slow but real.
+- **Deterministic simulation tier:** the engine and execution cores run in one process with a simulated clock, network and RPC, driven by the seed. Thousands of simulated hours per real hour, and every failure replays exactly (the FoundationDB / TigerBeetle approach).
+
+**Rejected:**
+- *Named scenarios only.* Only finds the failures we already imagined.
+- *Unseeded random chaos.* Finds failures it can't reproduce.
+
+**Why:** The dangerous bugs in this system live in combinations: a reorg during a cascade while Kafka lags, a failover mid-firing. Only randomised combination with reproducible seeds finds them.
+
+**Consequence (build mode):** Engine and execution cores must be deterministic given their inputs: time, randomness, network and RPC behind injectable interfaces, no hidden threads or wall-clock reads in core logic. This is a design constraint from the first line of code, not something that can be added later.
+
+---
+
+## D50 — Infrastructure layout: free dev/CI/staging, per-chain regional clusters, self-hosted data stores
+
+**Date:** 2026-09-28 · **Status:** Decided (production cloud: see D51)
+
+**Decision:**
+
+| Env | Where | Cost |
+|---|---|---|
+| Dev | Local: k3d + docker compose, Anvil forks | Free |
+| CI | GitHub Actions on **Blacksmith** runners (faster; 3,000 free min/month, then ~$0.004/min): unit tests, contract fork tests, Protobuf compatibility, nightly deterministic-simulation fuzz (D49) | Free tier, then cents |
+| Staging | Oracle Cloud Always Free ARM (k3s) on free RPC tiers **(verify current limits)** | Free |
+| Prod | Per-chain regional clusters + one central region | Paid (credits: D51) |
+
+- **Per-chain cluster** (region nearest the chain's sequencer/builders, D43): engine + standby, execution, local Kafka for engine topics (feeds the standby, D40), and the Base node (D44).
+- **Central region:** Postgres, ClickHouse, API/WebSocket gateway, candle service, history job; per-chain Kafka topics mirrored in.
+- **No hot-path call crosses regions.** Postgres writes from execution are write-behind (D32); firing-ID dedupe lives in execution's local store.
+- **Self-hosted data stores** on Kubernetes via operators: CloudNativePG, Strimzi (Kafka), Altinity (ClickHouse).
+- **Tooling:** Terraform, Helm, Argo CD; Prometheus, Grafana, Loki, Tempo; SOPS in staging, cloud KMS for executor keys in prod (D4, D42).
+
+**Rejected:**
+- *Managed databases and Kafka.* Cost more than self-hosting (build-vs-buy rule, D15).
+- *One global production cluster.* Every chain pays the distance to the others' sequencers.
+- *GitHub-hosted runners.* Slower and, since March 2026, not cheaper.
+
+**Why:** Free everywhere except production (D17); production placed for latency (D43).
+
+**Consequence:**
+- **MegaETH plans a rotating sequencer** that moves around the globe with the economic day. A fixed region is only near it part of the day; following it (or accepting the gap) is an open question for after launch.
+- Sequencer/builder locations for Base and BNB **(verify)** before picking regions.
+
+---
+
+## D51 — Production cloud: Google Cloud, funded by credits via the Web3 startup program
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- Production runs on **Google Cloud**.
+- **Credits plan:**
+  1. Start tier ($2k, 1 year) once there's a working MVP. Until then dev and staging are free (D17), so nothing is lost by waiting.
+  2. Apply for a blockchain foundation grant: **BNB Chain Builder Grant** first (four.meme support, private anti-sandwich submission and fast finality make a BNB-specific pitch), Base Builder Grants and MegaETH grants as follow-ups.
+  3. With a grant, move to the **Web3 program's Scale tier: up to $200k over 2 years** (first $100k of year one fully covered), which accepts blockchain foundation grants as qualifying funding.
+- **Service mapping:** GKE for the clusters (D50), Cloud KMS for executor keys, Cloud Storage for snapshots (MinIO stays in dev/staging).
+- **Tentative regions** **(verify sequencer/builder locations first)**: central region and Base in `us-east4` (N. Virginia); BNB in `asia-northeast1` (Tokyo) or `asia-southeast1` (Singapore); MegaETH starting in `us-east4` until its rotating sequencer is live.
+
+**Rejected:**
+- *Azure.* Most credits with no funding at all ($5k), but capped there without an investor referral.
+- *AWS.* $1–5k self-funded; the large tiers need an Activate provider (VC or accelerator).
+- *Oracle for production.* Discretionary credits; keeps its role as free staging.
+
+**Why:** Only Google counts a blockchain foundation grant as funding, which opens up to 40× the credits of any unfunded option, and a grant is money and credibility in its own right.
+
+**Consequence:**
+- The Base node on GCP needs ~4TB+ of local NVMe (several local SSDs), costlier than bare metal; covered by credits, revisit if credits don't materialise.
+- If no grant comes through, the Start tier's $2k plus Oracle staging still covers the early months; reassess before paid spend grows.
+- Grant applications become a project task alongside build mode.
