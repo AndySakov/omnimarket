@@ -698,5 +698,35 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 **Consequence:**
 - Where the ledger lives (Postgres, per chain) and its write latency on the hot path → `data.md`. Writing `assigned` must not add a network round trip before signing (write-behind, recovered by chain re-sync if lost).
-- Filler and re-send costs are gas the platform pays; logged per chain.
+- Fillers and re-sends are sent from the user's wallet, so their gas comes from the user's native balance (the platform can't pay gas for a wallet it doesn't own without sponsorship). Logged per chain; reimbursing users is a product choice.
 - Local forks (D5) test nonce gaps, drops, and failover explicitly.
+
+---
+
+## D33 — Priority fees by situation, tracking live tips per chain
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** The priority fee (tip) is chosen per transaction from the order's situation (D25 cues). Levels are relative to recently landed tips on that chain, not fixed numbers.
+
+| Situation | Tip level |
+|---|---|
+| New-pair buy (sniping) | Aggressive |
+| Stop-loss / trailing stop | High |
+| Manual buy / sell | Medium: recent median + margin |
+| Take-profit / limit order | Low |
+| Gap-watchdog re-send (D32) | Previous tip + 25% |
+
+- **Cap:** a per-trade maximum fee as a share of trade value, so a fee spike can't eat a small trade.
+- **Override:** users can set the level per order (Trojan-style).
+- **Who pays:** all gas comes from the sending wallet, i.e. the user's.
+
+**Rejected:**
+- *One fixed tip per chain.* Overpays on patient orders and underpays on urgent ones.
+- *Always maximum.* Wastes user money where position in the block doesn't matter.
+
+**Why:** On Base the sequencer orders each flashblock by tip; on BNB private builders favour higher payers. Tip is the only lever for position within a block, and its value depends on urgency, which we already infer.
+
+**Consequence:**
+- Each execution service keeps a rolling view of landed tips per chain (from the blocks the indexer already reads).
+- On MegaETH, fees are tiny and tips rarely change ordering; levels are kept for consistency.

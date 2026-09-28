@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30–D32.
+**Status:** Draft. Decisions: D8, D30–D33.
 
 One Execution service per chain (D8): build → simulate → sign → submit → track. Sole owner of every wallet's nonce on its chain. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -27,12 +27,24 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 - Gap watchdog: not landed within a few blocks → same nonce, higher fee; stale → 0-value self-transfer filler.
 - Re-sync from chain on startup, failover, or nonce errors. Cap 5–10 in flight per wallet.
 
+## Priority fees (D33)
+
+| Situation | Tip |
+|---|---|
+| New-pair buy | Aggressive |
+| Stop-loss / trailing | High |
+| Manual | Median of recently landed + margin |
+| Take-profit / limit | Low |
+| Watchdog re-send | Previous + 25% |
+
+Levels follow live landed tips per chain; per-trade fee cap; user override. Gas is always paid by the user's wallet.
+
 ## Open questions
 
 Biggest first:
 
 1. ~~Signing latency~~ → **decided (D31).** Still to measure: Privy latency per region.
 2. ~~Nonces~~ → **decided (D32).**
-3. **Gas and priority fees.** Per chain and per situation (reuse D25 order-origin cues).
+3. ~~Gas and priority fees~~ → **decided (D33).**
 4. **Tracking and failure handling.** Stuck, dropped, reverted; replace and cancel.
 5. **Exactly-once trigger firing** across engine → execution (D8).
