@@ -110,6 +110,12 @@ Every routing decision and its outcome (quoted vs filled, reverts) is logged. Sh
 
 ---
 
+## Execution
+
+### Private fan-out: privacy without slow inclusion (D30)
+On BNB, the same signed transaction goes to several private block builders in parallel. It never touches the public mempool (so it can't be sandwiched), yet it reaches most of the block-building market. Because every copy shares one nonce, it can only land once.
+- **Say it as:** "Send one transaction to every private door at once; only one can open."
+
 ## Testing & operations
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)

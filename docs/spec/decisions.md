@@ -626,3 +626,28 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 - Simulation calls count toward the RPC budget (D16); the re-check interval is a tuning parameter.
 - Holder concentration (top-10 share, deployer balance) needs a holder index or GoPlus; deferred.
 - Token taxes can change at any block; badges show when each check last ran.
+
+---
+
+## D30 — Transaction submission: private fan-out on BNB, parallel providers elsewhere
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+
+| Chain | Submission path | Why |
+|---|---|---|
+| BNB | Same signed transaction sent in parallel to 3–4 private builder RPCs (e.g. 48 Club, PancakeSwap MEV Guard, bloXroute, Blockrazor). Never the public mempool. | Public mempool = sandwiches. Several private builders together cover most block production, so inclusion stays fast. |
+| Base | Primary and fallback provider in parallel; priority fee set by situation | Single sequencer, no public mempool; ordering is by priority fee within each 200ms flashblock. Redundancy covers provider hiccups. |
+| MegaETH | `realtime_sendRawTransaction` via primary, fallback in parallel | Returns the receipt in the same call (~10ms). |
+
+**Rejected:**
+- *Public mempool on BNB.* Widest reach, but every trade becomes sandwich food up to its full slippage.
+- *A single private RPC on BNB.* Private, but inclusion depends on one builder network winning the block.
+
+**Why:** Fan-out of an identical signed transaction is safe (one nonce, so it can land only once) and buys both privacy and inclusion speed. Industry bots (Maestro, Banana Gun, Sigma) offer the same "anti-MEV" routing on BNB.
+
+**Consequence:**
+- On BNB, D27's slippage stops being a budget for sandwich bots.
+- Builder RPC list per chain is config; inclusion latency per builder is logged to choose and prune the set.
+- On Base, flashblock visibility still lets bots react one flashblock later (backruns, snipes); priority fee is our lever there. → gas policy question.
