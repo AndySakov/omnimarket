@@ -527,7 +527,7 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 - **One call per route:** executes any D25 route (single, multi-hop, split across DEXes), enforces `minOut` and deadline, and takes the platform fee in the same transaction.
 - **Holds nothing:** no funds between transactions; every call must end with a zero balance, or it reverts.
 - **Immutable:** no admin keys, no upgrade proxy. A new version is a new deployment.
-- **Approvals via Permit2:** users approve Uniswap's Permit2 once per token; each trade carries a signed, exact-amount, short-lived permit for our router. Native-token buys need no approval.
+- **Approvals via Permit2:** users approve Uniswap's Permit2 once per token; each trade carries a signed, exact-amount, short-lived permit for our router. Native-token buys need no approval. *(Amended by D31: sells use a per-position, capped, 7-day allowance instead.)*
 - **Same address everywhere:** deployed via CREATE2 so the router has one address on every chain.
 
 **Rejected:**
@@ -651,3 +651,27 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 - On BNB, D27's slippage stops being a budget for sandwich bots.
 - Builder RPC list per chain is config; inclusion latency per builder is logged to choose and prune the set.
 - On Base, flashblock visibility still lets bots react one flashblock later (backruns, snipes); priority fee is our lever there. → gas policy question.
+
+---
+
+## D31 — One signature on the hot path: per-position Permit2 allowances + fire-ready orders
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D26)
+
+**Decision:**
+- **Per-position allowance.** When a buy lands, the execution service signs, off the hot path, a Permit2 *allowance* for the router: that token only, capped at the position size, expiring in 7 days, renewed in the background while the position is open. Every later sell, stop-loss or take-profit needs only the transaction signature.
+- **Caller check.** The router spends a wallet's allowance only in a transaction sent by that wallet (`owner == msg.sender`). No one else can trigger it, even through a router bug.
+- **Fire-ready orders.** For each armed trigger, the transaction data layout, gas estimate and allowance are prepared ahead of time. At fire time only the fresh quote (D27), the nonce and one signature remain. The nonce comes from the execution service's in-memory counter (D8 makes it the sole sender), not an RPC call. Nonces are **not** reserved per order: an unused reserved nonce would block every later transaction from the wallet.
+- Token-funded buys (e.g. paying in USDC) keep a per-trade permit unless a standing allowance for that token already exists.
+
+**Rejected:**
+- *Per-trade permit on every spend (D26 as written).* Two sequential Privy signatures (~20–100ms each) on sells, the most urgent orders.
+- *Pre-signed permits per trigger order.* Covers triggers but not manual sells; long-dated permits amount to allowances with more bookkeeping.
+- *Reserve a nonce per armed order.* Freezes the wallet if the order never fires.
+
+**Why:** Halves hot-path signing for the orders that most need speed, while keeping exposure bounded: one token, one position's size, one week, and only spendable by the wallet's own transaction.
+
+**Consequence:**
+- D26's "no standing permission" becomes "no *open-ended* permission".
+- Measure Privy signing latency per region early; it's the largest unknown in the 300ms trigger budget.
+- Allowance renewals and revocations (position closed → allowance set to zero) are background jobs with their own signing budget.

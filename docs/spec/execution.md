@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30.
+**Status:** Draft. Decisions: D8, D30–D31.
 
 One Execution service per chain (D8): build → simulate → sign → submit → track. Sole owner of every wallet's nonce on its chain. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -14,12 +14,18 @@ One Execution service per chain (D8): build → simulate → sign → submit →
 
 Identical signed transactions share a nonce, so fan-out can't double-execute.
 
+## Hot-path signing (D31)
+
+- Sells spend a per-position Permit2 allowance, signed when the buy lands (capped at position size, 7 days, renewed; router checks `owner == msg.sender`).
+- Armed triggers are fire-ready: calldata layout, gas estimate and allowance prepared. At fire time: fresh quote → next nonce from memory → one signature → submit.
+- Nonces are never reserved per order (an unused reserved nonce blocks the wallet).
+
 ## Open questions
 
 Biggest first:
 
-1. **Signing latency.** Permit2 per-trade permits (D26) mean two sequential Privy signatures on sells and token-funded buys (Privy quotes ~20–100ms each).
-2. **Nonces.** Several in-flight transactions per wallet (trigger bursts, copy-trade fan-out); gaps and reordering.
+1. ~~Signing latency~~ → **decided (D31).** Still to measure: Privy latency per region.
+2. **Nonces.** Proposed: per-wallet sequencer; gap watchdog (re-send same nonce with higher fee, or cancel with a 0-value self-transfer); re-sync from chain on startup, failover, or nonce errors; cap of 5–10 in flight per wallet.
 3. **Gas and priority fees.** Per chain and per situation (reuse D25 order-origin cues).
 4. **Tracking and failure handling.** Stuck, dropped, reverted; replace and cancel.
 5. **Exactly-once trigger firing** across engine → execution (D8).

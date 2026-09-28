@@ -90,9 +90,9 @@ When a copied whale buys and 500 copy trades follow within milliseconds, a norma
 - **Why it's non-obvious:** an outside aggregator can't do this. Only we see our own order flow.
 - **Say it as:** "The router knows about the trades it hasn't landed yet."
 
-### A router that can't be upgraded, can't hold funds, and never gets unlimited approvals (D26)
-Our router is immutable (no admin key to steal), must end every call with a zero balance, and only ever spends via Permit2 permits: exact amount, short-lived, one per trade. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
-- **Say it as:** "The contract that touches user funds has no owner, no balance, and no standing permission."
+### A router that can't be upgraded, can't hold funds, and never gets open-ended approvals (D26, D31)
+Our router is immutable (no admin key to steal) and must end every call with a zero balance. It spends only through Permit2: per-position allowances capped at the position size, expiring in a week, and spendable only in a transaction the wallet itself sends. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
+- **Say it as:** "The contract that touches user funds has no owner, no balance, and no open-ended permission."
 
 ### Slippage is chosen by situation, not one flat number (D27)
 Slippage is both a fill guarantee and the amount a sandwich bot can take. Defaults follow what the router already knows: 15% for new pairs, 3% for established tokens, 0.5% for majors, doubled for stop-losses that must land. The displayed quote is never executed as-is: the route is re-quoted at send time.
@@ -115,6 +115,10 @@ Every routing decision and its outcome (quoted vs filled, reverts) is logged. Sh
 ### Private fan-out: privacy without slow inclusion (D30)
 On BNB, the same signed transaction goes to several private block builders in parallel. It never touches the public mempool (so it can't be sandwiched), yet it reaches most of the block-building market. Because every copy shares one nonce, it can only land once.
 - **Say it as:** "Send one transaction to every private door at once; only one can open."
+
+### One signature between a price move and a stop-loss (D31)
+Everything that can be prepared before a trigger fires is prepared: the allowance is signed when the position opens, the transaction layout and gas estimate are cached, and the nonce comes from an in-memory counter. At fire time: fresh quote, one signature, send.
+- **Say it as:** "When your stop fires, the only work left is one signature."
 
 ## Testing & operations
 
