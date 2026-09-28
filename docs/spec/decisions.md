@@ -515,3 +515,29 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 **Consequence:**
 - Splits across different DEXes need our own router contract. → routing question 3.
 - The in-flight order overlay needs execution (D8) to report submitted, landed and failed orders back to the engine promptly, so the overlay is removed when trades land or fail.
+
+---
+
+## D26 — Our own router contract, immutable, approvals via Permit2
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Every swap goes through our own router contract, deployed on all three chains.
+- **One call per route:** executes any D25 route (single, multi-hop, split across DEXes), enforces `minOut` and deadline, and takes the platform fee in the same transaction.
+- **Holds nothing:** no funds between transactions; every call must end with a zero balance, or it reverts.
+- **Immutable:** no admin keys, no upgrade proxy. A new version is a new deployment.
+- **Approvals via Permit2:** users approve Uniswap's Permit2 once per token; each trade carries a signed, exact-amount, short-lived permit for our router. Native-token buys need no approval.
+- **Same address everywhere:** deployed via CREATE2 so the router has one address on every chain.
+
+**Rejected:**
+- *DEX routers only.* No contract risk, but no cross-DEX splits (D25), and fees need a separate transfer.
+- *Direct unlimited approvals to our router.* One approve per token and no signing per trade, but a router bug could then drain every approved balance.
+- *Upgradeable proxy.* Easy fixes, but an admin key that can change the code holding approvals is the biggest target in the system.
+
+**Why:** Industry norm for EVM trading bots (Maestro, Banana Gun, Sigma use their own routers), and required for cross-DEX splits. Permit2 limits exposure to the amount and time window of each trade. Because approvals point at Permit2, not the router, shipping a new router version needs no re-approvals.
+
+**Consequence:**
+- Contract work enters phase 1: Solidity router with fork tests per DEX type, fuzzing, and invariant tests (zero residual balance, `minOut` always enforced).
+- **(verify)** Permit2 is deployed at its canonical address on MegaETH, Base and BNB.
+- Signing a permit adds a signature per trade; with Privy delegated signing (D4) that's on the hot path, so its latency needs measuring. → `execution.md`
+- Fee design (rate, taken in input or output token) → routing open question.

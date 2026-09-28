@@ -1,6 +1,6 @@
 # Routing
 
-**Status:** Draft. Decisions: D25.
+**Status:** Draft. Decisions: D25–D26.
 
 ## Route shapes (D25)
 
@@ -39,9 +39,16 @@
 
 Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay order flow in shadow mode (D5) under different penalties.
 
+## Router contract (D26)
+
+- Our own router on every chain, same CREATE2 address.
+- One call per route: any shape from D25, `minOut` + deadline enforced, fee taken in-transaction.
+- Immutable, holds no funds between transactions (zero-balance invariant).
+- Approvals via Permit2: one-time approval to Permit2, then a signed exact-amount, short-lived permit per trade. New router versions need no re-approvals.
+
 ## Open questions
 
-1. **Own router contract vs DEX routers.** Needed for cross-DEX splits (D25).
+1. ~~Own router contract~~ → **decided (D26).**
 2. **Quote lifetime & slippage defaults.**
 3. **Fees.** Whether and how the platform takes a fee.
 4. **Token safety checks** before routing (honeypots, taxes, blacklists).
