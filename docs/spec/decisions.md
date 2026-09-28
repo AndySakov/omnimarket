@@ -445,3 +445,39 @@ Chart candles are built from actual swap prices (the universal convention), not 
 **Consequence:**
 - Trigger index is keyed by (token, quote asset, level) with a USD view derived from quote-asset price. → `triggers.md`
 - Display-price consumers that need USD (UI, PnL) compute it lazily from quote price × quote-asset USD price.
+
+---
+
+## D23 — Fair price: display price, or cross-chain weighted for a curated asset list
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- A single-chain token's fair price is its display price (D18).
+- Assets on several chains (phase 1 list: ETH/WETH, BNB/WBNB, USDC, USDT, wrapped BTC) get a liquidity-weighted average of their per-chain display prices, weighted by ±2% depth (D24).
+- Which contracts are "the same asset" comes from a hand-maintained address map, never from names or symbols.
+- A small aggregator consumes each chain's price updates from Kafka and publishes the fair price.
+
+**Rejected:**
+- *Match assets by symbol.* Trivially spoofed by copycat tokens.
+- *Aggregator inside each Chain Engine (cross-engine calls).* Couples engines that D6 keeps independent, for consumers (UI, PnL) that tolerate milliseconds of Kafka lag.
+
+**Why:** Covers D7's phase 1 requirement with the smallest possible surface. Nearly every token users trade is single-chain.
+
+**Consequence:** Phase 2's prop AMM needs a lower-latency fair-price feed than Kafka; that design belongs to phase 2 (D7: phase 1 does no phase 2 work).
+
+---
+
+## D24 — Liquidity measure: ±2% depth in USD
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** A pool's liquidity is its **±2% depth**: the USD value that can be traded before its price moves 2% (buy side + sell side). Used for display-price weighting (D18), fair-price weighting (D23), and the D11 liquidity floor.
+
+**Rejected:**
+- *Total value locked.* Counts v3/v4 liquidity parked far from the current price, which does nothing for trades today.
+- *Active-tick liquidity only.* Too narrow: one tick can be empty while the next is deep.
+
+**Why:** The standard depth measure on crypto data sites (e.g. CoinGecko's ±2% order-book depth). Works identically across v2, v3, v4 and Aerodrome, so pools of different types compare fairly.
+
+**Consequence:** Computed in memory from reserves or ticks, refreshed on mint/burn and whenever price crosses a tick. D11's liquidity floor is expressed in ±2% depth per chain (value still TBD in tuning).

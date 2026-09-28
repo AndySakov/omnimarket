@@ -1,6 +1,6 @@
 # Pricing
 
-**Status:** Draft.
+**Status:** Draft. Decisions D18–D24.
 
 ## Three prices (D18)
 
@@ -19,7 +19,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 `price(T) = Σ (mid(pᵢ) · liquidity(pᵢ)) / Σ liquidity(pᵢ)`
 
 - `mid(p)`: the pool's marginal price, converted to USD (D19).
-- `liquidity(p)`: value on the pool's quote side in USD; for concentrated liquidity (v3/v4), liquidity near the current price, not total deposits **(define precisely)**.
+- `liquidity(p)`: the pool's **±2% depth** in USD, buy + sell side (D24). Same measure sets the D11 liquidity floor.
 - No pools above the floor → priced from its deepest pool and flagged **thin** in the UI; triggers still evaluate (D20).
 - Recomputed on every pool update affecting T, in the Chain Engine.
 
@@ -49,6 +49,12 @@ In-memory math per pool type, exact to the contract's rounding; simulation only 
 | Client push | Throttled, ≤10/s per token, latest wins |
 | Quote-asset (ETH/BNB/stable) move | Convert levels, check only orders crossed; USD prices derived lazily |
 
+## Fair price (D23)
+
+- Single-chain tokens: fair price = display price.
+- Curated cross-chain assets (ETH, BNB, USDC, USDT, wrapped BTC): ±2%-depth-weighted average of per-chain display prices, via a hand-maintained address map.
+- Published by a small aggregator reading per-chain price updates from Kafka. Phase 2 needs a faster feed.
+
 ## Open questions
 
 Biggest first:
@@ -57,5 +63,7 @@ Biggest first:
 2. ~~Trigger manipulation protection~~ → **decided (D20): none beyond a slippage limit**, Trojan-style instant triggers.
 3. ~~Per-DEX math~~ → **decided (D21): in memory**, simulation for opaque venues. Still to verify: MegaETH venue list.
 4. ~~Recompute cadence~~ → **decided (D22).**
-5. **Cross-chain fair price** (D7).
-6. **Liquidity measure** for v3/v4 weighting (depth within ±x% of mid?).
+5. ~~Cross-chain fair price~~ → **decided (D23).**
+6. ~~Liquidity measure~~ → **decided (D24): ±2% depth.**
+
+Remaining: verify MegaETH venues (D21); tuning values (liquidity floor per chain, client push rate).
