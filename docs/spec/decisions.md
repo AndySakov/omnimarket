@@ -349,3 +349,24 @@ Chart candles are built from actual swap prices (the universal convention), not 
 **Consequence:**
 - Every stop-loss explanation must be showable on the chart: the UI can draw the trigger price alongside the display price.
 - Pools below the liquidity floor never move the display price, even when they're the only venue. Then the token shows as "unpriced / thin" rather than a manipulable number. → `pricing.md`
+
+---
+
+## D19 — USD conversion: fixed reference pools, stablecoins pinned unless they diverge
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Path to USD:** each chain has a small, fixed set of reference pools: the deepest native/stablecoin pools (e.g. WETH/USDC, WETH/USDT on Base and MegaETH; WBNB/USDT, WBNB/USDC on BNB). The native token's USD price is their liquidity-weighted mid (same method as D18). A token's USD price = its price in its quote asset × that quote asset's USD price.
+- **Stablecoins:** pinned at $1 while the chain's reference stablecoins stay within ~0.5% of each other. If they diverge past that, the engine prices each stablecoin from its pools against the others, and the UI shows a depeg warning.
+
+**Rejected:**
+- *Best-path search per token.* Flexible, but slower, and every extra hop is another pool a manipulator can lean on.
+- *Always pin at $1.* Simplest, and what most terminals appear to do, but during a depeg (USDC, March 2023) every price on the platform is quietly wrong.
+- *Always float stablecoins.* Honest, but adds noise to every price for a case that is rare.
+
+**Why:** A fixed reference set keeps conversion cheap (one multiply per update) and hard to manipulate, because reference pools are the deepest on the chain. The divergence check costs almost nothing and catches the rare depeg.
+
+**Consequence:**
+- Reference pool lists are per-chain config, reviewed when liquidity moves. The tokens that quote everything else (quote assets) are limited to the native token and the reference stablecoins in phase 1. A token paired only with some other token is unpriced until promoted into that set **(verify coverage on each chain)**.
+- A change in native/USD reprices every token on the chain at once; the recompute path must handle that fan-out (→ recompute cadence question).
