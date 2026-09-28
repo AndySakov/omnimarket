@@ -481,3 +481,91 @@ Chart candles are built from actual swap prices (the universal convention), not 
 **Why:** The standard depth measure on crypto data sites (e.g. CoinGecko's ±2% order-book depth). Works identically across v2, v3, v4 and Aerodrome, so pools of different types compare fairly.
 
 **Consequence:** Computed in memory from reserves or ticks, refreshed on mint/burn and whenever price crosses a tick. D11's liquidity floor is expressed in ±2% depth per chain (value still TBD in tuning).
+
+---
+
+## D25 — Routing: adaptive hybrid, chosen per order from situational cues
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** The router can produce three route shapes (single pool, multi-hop, and split across pools) and picks per order. Everything is quoted in memory (D21), so the router prices the candidates and chooses by:
+
+> **score = output − extra gas − Σ risk penalty per extra pool**
+
+The risk penalty is set by cues inferred from the order, the market, the pools, and our own order flow. Limits: at most 2 hops, intermediate tokens only from the D19 quote-asset set, at most 3 pools in a split, split search in 5% chunks.
+
+**Phase 1 cues:**
+1. **Size vs depth.** Trade < ~1% of the best pool's ±2% depth → single pool; skip the split search.
+2. **Order origin.** Stop-loss/trailing: reliability first (fewest pools, no simulated venues). Manual: default. Take-profit/limit: price first. New-pair buy: single pool, speed. Copy trade: the leader's pool where possible.
+5. **Liquidity concentration.** One pool holds >90% of depth → skip the split search.
+8. **Venue trust.** Penalise or exclude opaque (simulated) venues, very new pools, and fee-on-transfer tokens; excluded outright for urgent orders.
+11. **Own-flow awareness.** Our in-flight orders are applied to the in-memory pool state before quoting the next order, so copy-trade fan-out and stop cascades see realistic prices and spread across pools.
+
+**Later cues:** (3) user's slippage setting as an urgency signal, (4) pool heat (recent update rate), (6) live gas price, (7) chain MEV profile (splits reduce sandwich profit on BNB's public mempool), (9) state confidence (provisional or just-reorged pools), (10) recent revert history per pool.
+
+**Tuning:** every routing decision and its outcome (quoted vs filled, reverts) is logged to ClickHouse; shadow mode (D5) replays the same order flow under different penalties to compare.
+
+**Rejected:**
+- *Single pool only (Trojan-style).* Simplest and fastest, but loses price on large trades in multi-pool tokens.
+- *Full aggregator search (1inch/0x/Odos-style).* Best price on large or unusual trades, but the search is too costly at MegaETH update rates, and long exotic paths are where traps hide.
+- *One fixed shape for every order.* A stop-loss in a crash and a patient limit buy want opposite trade-offs.
+
+**Why:** Most trades are small and get the fast single-pool path automatically, as on Trojan. Large or patient orders get aggregator-quality prices. Own-flow awareness is something an outside aggregator can't do, because only we see our order flow.
+
+**Consequence:**
+- Splits across different DEXes need our own router contract. → routing question 3.
+- The in-flight order overlay needs execution (D8) to report submitted, landed and failed orders back to the engine promptly, so the overlay is removed when trades land or fail.
+
+---
+
+## D26 — Our own router contract, immutable, approvals via Permit2
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Every swap goes through our own router contract, deployed on all three chains.
+- **One call per route:** executes any D25 route (single, multi-hop, split across DEXes), enforces `minOut` and deadline, and takes the platform fee in the same transaction.
+- **Holds nothing:** no funds between transactions; every call must end with a zero balance, or it reverts.
+- **Immutable:** no admin keys, no upgrade proxy. A new version is a new deployment.
+- **Approvals via Permit2:** users approve Uniswap's Permit2 once per token; each trade carries a signed, exact-amount, short-lived permit for our router. Native-token buys need no approval.
+- **Same address everywhere:** deployed via CREATE2 so the router has one address on every chain.
+
+**Rejected:**
+- *DEX routers only.* No contract risk, but no cross-DEX splits (D25), and fees need a separate transfer.
+- *Direct unlimited approvals to our router.* One approve per token and no signing per trade, but a router bug could then drain every approved balance.
+- *Upgradeable proxy.* Easy fixes, but an admin key that can change the code holding approvals is the biggest target in the system.
+
+**Why:** Industry norm for EVM trading bots (Maestro, Banana Gun, Sigma use their own routers), and required for cross-DEX splits. Permit2 limits exposure to the amount and time window of each trade. Because approvals point at Permit2, not the router, shipping a new router version needs no re-approvals.
+
+**Consequence:**
+- Contract work enters phase 1: Solidity router with fork tests per DEX type, fuzzing, and invariant tests (zero residual balance, `minOut` always enforced).
+- **(verify)** Permit2 is deployed at its canonical address on MegaETH, Base and BNB.
+- Signing a permit adds a signature per trade; with Privy delegated signing (D4) that's on the hot path, so its latency needs measuring. → `execution.md`
+- Fee design (rate, taken in input or output token) → routing open question.
+
+---
+
+## D27 — Quotes rebuilt at send time; slippage defaults set by situation
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Quote lifetime:** a displayed quote is never executed. The route is re-quoted at the moment of sending, and `minOut = fresh quote × (1 − slippage)`. If the fresh quote is already worse than the displayed one by more than the user's slippage, the trade is not sent; the user sees the new quote instead. Trigger orders quote at firing time.
+- **Slippage defaults by situation** (always user-adjustable; starting values, tuned via the D25 logging loop):
+
+| Situation | Default |
+|---|---|
+| New pair (inside D11 grace window) or thin token (D20) | 15% |
+| Established token (pool above liquidity floor) | 3% |
+| Major / stable pair (quote-asset set, D19) | 0.5% |
+| Stop-loss / trailing stop sell | The row's value × 2 (landing matters more than price) |
+| Fee-on-transfer token | + the detected tax |
+
+**Rejected:**
+- *Trojan's flat 15%.* Right for sniping, but generous everywhere else. On BNB's public mempool, sandwich bots can take up to the full allowance.
+- *Execute the displayed quote.* Prices move every 10–200ms; a quote seen on screen is already stale when the user clicks.
+
+**Why:** Slippage is both a fill guarantee and the amount a sandwich bot can take. The right trade-off depends on how fast the market is moving and how much the order needs to land, and we already know both from the D25 cues.
+
+**Consequence:**
+- The UI shows the default chosen and why ("new pair: 15%").
+- Tax detection (fee-on-transfer) must run before routing. → token safety checks, routing open question.

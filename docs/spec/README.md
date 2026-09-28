@@ -13,9 +13,12 @@ OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live 
 | [architecture.md](architecture.md) | System shape, hot/cold split, component responsibilities | Draft |
 | [indexer.md](indexer.md) | Live state vs history, tip following, bootstrap | Draft |
 | [pricing.md](pricing.md) | Display, trigger, and execution prices; per-DEX math | Draft |
+| [routing.md](routing.md) | Route shapes, cue-driven route choice | Draft |
 | [decisions.md](decisions.md) | Decision log — what we chose, what we rejected, why | Living |
 
-Planned: `routing.md`, `execution.md`, `triggers.md`, `data.md`, `infra.md`, `slas.md`, `loadtest.md` (k6 + custom usage scenarios against shadow execution).
+Planned: `execution.md`, `triggers.md`, `data.md`, `infra.md`, `slas.md`, `loadtest.md` (k6 + custom usage scenarios against shadow execution).
+
+Talking points: [../highlights.md](../highlights.md), the design choices worth explaining to others.
 
 Background primers (not spec) live in [../primers/](../primers/): [indexing](../primers/indexing.md), [case study: iTRY](../primers/case-study-itry.md).
 
