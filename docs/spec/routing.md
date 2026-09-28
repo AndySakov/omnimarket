@@ -1,6 +1,6 @@
 # Routing
 
-**Status:** Draft. Decisions: D25–D29, D42.
+**Status:** Draft. Decisions: D25–D29, D42, D58–D59.
 
 ## Route shapes (D25)
 
@@ -44,7 +44,7 @@ Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay or
 - Our own router on every chain, same CREATE2 address.
 - One call per route: any shape from D25, `minOut` + deadline enforced, fee taken in-transaction.
 - Immutable, holds no funds between transactions (zero-balance invariant).
-- Executes signed intents (D42): verifies signature, terms and deadline, pulls exactly the signed amount via Permit2, enforces `minOut`, sends output to the signer, recovers executor gas. New router versions need no re-approvals.
+- Executes signed intents (D42): verifies signature, terms, deadline and **submitter** (our executor set or the user, D58), pulls at most the signed maximum via Permit2, enforces the stricter of the signed minimum rate and the submitter's tighter minimum (D59), caps fee and gas refund at the signed limits, sends output to the signer. New router versions need no re-approvals.
 
 ## Quotes & slippage (D27)
 

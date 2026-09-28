@@ -38,7 +38,7 @@ Targets measure **internal latency**: from our engine receiving the event (or th
 |---|---|
 | API gateway + auth | ~5ms |
 | Route and quote | < 5ms |
-| User intent signature (Privy, nearest region) ∥ simulation | ~30–50ms |
+| User intent signature (user's Privy session in the browser, D57; server fallback under policy) ∥ simulation | ~30–50ms **(measure)** |
 | Executor signs locally | < 1ms |
 | Submit | ~5–10ms |
 | **Total** | **~50–70ms** |

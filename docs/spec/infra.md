@@ -26,7 +26,9 @@ CloudNativePG (Postgres) · Strimzi (Kafka) · Altinity operator (ClickHouse) ·
 
 ## Tooling
 
-Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · SOPS (staging) · cloud KMS for executor keys (prod).
+Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyroscope · SOPS (staging) · Cloud KMS (executor keys encrypted at rest, D57) · cosign + SBOM for images.
+
+**Independent watcher (D55)** runs outside the main clusters: its own small deployment, its own RPC provider, ideally its own region. **External dead-man's switch** pages if monitoring goes quiet.
 
 ## CI pipeline
 

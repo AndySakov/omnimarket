@@ -20,11 +20,16 @@ OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live 
 | [slas.md](slas.md) | Latency targets and per-step budgets | Draft |
 | [loadtest.md](loadtest.md) | Named load scenarios and chaos fuzzing | Draft |
 | [infra.md](infra.md) | Environments, production layout, tooling, CI | Draft |
+| [frontend.md](frontend.md) | Screens to mirror, where we beat the leaders, API contract | Draft |
+| [observability.md](observability.md) | Lineage, replay, independent watcher, brakes | Draft |
+| [security.md](security.md) | Assets, controls, signing model, incident response | Draft |
 | [verification.md](verification.md) | Results of checking every (verify) marker, with sources | Living |
 | [decisions.md](decisions.md) | Decision log — what we chose, what we rejected, why | Living |
 
 
 Talking points: [../highlights.md](../highlights.md), the design choices worth explaining to others.
+
+Build plan (approved, D63): [../build-plan.md](../build-plan.md).
 
 Background primers (not spec) live in [../primers/](../primers/): [indexing](../primers/indexing.md), [case study: iTRY](../primers/case-study-itry.md).
 

@@ -33,7 +33,7 @@ Model 1 makes the operator's servers a single target holding every user's keys. 
 | Automation | Server-side signing via authorization keys + policies (method rules, contract allowlists, time windows) | Policy engine (allow/deny, multi-approver) + scoped, time-limited sessions |
 | Pricing | Per monthly active user | Per signature |
 | Ownership | Acquired by Stripe (2025) | Independent |
-| Who uses it in this space | Trojan (reportedly) | Axiom |
+| Who uses it in this space | Trojan (verified) | Axiom |
 
 ## Decision (D4)
 
@@ -46,15 +46,16 @@ Turnkey is the stronger pick if we wanted to showcase the policy engine itself o
 
 ## Engineering problems this creates (the interesting part)
 
-- **Signing latency is now a network hop.** A vendor call sits on the path of every instant buy. Mitigations to spec: keep connections to the vendor warm, build and simulate the transaction *before* asking for a signature, and hand out nonces locally so signing is the only remote step.
-- **Nonce ownership.** Each wallet's nonce must be managed by exactly one of our processes, per chain, even with several execution workers. This is a core execution-layer design point.
-- **Policy as a safety net.** The delegated signer is allowed to call our approved routers and nothing else, and never plain transfers to arbitrary addresses (except user-initiated withdrawals with MFA). Even a compromised backend can't drain wallets.
+- **Signing latency is now a network hop.** *Resolved by D42:* users sign **intents**, not transactions, and our executor wallets submit them. Trigger intents are signed when the order is created, so a firing needs no vendor call at all.
+- **Nonce ownership.** *Resolved by D32/D42:* user intents use Permit2's unordered nonces (no gaps possible); only our executor wallets have sequential nonces, owned by the execution service.
+- **Policy as a safety net.** *Tightened by D57:* when the user is present, their own session signs; server signing is only for absent-user flows and is limited by Privy policy to our router's EIP-712 domain, per-intent and daily caps, and a minimum-output floor. Plain transfers only as user-initiated withdrawals with MFA.
 - **Multi-wallet per user.** Trojan allows up to 10 active wallets per user, plus grouping and moving funds between them. This is cheap to support and realistic.
 
 ## Open questions
 
 - Privy supports server-side signing on any EVM chain and lists MegaETH explicitly (verified).
-- Do we route swaps through our own router contract (to take a fee and bundle approve + swap), or call DEX routers directly? This decides what the signing policy allowlists. → `execution.md`
+- ~~Own router vs DEX routers~~ → our own immutable router executing signed intents (D26, D42, D58).
+- Smart accounts / EIP-7702: reviewed in D47. Permit2 intents in phase 1; a 7702 delegate is a phase 2 candidate.
 
 ## Sources
 

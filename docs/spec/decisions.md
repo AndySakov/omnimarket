@@ -99,6 +99,8 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D7 — Two phases: terminal first, prop AMM on MegaETH second
 
+*(Amended by D63: the "≈1 month" estimate for phase 1 is withdrawn; no timeline commitment.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -121,6 +123,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 ---
 
 ## D8 — Execution: separate service per chain, called directly by the engine
+
+*(Amended by D42: the service owns executor wallets and their nonces; user wallets sign intents rather than transactions.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -155,6 +159,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 ---
 
 ## D10 — Tip following: fastest stream per chain + canonical block reconciler
+
+*(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -525,6 +531,8 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 
 ## D26 — Our own router contract, immutable, approvals via Permit2
 
+*(Amended by D58: each intent names who may submit it, our executor set or the user.)*
+
 *(Amended by D42: the router executes signed intents submitted by our executor wallets.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
@@ -552,6 +560,8 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 ---
 
 ## D27 — Quotes rebuilt at send time; slippage defaults set by situation
+
+*(Amended by D59: pre-signed intents get fresh-quote protection through a submitter-tightened minimum.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -747,6 +757,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D34 — Trade tracking: simulate while signing, detect landing from the indexer, retry by order type
 
+*(Amended by D60: stop-loss retries at a fresh quote use the exit guarantee's server re-sign.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -775,6 +787,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D35 — Exactly-once trigger firing: deterministic firing IDs, dedupe in execution, orders in Postgres
+
+*(Amended by D61: the firing-ID dedupe lives in execution's regional Postgres.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -924,6 +938,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D41 — Data layout: Postgres for money state, ClickHouse for history, Kafka topics, object storage for snapshots
 
+*(Amended by D61: execution's nonce ledger and firing dedupe move to a regional Postgres per chain.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -961,6 +977,10 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D42 — Intent-based execution: users sign intents, our executor wallets submit
+
+*(Amended by D59: intents carry a maximum amount and a minimum rate.)*
+
+*(Amended by D57: intents are signed in the user's own session when they're present; server signing only for absent flows. Amended by D58: submitter field.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (supersedes D31; amends D26, D32, D33)
 
@@ -1028,19 +1048,24 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ---
 
-## D45 — Rust is the lead candidate for engines and execution
+## D45 — Rust for engines and execution
 
-**Date:** 2026-09-28 · **Status:** Leaning (final in build mode)
+**Date:** 2026-09-28 · **Status:** Decided (confirmed after weighing Go; see consequence)
 
 **Decision:** The Chain Engine and Execution service are planned in Rust. Cold-path services (candles, history job, API) are chosen per service in build mode.
 
 **Why:** p99 targets are dominated by tail latency, and garbage-collection pauses are the usual cause of p99 spikes in Go or Java. The EVM tooling is strong in Rust too (reth, alloy, revm for local simulation).
 
-**Consequence:** Confirmed or revised when we switch to build mode.
+**Consequence:**
+- **Go was weighed and set aside.** Go would cost roughly 1–5ms of a 20–75ms budget and is easier for the project lead to read, but Rust was kept for tail latency, compile-time safety in money code, and the Rust EVM stack (alloy, revm). The learning curve is the lead's to absorb, with AI assistance.
+- **"Boring Rust" rule** so the codebase stays readable while the team learns: well-known crates (tokio, alloy, revm, serde, prost), plain structs and enums over clever generics, no custom macros in core logic, explicit error types, and comments on anything non-obvious about ownership or async.
+- **Deterministic cores:** each engine and execution core is a single-threaded state machine (inputs in, decisions out) with I/O on tasks around it (D49).
 
 ---
 
 ## D46 — Latency targets: measured internally, budgeted per step
+
+*(Amended by D57: the click path's signing step moves to the user's browser session; its latency is measured before the ≤ 100ms target is confirmed.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (hardens product.md's draft targets)
 
@@ -1226,3 +1251,256 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 - The Base node on GCP needs ~4TB+ of local NVMe (several local SSDs), costlier than bare metal; covered by credits, revisit if credits don't materialise.
 - If no grant comes through, the Start tier's $2k plus Oracle staging still covers the early months; reassess before paid spend grows.
 - Grant applications become a project task alongside build mode.
+
+---
+
+## D52 — Cypherpunk ground rules for every safeguard and every byte of telemetry
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Five constraints that the observability, safeguard and security designs (D53–D58) must satisfy.
+1. **Brakes stop only our automation, never the user.** They can stop our engines firing and our executors submitting; they can never freeze, move or seize funds. Funds stay in users' own wallets, and the router has no owner and no pause (D26).
+2. **Users can always leave without us:** export keys (D3), or submit their own signed intents to the router directly (D58), even with every one of our services off.
+3. **Every brake is public and time-boxed:** logged to the tamper-evident public log (D55), shown on a public status page, and auto-expiring unless a human renews it.
+4. **Verifiable, not just trusted:** open source, reproducible builds, verified contract source, and a verifiable receipt for every trade (intent hash, route, transaction, fill vs signed minimum, fee, gas).
+5. **Minimal data about people:** pseudonymous IDs in all telemetry, never emails; per-user encryption keys so deleting a key makes that user's records unreadable (**crypto-shredding**) while the audit log's hash chain stays verifiable.
+
+**Rejected:**
+- *Operator-controlled pause or freeze on user funds.* Safer-feeling for us, but it turns a self-custody product into a custodian with a kill switch over users.
+- *Collect everything, sort it out later.* Makes us a honeypot for personal data.
+
+**Why:** Paranoid safety and user sovereignty are compatible if brakes act only on our own machinery and users always keep an exit that doesn't need us.
+
+---
+
+## D53 — Observability: end-to-end lineage, wide events, 100% tracing on money paths
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Stack (self-hosted, free):** Prometheus (metrics), Loki (logs), Tempo (traces), Pyroscope (continuous profiling), Grafana.
+- **Lineage:** every record carries the IDs of what caused it: `chain event → pool update → price update → trigger check → firing ID → intent hash → route decision → simulation → executor tx → landing → position update → notification`. Lineage edges are stored in ClickHouse and browsable as a graph, backwards (root cause) and forwards (blast radius).
+- **Wide, typed events** (Protobuf) instead of free-text logs: one rich event per unit of work. **Decision records** capture the alternatives considered (route candidates and scores, slippage and tip reasons, safety verdicts and evidence).
+- **Sampling:** money paths (trades, firings, signing, top-ups, fees) are traced **100%**; other traffic keeps every slow or failed trace plus a 1% sample.
+- **Signals** per area: indexer (lag, reorgs, dropped preconfirmations, gap fills, failovers), pricing (shadow mismatch rate, thin tokens, depeg flag), triggers (armed, firing latency per step, duplicates caught, stale-epoch rejections), execution (simulation failures and reverts by reason, builder inclusion latency, Privy latency, executor gas, nonce gaps), money (volume, fees, executor gas spent vs recovered, treasury), infrastructure.
+- **SLOs and alerts:** D46 targets as SLOs with error budgets; burn-rate alerts. Tiers: page (money at risk), ticket (budget burning), info. Pages via Grafana alerting to a Telegram bot.
+- **Invariants as production monitors:** the D49 fuzz invariants run continuously in production (executor nonces vs chain, positions vs on-chain balances, router zero balance, fee and refund reconciliation, undo vs recompute).
+- **Canaries:** a shadow canary every minute per chain (quote → intent → simulate); a daily real-funds round trip per chain from the D5 demo wallets.
+- **Incident console:** search by user, order, transaction, token or time; shows lineage, decisions, traces, and a replay button (D54).
+
+**Rejected:**
+- *Sampled tracing everywhere.* The one trade you need to investigate is the one that wasn't sampled.
+- *Managed observability (Datadog, Grafana Cloud paid tiers).* Costs money the self-hosted stack doesn't (D15 rule).
+
+**Why:** Any outcome can be explained from its root cause, and any fault's blast radius found, with one query.
+
+**Consequence:** Every service emits lineage IDs from day one; it's part of the event schemas, not added later.
+
+---
+
+## D54 — Flight recorder: every input recorded, any moment replayable exactly
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Input log:** every input to the engine and execution cores (raw provider messages with arrival time, RPC responses, API requests, clock reads, random seeds) is appended to per-chain Kafka topics and archived to Cloud Storage.
+- **Exact replay:** because the cores are deterministic (D49), loading the snapshot before an incident and replaying the recorded inputs reproduces every decision exactly, with a debugger and extra logging attached after the fact.
+- **Point-in-time state everywhere:** engine (snapshots + input log), Postgres (point-in-time recovery from archived WAL), ClickHouse (versioned rows, D41), configuration (Git, with the config version stamped on every decision record), binaries (signed image digests per deploy).
+- **Replay-gated deploys:** a release candidate replays recorded production inputs and every decision that differs from what production did is flagged for review; then shadow alongside production; then one chain first, with automatic rollback on SLO burn.
+- **Retention:** input log 30 days hot, 1 year compressed cold; money-path traces and decision records 1 year.
+
+**Rejected:**
+- *Logs and traces only.* They show what happened, not why, and can't be re-run with more instrumentation.
+
+**Why:** Investigation stops being guesswork: the incident can be re-run, inspected and fixed against the exact inputs that caused it. The same recordings make every deploy testable against real traffic.
+
+**Consequence:** Nothing in core logic may read time, randomness or the network except through recorded interfaces (reinforces D49).
+
+---
+
+## D55 — Trust nothing, including ourselves: independent watcher, tamper-evident audit log
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Independent watcher:** a small separate service with its own code, its own RPC provider and ideally its own region. It reconciles every router and executor transaction on-chain against our records: each fill matches a recorded intent, never below its signed minimum; fees and gas refunds are correct; no router transaction appears that we didn't send. **Any mismatch pauses all executors** (D56).
+- **Tamper-evident audit log:** signing requests, brake activations, configuration changes, deploys and admin access go into a hash-chained, append-only log (ClickHouse + write-once Cloud Storage). Its root is **anchored on-chain daily** (Base, cents per day), so anyone can verify history was never rewritten.
+- **Monitor the monitors:** absent-data alerts, an external dead-man's switch if monitoring goes quiet, and clock-drift alerts (latency figures depend on synced clocks).
+
+**Rejected:**
+- *Reconcile inside the main system.* A bug or compromise there could hide itself.
+- *Private audit log only.* Unverifiable by users (breaks D52 rule 4).
+
+**Why:** Detects compromise or silent bugs in the main system with code that shares nothing with it, and makes our own history publicly checkable.
+
+---
+
+## D56 — Brakes on the money paths: automatic breakers and four manual levels
+
+**Date:** 2026-09-28 · **Status:** Decided (bounded by D52)
+
+**Decision:**
+
+**Automatic breakers** (smallest scope that fixes the problem, logged publicly):
+
+| Scope | Trips when | Effect |
+|---|---|---|
+| Per trade | Quote deviates > X% from display price; fee or gas over cap; simulation fails | That trade blocked |
+| Per user (automated flows) | Server-signed volume over daily cap; anomalous pattern | That user's automation held, user notified; manual trading and self-submission still work |
+| Per pool type | Shadow-check mismatch rate over threshold | Simulated quotes (D21) |
+| Per chain | Indexer lag over threshold; primary and fallback disagree on head; reorg deeper than expected; revert or simulation-failure spike | Firing paused on that chain until healthy |
+| Executor fleet | Gas spent outrunning recovered; nonce-gap storm; top-up cap hit | Executors paused |
+| Global | Independent watcher mismatch (D55) | All executors paused |
+
+**Manual brake levels** (each auto-expires after 1 hour unless renewed; each logged publicly):
+
+| Level | Effect | Users can still |
+|---|---|---|
+| 1. Caution | Wider safety margins, no splits, no new venues | Everything |
+| 2. Stop automation | No triggers or copy trades; orders stay armed | Trade manually, self-submit |
+| 3. Stop submissions | Executors off | Self-submit intents, export keys |
+| 4. Freeze server signing | Privy policy set to deny | Sign in their own session, export keys |
+
+**On release:** orders whose levels were crossed during a pause fire with a fresh quote, and the user is notified.
+
+**Rejected:**
+- *Brakes that freeze user funds or the router.* Violates D52.
+- *Brakes without expiry.* A forgotten brake silently breaks the product.
+- *Cancel crossed orders on release.* They're still the exits users asked for.
+
+**Why:** Contain damage at the smallest scope, automatically where possible, without ever taking control of user funds.
+
+**Consequence:** Thresholds (X%, caps, lag limits) are tuning values set from measurement; brake state is part of every decision record.
+
+---
+
+## D57 — Security model: shrink every key's power, user-session signing when present
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D42, D46)
+
+**Decision:**
+
+| Asset (most → least valuable to an attacker) | Controls |
+|---|---|
+| **Server Privy authorization key** | Used only when the user is absent (copy trades, auto-armed TP/SL after a buy lands, background approve/wrap). When the user is present (manual trade, creating or editing an order), **the intent is signed in the user's own Privy session in the browser.** Server signing sits behind Privy policy: our router's EIP-712 domain only, per-intent cap, per-user daily cap, minimum-output floor relative to the quote. |
+| **Router contract** | Foundry fuzz + invariant tests, Slither and Aderyn static analysis, verified source, audit contest or bug bounty (Immunefi) before real user funds. Immutable: the emergency stop is off-chain (D56). |
+| **Executor keys** | Encrypted with Cloud KMS at rest, decrypted into memory at startup (KMS signing is too slow for the < 1ms budget). Small gas float per executor, auto top-up with daily caps, regular rotation. Fees and gas refunds go straight to the treasury, never to executors. |
+| **Treasury** | Safe multisig per chain; no hot key can move it. |
+| **User accounts** | Privy auth; MFA for withdrawals and key export; per-user and per-IP rate limits; D39 order limits. |
+| **Infrastructure** | Private GKE clusters, Workload Identity, least-privilege IAM, network policies, Secret Manager; CI deploys via OIDC (no long-lived cloud keys in GitHub or Blacksmith). |
+| **Supply chain** (public repo) | `cargo-audit`, `cargo-deny`, Dependabot, pinned dependencies, cosign-signed images with SBOMs, reproducible builds, GitHub secret scanning with push protection, branch protection with required checks. |
+
+**Incident response:** runbooks per scenario, using the D56 brake levels; every action lands in the D55 audit log.
+
+**Rejected:**
+- *Server signs every intent (D42 as written).* Simpler and consistently fast, but the server key becomes able to trade for every user at any time.
+- *Executor keys signing via KMS.* Safer at rest, but ~10–30ms per signature breaks the trigger budget.
+
+**Why:** A stolen server key can only make small, capped trades inside policy, all visible to anomaly alerts; a stolen executor key holds only gas; nothing hot can reach the treasury.
+
+**Consequence:** Browser signing latency depends on the user's connection to Privy; the click path (D46 ≤ 100ms) is measured with it. If it's too slow, clicks fall back to server signing under the same policy caps.
+
+---
+
+## D58 — Intents name their submitter
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D26, D42)
+
+**Decision:** Every intent includes the set of addresses allowed to submit it: our executor set, and always the user themselves. The router rejects any other submitter.
+
+**Rejected:**
+- *Anyone may submit any intent.* A leaked pre-signed stop-loss intent ("sell N for at least X") could be submitted by anyone while the price is still high, selling the position early.
+- *Only our executors may submit.* Removes the user's exit that doesn't need us (D52 rule 2).
+
+**Why:** Leaked intents are useless to others, and users can always submit their own.
+
+**Consequence:** Router invariant tests add "only a listed submitter can execute an intent". Rotating the executor set means new intents name the new set; armed orders are re-signed on rotation (user session when present, server signing under policy otherwise).
+
+---
+
+## D59 — Intent terms: maximum amount, minimum rate, submitter may only tighten
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D27, D42; from the final consistency review, G1)
+
+**Decision:** Each signed intent carries:
+
+| Field | Meaning |
+|---|---|
+| Input token, **maximum** input amount | The submitter may use less |
+| Output token, **minimum output rate** | Minimum output scales pro-rata with the amount actually used |
+| Deadline, recipient = signer | As before |
+| Allowed submitters | Our executor set or the user (D58) |
+| **Maximum fee rate, maximum gas refund** | Caps on what the router may deduct (D28, D42) |
+| Unordered nonce, order ID | Replay protection (Permit2); lineage (D53) |
+
+The submitter may pass a **tighter** minimum output than the signed one, never a looser one; the router enforces the stricter of the two. Execution always passes fresh quote × (1 − slippage) (D27).
+
+**Rejected:**
+- *Exact amount, fixed minimum (D42 as written).* Multi-level take-profits can't sell less than signed after a manual sale; trailing stops keep their starting-level protection; pre-signed orders lose fresh-quote protection.
+
+**Why:** Pre-signed orders stay flexible where the user benefits (smaller fills, tighter protection) and rigid where it protects them (never more than signed, never a worse rate, fees and gas capped).
+
+**Consequence:** Router invariant tests add: amount used ≤ signed maximum; output ≥ max(signed rate × amount, submitter minimum); fee and gas refund ≤ signed caps.
+
+---
+
+## D60 — Exit guarantee for stops
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D34; from G2)
+
+**Decision:** Stop-loss and trailing-stop orders default to **exit guarantee**: if a gap-down means the signed minimum can't be met, the server re-signs a fresh intent at the current quote (with the D27 stop-loss slippage) under the D57 policy caps, and the stop goes through. Users can switch it off per order to get a stop-limit ("never sell below X"). Limit orders and take-profits default to off.
+
+**Rejected:**
+- *Signed floor only.* In a crash, the stop sits unfilled, the opposite of why users set it.
+- *Always re-sign, no opt-out.* Some traders want a hard floor.
+
+**Why:** Matches what Trojan users expect from a stop-loss (it gets you out), while keeping a stop-limit for those who want one.
+
+**Consequence:** Every re-sign is a server signature and is visible in the order's lineage and the audit log (D53, D55).
+
+---
+
+## D61 — Execution high availability and regional state
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D35, D41; from G3)
+
+**Decision:**
+- The execution service runs **leader/standby** per chain with the same lease and fencing epochs as the engine (D40). A stale leader's submissions are rejected by its own state store.
+- Execution's durable state (firing-ID dedupe, executor nonce ledger) lives in a small **regional Postgres per chain** (CloudNativePG, synchronous replica in the same region, ~1ms writes).
+- The central Postgres keeps users, orders, positions and token metadata.
+
+**Rejected:**
+- *Execution state in the central Postgres (D41 as written).* A cross-region hop on the hot path (breaks D50).
+- *Local disk store only.* Doesn't survive losing the node, and the standby can't read it.
+
+**Why:** Execution becomes as recoverable as the engine without adding latency.
+
+**Consequence:** Failover drills (D48 #6) cover execution as well as the engine.
+
+---
+
+## D62 — Frontend: thin prototyping UI and a full terminal UI; mirror the leaders, then do better
+
+**Date:** 2026-09-28 · **Status:** Decided (closes product.md question 3)
+
+**Decision:**
+- **Two frontends, one API.** A thin UI for local work and prototyping (project lead). The full terminal UI is owned by **Jutin** (frontend developer), including its stack choices.
+- **Mirror the industry leaders** (Trojan, Axiom, Photon, GMGN) wherever users already have muscle memory; innovate where our backend enables something they can't do.
+- **User experience first:** every product decision is weighed by its effect on the trader.
+- **API first:** the API contract (REST + WebSocket, types generated from our Protobuf schemas) is the boundary between backend and both UIs, and a mock server driven by recorded data (D54) lets the frontend be built without a running backend. Details in `frontend.md`.
+
+**Why:** Traders switch terminals easily and punish unfamiliar layouts; familiarity where it helps, differentiation where it matters.
+
+---
+
+## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** The build follows [build-plan.md](../build-plan.md): a walking skeleton on Base first (M0–M5, ending in the first real-funds trade), then depth on Base (M6–M7), BNB (M8), MegaETH (M9), copy trading and event orders (M10), hardening (M11), and launch readiness (M12). The frontend track starts at M2 against a mock server.
+
+**Timeline:** none committed. Development is AI-assisted and pace is measured, not promised. The plan's size estimates stay as a rough sense of relative effort only. D7's "≈1 month" is withdrawn.
+
+**Why:** One chain end to end proves the architecture with the fewest unknowns; widening after that reuses what the skeleton built.
+
+**Consequence:** Build mode starts only when explicitly switched on; until then the repo stays docs-only.

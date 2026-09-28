@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D47. **Complete** (tuning and measurements aside).
+**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D47, D57–D61. **Complete** (tuning and measurements aside).
 
 One Execution service per chain (D8): route → build → simulate → sign → submit → track. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -20,15 +20,22 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 
 | | Manual trade | Trigger order | Copy trade |
 |---|---|---|---|
-| User signature | 1 Privy signature at click | 1 Privy signature **when the order is created** | 1 Privy signature at copy time |
+| User signature | 1 signature at click (user session) | 1 signature **when the order is created** (user session) | 1 signature at copy time (server, under policy caps) |
 | On the hot path | Privy sign ∥ simulate → executor signs locally → submit | Fresh route → executor signs locally (< 1ms) → submit | Privy sign ∥ simulate → executor signs → submit |
 
 - Executor pool per chain; keys in our own `Signer` (keystore / KMS). Firings spread across executors, so cascades don't queue behind one nonce sequence.
 - Executor keys hold only gas money: they can execute only intents users signed, on the signed terms.
 - Balances kept as WETH/WBNB (auto-wrap on deposit). Permit2 approvals sent from the user's wallet in the background: base assets at setup, each new token right after its buy lands.
 - Armed triggers are fire-ready: intent signed, route candidates and gas estimates cached.
-- Privy policy: sign Permit2 intents for our router's EIP-712 domain, plus background approve/wrap transactions only.
+- **Who signs (D57):** the user's own Privy session when they're present (manual trades, creating/editing orders); server signing only for absent flows (copy trades, auto-armed TP/SL, background approve/wrap), under Privy policy: router EIP-712 domain only, per-intent and per-user daily caps, minimum-output floor.
+- **Submitter field (D58):** each intent lists who may submit it: our executor set or the user.
 - Carrier reviewed against Privy's smart wallets and EIP-7702 (D47): Permit2 in phase 1; a 7702 delegate is a phase 2 candidate; no 4337 smart wallets on the trade path.
+
+## Intent terms, exit guarantee, availability (D59–D61)
+
+- Intents carry a maximum amount and a minimum rate; execution may use less and always passes a tighter fresh-quote minimum (D59).
+- Stops default to exit guarantee: if a gap-down beats the signed floor, the server re-signs at the current quote under policy caps (D60).
+- Execution runs leader/standby with lease + fencing; firing dedupe and the executor nonce ledger live in a regional Postgres per chain (D61).
 
 ## Nonces (D32)
 

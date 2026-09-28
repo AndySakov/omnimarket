@@ -5,23 +5,25 @@
 ## Shape (D6)
 
 ```
-                MegaETH / Base / BNB  (RPC + WebSocket, paid providers)
-                        │ blocks, logs, pending state
-                        ▼
-   ┌──────────────── Chain Engine (one per chain, + warm standby) ───────────────┐
-   │  head follower → pool state (in memory) → pricing → router/quoter           │
-   │                                       └──→ trigger evaluator                │
-   └───────┬───────────────────────────────────────────┬─────────────────────────┘
-           │ HOT (gRPC): fired triggers, quotes         │ publishes every state change
-           ▼                                            ▼
-     Execution service (per chain, D8)            Kafka (system of record)
-     build → simulate → sign → submit  ── outcomes ──►  │
-     sole owner of wallet nonces                        │
-                                       ┌────────────────┼─────────────────┐
-                                       ▼                ▼                 ▼
-                                  ClickHouse       PostgreSQL        WS Gateway
-                                  candles, trades  users, wallets,   feeds to
-                                  analytics        orders, positions terminal
+      MegaETH / Base / BNB  (providers; own Base node in prod, D44)
+                        │ logs, flashblocks, mini-blocks, blocks
+                        ▼   (every input also recorded → input log, D54)
+   ┌──────────────── Chain Engine (one per chain, + Kafka-fed standby, D40) ───────┐
+   │  head follower → pool state (in memory) → pricing → router/quoter             │
+   │                                       └──→ trigger evaluator                  │
+   └───────┬─────────────────────────────────────────────┬─────────────────────────┘
+           │ HOT (gRPC): firings (epoch-fenced), quotes   │ publishes every state change
+           ▼                                              ▼
+     Execution service (per chain, D8, D42)         Kafka (system of record)
+     route → simulate → executor signs → submit ─outcomes─► │
+     owns executor wallets + their nonces                   │
+           │ signed intents (Permit2) via our router        │
+           ▼                                   ┌────────────┼──────────────┐
+     Router contract (immutable, D26)          ▼            ▼              ▼
+                                          ClickHouse    PostgreSQL     WS Gateway
+     Independent watcher (D55) ──────►    candles,      users, orders, feeds to
+     reconciles on-chain vs our records   lineage       positions,     terminal
+                                                        nonce ledger
 ```
 
 ## Hot path vs cold path
@@ -41,6 +43,19 @@
 - Answer quote requests (routes across pools)
 - Evaluate trigger orders on each relevant price change
 - Publish pool updates, swaps, prices, and reorg corrections to Kafka
+- Emit lineage IDs on every record (D53); read inputs only through recorded, deterministic interfaces (D49, D54)
+
+## Execution service responsibilities
+
+- Receive firings and click requests; route, simulate (blocking), have an executor sign locally, submit (D30, D42, D46)
+- Own the executor wallets and their nonces (D32); never send from user wallets on the trade path
+- Enforce per-trade breakers (D56); publish outcomes to Kafka
+
+## Around the hot path
+
+- **Router contract:** executes signed intents from listed submitters only (D26, D58)
+- **Independent watcher:** separate code, provider and region; reconciles every on-chain fill (D55)
+- **Brakes:** automatic breakers and manual levels that stop our automation, never users (D52, D56)
 
 ## Open for spec
 

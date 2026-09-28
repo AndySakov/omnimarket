@@ -20,7 +20,7 @@
 | Base | `newFlashblocks` as a tick, then one filtered `getLogs` at `pending` per ~200ms flashblock (payload no longer carries receipts; fallback: filtered `pendingLogs`) | `getLogs` per 2s block |
 | BNB | `newHeads` + one `getLogs` per 0.45s block | `getLogs` per block, trailing |
 
-Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16).
+Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16). In production, Base's fast loop reads Flashblocks from our own Base node (D44), with providers as fallback.
 
 The reconciler:
 - confirms fast-loop events (provisional → confirmed)
@@ -30,7 +30,7 @@ The reconciler:
 
 ## Bootstrap (D9)
 
-1. Discover pools (see open question: coverage).
+1. Discover pools and bonding curves from factory / launchpad create events (D11, D36).
 2. Pick a block N. Read each pool's state at N (`getReserves`, `slot0`, liquidity, tick data), batched via multicall or a lens contract (D13).
 3. Buffer live events from subscription start; apply everything after N in order.
 4. Mark the engine ready. Only then serve quotes and evaluate triggers.
@@ -40,7 +40,7 @@ The reconciler:
 | Tier | Holds | Enters when | Leaves when |
 |---|---|---|---|
 | Known | Metadata (tokens, fee tier, DEX, creation block) | Pool creation event | Never |
-| Active | Full state, priced, routable | Base-asset pair above liquidity floor · inside new-pool grace window · referenced by a position, trigger, or copied wallet | None of those hold (after hysteresis) |
+| Active | Full state, priced, routable | Base-asset pair above liquidity floor (±2% depth, D24) · inside new-pool grace window · referenced by a position, trigger, or followed wallet (D38) · bonding curve not yet graduated (D36) | None of those hold (after hysteresis) |
 
 Promotion reuses the bootstrap procedure for a single pool: read state at block N, apply buffered events after N. Tuning parameters (TBD): liquidity floor per chain, grace window, demotion hysteresis.
 

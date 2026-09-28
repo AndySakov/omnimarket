@@ -26,19 +26,22 @@ An active on-chain trader who today switches between a chart site, a block explo
 - Indexer for pool creation and swap events on each chain's main DEXes, safe against chain reorganisations
 - Live token pricing, liquidity, and candles (1s / 1m / 5m / 1h)
 - New-pairs and token-detail feeds over WebSocket
-- Quoting and routing across pools (multi-hop; split routes stretch)
-- Execution pipeline: build → simulate → sign → submit → track, with nonce and gas management
-- Token safety check via simulated buy + sell
-- Take-profit / stop-loss / limit orders
+- Quoting and routing across pools: single, multi-hop and split, chosen per order (D25)
+- Bonding-curve venues, four.meme first (D36)
+- Intent-based execution: route → simulate → executor submits → track (D42)
+- Private / MEV-protected submission on BNB (D30)
+- Token safety checks: simulation, contract inspection, liquidity, behaviour (D29)
+- Full order catalogue incl. trailing stops, multi-level TP, dev-sell, migration, scheduled (D37)
+- Copy trading (D38)
 - Positions and PnL
 - Embedded wallets, several per user (see [wallets.md](wallets.md))
+- Observability, replay and brakes (D52–D56)
+
+*(Scope updated by the final verification pass: items once listed as stretch were promoted by later decisions.)*
 
 ### Stretch
-- Copy trading
-- Trailing stops
-- Split routing across pools
-- Private / MEV-protected submission on BNB
-- Smart-account session keys as an alternative wallet mode
+- Own BNB and MegaETH nodes (D44 evaluation)
+- EIP-7702 delegate as intent carrier (D47, phase 2 candidate)
 
 ### Phase 2 (D7): prop AMM on MegaETH
 - On-chain pool whose price is pushed by our quoting service several times per block
@@ -57,8 +60,8 @@ An active on-chain trader who today switches between a chart site, a block explo
 
 | Chain | Likely venues | Notes |
 |---|---|---|
-| Base | Uniswap v2/v3/v4, Aerodrome | Aerodrome uses Solidly-style pools, so it needs its own pricing math |
-| BNB Chain | PancakeSwap v2/v3 (+ Infinity) | Public mempool, so sandwich risk is real |
+| Base | Uniswap v2/v3/v4 (incl. launchpad hook pools: Clanker, Zora, Flaunch), Aerodrome | Aerodrome uses Solidly-style pools, so it needs its own pricing math |
+| BNB Chain | PancakeSwap v2/v3 + Infinity (CL and bin pools), four.meme bonding curves | Public mempool, so sandwich risk is real |
 | MegaETH | Kumbaya (dominant, ~80% of chain TVL early 2026) + Algebra-based pools | Newest chain with the thinnest tooling; highest ingest rate |
 
 ## Draft performance targets
@@ -78,6 +81,6 @@ Superseded by [slas.md](slas.md) (D46): trigger ≤ 50ms, click ≤ 100ms, quote
 
 1. ~~Demo environment~~ → decided in D5 (live reads, shadow execution, real-funds proof).
 2. ~~Router contract~~ → our own immutable router executing signed intents (D26, D42).
-3. **Frontend depth:** full terminal UI vs a thin UI that exists to demo the backend.
+3. ~~Frontend depth~~ → both: a thin prototyping UI and a full terminal UI owned by Jutin (D62, [frontend.md](frontend.md)).
 4. **Prop AMMs as a venue class.** Proprietary AMMs (Tessera, ElfomoFi on Base; HumidiFi-style on Solana) quote from market-maker pricing that updates several times per block, so their output can't be computed from indexed state. Supporting them means a simulation-based quote adapter with very short quote lifetimes. Relevant mainly for major-pair legs (e.g. USDC → ETH), not memecoin pools. Which chains have them: Base and BNB confirmed (BNB: e.g. LunarBase on BNB/USDT, BTCB/USDT); none found on MegaETH yet. → `routing.md`
 5. ~~Historical backfill~~ → 30 days per chain at launch (D15).

@@ -11,8 +11,8 @@ Every chain has one in-memory engine that holds live pool state and does pricing
 - **Why it's non-obvious:** event-driven designs usually put the broker in the middle of everything. Here that would add broker hops and consumer lag exactly where latency matters.
 - **Say it as:** "Kafka is the system of record and fan-out, not the hot path."
 
-### Execution is a separate service, with one owner per nonce (D8)
-Slow, failure-prone I/O (signing, RPC submission) lives outside the pricing loop, one sub-millisecond gRPC hop away. Each trigger firing carries a unique ID, so retries can't double-execute.
+### Execution is a separate service (D8, D42)
+Slow, failure-prone I/O (simulation, submission) lives outside the pricing loop, one sub-millisecond gRPC hop away. It owns the executor wallets and their nonces. Each trigger firing carries a unique ID, so retries can't double-execute.
 - **Say it as:** "The engine decides, execution acts, and a firing ID makes it exactly-once."
 
 ### Phase 1 is built so phase 2 is half done (D7)
@@ -47,7 +47,7 @@ Undo is tiered:
 No new storage system was needed for deep reorgs.
 
 ### Stream per block, not per event (D16)
-RPC providers bill every WebSocket push. Subscribing to one message per block (Base Flashblocks payloads, BNB headers plus one `getLogs`) instead of one per swap turns a cost that grows with trading volume into a fixed one. That's an estimated 5–10× cheaper.
+RPC providers bill every WebSocket push. Subscribing to one message per block (a Base Flashblocks tick plus one pending `getLogs`, BNB headers plus one `getLogs`) instead of one per swap turns a cost that grows with trading volume into a fixed one. That's an estimated 5–10× cheaper.
 - **Say it as:** "We shaped the data feed around the provider's billing model."
 
 ### Free tiers are chaos engineering for free (D17)
@@ -157,6 +157,33 @@ On BNB most new memecoins start on a four.meme bonding curve, not a DEX pool. We
 
 ### Reorgs are new versions, not deletes (D41)
 ClickHouse rows are keyed by (chain, block hash, log index) and carry a status and a version. A correction inserts a newer version (including "removed" for reorged-out events) and the table keeps the latest. Backfills can restart and overlap the live feed without duplicates, and nothing is ever mutated in place.
+
+## Product & UX
+
+### Familiar where it helps, better where we can (D62)
+The terminal mirrors what traders already know from Trojan and Axiom (discovery columns, trade presets, orders on the chart, global auto-sell), then adds what only our backend can show: "why did this fire?" on every order, verifiable trade receipts, step-by-step execution timing, safety checks with evidence, and trading with no gas balance.
+
+### Stops that actually get you out (D59, D60)
+Pre-signed orders stay safe and flexible: the executor may sell less or demand a better price than signed, never more or worse. If a crash gaps through a stop's signed floor, the exit guarantee re-signs at the current price so the stop still fires, unless the user chose a hard floor.
+
+## Observability, safeguards & security
+
+### Cypherpunk brakes (D52, D56)
+Every safeguard can stop our automation, and none can touch user funds. Funds stay in users' own wallets, the router has no owner or pause, and users can always export keys or submit their own signed intents even with all our services off. Every brake is logged publicly and expires in an hour unless someone renews it.
+- **Say it as:** "We can stop ourselves; we can never stop you."
+
+### Every outcome traces back to its cause (D53)
+Every record carries the IDs of what caused it, from the chain event through pricing, the trigger, the route, the simulation and the transaction to the position update. "Why did my stop fire?" is one query, and so is "what did this bad price touch?". Money paths are traced 100%, never sampled.
+
+### A flight recorder for the trading engine (D54)
+Every input the engine and execution see is recorded. Because their cores are deterministic, any moment in production can be replayed exactly and inspected with a debugger after the fact. The same recordings gate deploys: a release replays real production traffic and every decision that changes is reviewed before it ships.
+- **Say it as:** "Any incident can be re-run, not just read about."
+
+### A watcher that doesn't trust the system it watches (D55)
+A separate service with its own code, provider and region reconciles every on-chain fill against our records. A mismatch pauses all executors. Our audit log is hash-chained and its root is anchored on-chain daily, so anyone can check we never rewrote history.
+
+### Every key is weaker than it looks (D57, D58)
+Users sign their own intents when they're present, so the server key only covers absent-user flows, capped by policy. Executor keys hold only gas. The treasury is a multisig. Intents name who may submit them, so a leaked intent is useless to anyone but us and the user.
 
 ## Testing & operations
 
