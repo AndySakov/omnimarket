@@ -395,3 +395,31 @@ Chart candles are built from actual swap prices (the universal convention), not 
 - Market-cap triggers need a supply figure per token (total supply at bootstrap, tracked via mint/burn if it changes). → `triggers.md`
 - Trojan's event triggers (e.g. bonding-curve migration, dev sell) and scheduled orders are candidates for `triggers.md`, not decided here.
 - Protected mode (persistence window) stays a possible later addition; the engine should keep the trigger rule pluggable per order.
+
+---
+
+## D21 — Quotes computed in memory; simulation only for opaque venues
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Every pool type we can model is quoted by in-memory math that reproduces the contract exactly, including its integer rounding. Simulation against chain state is used only for venues we can't model (opaque v4 hooks per D14, and later prop AMMs). A background **shadow check** samples live quotes, simulates the same swap on-chain, and alerts on any mismatch.
+
+| Pool type | Chains | Math |
+|---|---|---|
+| Uniswap v2 + forks (PancakeSwap v2) | All | Constant product, fee on input |
+| Uniswap v3 + forks (PancakeSwap v3) | All | Concentrated liquidity, tick walk |
+| Uniswap v4 standard | All | v3 math, singleton PoolManager |
+| Uniswap v4 hooks | All | Per hook: modelled, or opaque → simulated (D14) |
+| Aerodrome volatile / stable | Base | Constant product / stable curve (x³y + y³x) |
+| Aerodrome Slipstream | Base | v3-style concentrated liquidity |
+| MegaETH venues | MegaETH | Kumbaya (largest by TVL) and Algebra-based pools **(verify which forks and fee models)** |
+
+**Rejected:**
+- *Simulate every quote.* Always exactly right, but an RPC round trip per quote (milliseconds, and D16 budget) where in-memory takes microseconds. Can't keep up with triggers and routing at MegaETH rates.
+
+**Why:** Industry standard for terminals and routers. The router explores many route options per quote; only in-memory math makes that affordable.
+
+**Consequence:**
+- Each pool type needs a quoter whose results match the contract to the wei, tested against on-chain simulation (fork tests in CI; D17 keeps them free).
+- Shadow-check mismatch rate is a monitored SLA line; a pool type that drifts is demoted to simulated until fixed.
+- Fee-on-transfer and rebasing tokens break reserve math; they need detection (from the safety check) and quoting by simulation. → `routing.md`

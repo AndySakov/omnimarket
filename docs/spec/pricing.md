@@ -29,13 +29,25 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 - Quote assets in phase 1: native token + reference stablecoins. `usd(T) = price(T in quote) × usd(quote)`.
 - Stablecoins pinned at $1 while reference stablecoins agree within ~0.5%; beyond that, priced from their pools against each other, with a depeg warning in the UI.
 
+## Quoting (D21)
+
+In-memory math per pool type, exact to the contract's rounding; simulation only for opaque venues. A background shadow check compares sampled quotes with on-chain simulation.
+
+| Pool type | Chains | Math |
+|---|---|---|
+| Uniswap v2 + forks | All | Constant product |
+| Uniswap v3/v4 + forks | All | Concentrated liquidity, tick walk |
+| v4 hooks | All | Modelled or simulated (D14) |
+| Aerodrome volatile / stable / Slipstream | Base | Constant product / stable curve / concentrated |
+| Kumbaya, Algebra-based | MegaETH | **(verify)** |
+
 ## Open questions
 
 Biggest first:
 
 1. ~~USD conversion~~ → **decided (D19).**
 2. ~~Trigger manipulation protection~~ → **decided (D20): none beyond a slippage limit**, Trojan-style instant triggers.
-3. **Per-DEX math.** Uniswap v2/v3/v4 (incl. hook pools, D14), Aerodrome stable curves, PancakeSwap, opaque simulated venues.
+3. ~~Per-DEX math~~ → **decided (D21): in memory**, simulation for opaque venues. Still to verify: MegaETH venue list.
 4. **Recompute cadence.** Every pool update vs coalescing per mini-block at MegaETH rates.
 5. **Cross-chain fair price** (D7).
 6. **Liquidity measure** for v3/v4 weighting (depth within ±x% of mid?).
