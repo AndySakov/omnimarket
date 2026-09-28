@@ -80,7 +80,7 @@ From [verification.md](spec/verification.md): event rates per chain · Chainstac
 
 ## Relative effort (no timeline commitment, D63)
 
-D7 set phase 1 at about a month, before the scope grew to three chains, intents, bonding curves, copy trading, chaos fuzzing and the observability design. An honest rough sizing, for one backend developer with the frontend in parallel:
+Relative size of each stretch of milestones, for one backend developer with the frontend in parallel:
 
 | Milestones | Rough size |
 |---|---|
