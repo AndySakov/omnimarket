@@ -1199,3 +1199,30 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Consequence:**
 - **MegaETH plans a rotating sequencer** that moves around the globe with the economic day. A fixed region is only near it part of the day; following it (or accepting the gap) is an open question for after launch.
 - Sequencer/builder locations for Base and BNB **(verify)** before picking regions.
+
+---
+
+## D51 — Production cloud: Google Cloud, funded by credits via the Web3 startup program
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- Production runs on **Google Cloud**.
+- **Credits plan:**
+  1. Start tier ($2k, 1 year) once there's a working MVP. Until then dev and staging are free (D17), so nothing is lost by waiting.
+  2. Apply for a blockchain foundation grant: **BNB Chain Builder Grant** first (four.meme support, private anti-sandwich submission and fast finality make a BNB-specific pitch), Base Builder Grants and MegaETH grants as follow-ups.
+  3. With a grant, move to the **Web3 program's Scale tier: up to $200k over 2 years** (first $100k of year one fully covered), which accepts blockchain foundation grants as qualifying funding.
+- **Service mapping:** GKE for the clusters (D50), Cloud KMS for executor keys, Cloud Storage for snapshots (MinIO stays in dev/staging).
+- **Tentative regions** **(verify sequencer/builder locations first)**: central region and Base in `us-east4` (N. Virginia); BNB in `asia-northeast1` (Tokyo) or `asia-southeast1` (Singapore); MegaETH starting in `us-east4` until its rotating sequencer is live.
+
+**Rejected:**
+- *Azure.* Most credits with no funding at all ($5k), but capped there without an investor referral.
+- *AWS.* $1–5k self-funded; the large tiers need an Activate provider (VC or accelerator).
+- *Oracle for production.* Discretionary credits; keeps its role as free staging.
+
+**Why:** Only Google counts a blockchain foundation grant as funding, which opens up to 40× the credits of any unfunded option, and a grant is money and credibility in its own right.
+
+**Consequence:**
+- The Base node on GCP needs ~4TB+ of local NVMe (several local SSDs), costlier than bare metal; covered by credits, revisit if credits don't materialise.
+- If no grant comes through, the Start tier's $2k plus Oracle staging still covers the early months; reassess before paid spend grows.
+- Grant applications become a project task alongside build mode.

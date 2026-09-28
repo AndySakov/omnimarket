@@ -32,8 +32,14 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · SOPS (
 
 Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
+## Production cloud (D51)
+
+Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: Start tier ($2k) at MVP → blockchain foundation grant (BNB Chain Builder Grant first) → Web3 program Scale tier, up to $200k over 2 years.
+
+Tentative regions **(verify)**: central + Base `us-east4`; BNB `asia-northeast1` or `asia-southeast1`; MegaETH `us-east4` until its rotating sequencer is live.
+
 ## Open questions
 
-1. **Production cloud and credits** (D51).
+1. ~~Production cloud and credits~~ → **decided (D51): Google Cloud.**
 2. **Regions:** Base and BNB sequencer/builder locations **(verify)**; MegaETH's planned rotating sequencer.
 3. **Production cost** estimate once the cloud is chosen.
