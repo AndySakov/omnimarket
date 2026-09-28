@@ -59,22 +59,22 @@ Every spec doc read against all 58 decisions, looking for contradictions, stale 
 | highlights.md | D8 entry (execution owns executor nonces), D16 entry (Base tick + pending `getLogs`) |
 | decisions.md | Amendment notes on D8 and D10 |
 
-## Design gaps found (proposals pending approval)
+## Design gaps found (all approved)
 
 **G1. Pre-signed trigger intents fix the amount and minimum at arming time.** Three consequences:
 - A multi-level take-profit capped at current holdings (D39) can't sell less than the signed exact amount.
 - A trailing stop's minimum was signed at the starting level, so after the trail rises its on-chain protection is loose.
 - The fresh-quote protection of D27 doesn't apply to pre-signed intents at all.
 
-*Proposal (D59):* intents carry a **maximum** amount and a minimum output **rate**; the submitter may use less (minimum scaled pro-rata) and may supply a **tighter** minimum, never a looser one. Execution always supplies fresh quote × (1 − slippage). The signed fee rate and a signed gas-refund cap bound what the router may deduct.
+*Decided (D59):* intents carry a **maximum** amount and a minimum output **rate**; the submitter may use less (minimum scaled pro-rata) and may supply a **tighter** minimum, never a looser one. Execution always supplies fresh quote × (1 − slippage). The signed fee rate and a signed gas-refund cap bound what the router may deduct.
 
 **G2. A stop-loss can't get out of a gap-down.** If the price gaps below the signed floor, the simulation fails and the order can't fill; D34's "retry with a fresh quote" needs a new signature.
 
-*Proposal (D60):* stop-loss and trailing orders default to **exit guarantee**: if the signed floor can't be met, the server re-signs a fresh intent at the current quote under policy caps (D57), matching Trojan's behaviour. Users can switch it off ("never below X", a stop-limit). Limit orders and take-profits default off.
+*Decided (D60):* stop-loss and trailing orders default to **exit guarantee**: if the signed floor can't be met, the server re-signs a fresh intent at the current quote under policy caps (D57), matching Trojan's behaviour. Users can switch it off ("never below X", a stop-limit). Limit orders and take-profits default off.
 
 **G3. The execution service has no high-availability design.** D40 covers the engine's standby, but execution holds executor nonce counters and the firing-ID dedupe, and D41 put their durable home in the central Postgres, a cross-region hop on the hot path that D50 forbids.
 
-*Proposal (D61):* execution runs leader/standby with the same lease + fencing epochs as D40. Its durable state (firing-ID dedupe, executor nonce ledger) lives in a small **regional** Postgres per chain (synchronous replica, same region, ~1ms writes). The central Postgres keeps users, orders and positions.
+*Decided (D61):* execution runs leader/standby with the same lease + fencing epochs as D40. Its durable state (firing-ID dedupe, executor nonce ledger) lives in a small **regional** Postgres per chain (synchronous replica, same region, ~1ms writes). The central Postgres keeps users, orders and positions.
 
 **Accepted as-is (noted):**
 - Executors pay gas on transactions that revert and can't recover it. Blocking simulation (D46) prevents most; the fleet breaker (D56) and per-user revert-rate limits contain griefing.
@@ -83,7 +83,7 @@ Every spec doc read against all 58 decisions, looking for contradictions, stale 
 
 ## Still open
 
-**Product decision:** frontend depth (full terminal UI vs a thin UI that exists to demo the backend), product.md question 3.
+~~Frontend depth~~ → both: thin prototyping UI and a full terminal UI owned by Jutin (D62, frontend.md).
 
 **To verify:** Base sequencer accepting direct submission (D43) · Base and BNB sequencer/builder locations (D50, D51) · Kumbaya launchpad mechanics (triggers.md) · Oracle Always Free limits (D50) · Chainstack state overrides (D29).
 

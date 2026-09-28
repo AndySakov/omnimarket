@@ -81,6 +81,6 @@ Superseded by [slas.md](slas.md) (D46): trigger ≤ 50ms, click ≤ 100ms, quote
 
 1. ~~Demo environment~~ → decided in D5 (live reads, shadow execution, real-funds proof).
 2. ~~Router contract~~ → our own immutable router executing signed intents (D26, D42).
-3. **Frontend depth:** full terminal UI vs a thin UI that exists to demo the backend.
+3. ~~Frontend depth~~ → both: a thin prototyping UI and a full terminal UI owned by Jutin (D62, [frontend.md](frontend.md)).
 4. **Prop AMMs as a venue class.** Proprietary AMMs (Tessera, ElfomoFi on Base; HumidiFi-style on Solana) quote from market-maker pricing that updates several times per block, so their output can't be computed from indexed state. Supporting them means a simulation-based quote adapter with very short quote lifetimes. Relevant mainly for major-pair legs (e.g. USDC → ETH), not memecoin pools. Which chains have them: Base and BNB confirmed (BNB: e.g. LunarBase on BNB/USDT, BTCB/USDT); none found on MegaETH yet. → `routing.md`
 5. ~~Historical backfill~~ → 30 days per chain at launch (D15).

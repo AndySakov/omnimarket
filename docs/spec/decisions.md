@@ -559,6 +559,8 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 
 ## D27 — Quotes rebuilt at send time; slippage defaults set by situation
 
+*(Amended by D59: pre-signed intents get fresh-quote protection through a submitter-tightened minimum.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -753,6 +755,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D34 — Trade tracking: simulate while signing, detect landing from the indexer, retry by order type
 
+*(Amended by D60: stop-loss retries at a fresh quote use the exit guarantee's server re-sign.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -781,6 +785,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D35 — Exactly-once trigger firing: deterministic firing IDs, dedupe in execution, orders in Postgres
+
+*(Amended by D61: the firing-ID dedupe lives in execution's regional Postgres.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -930,6 +936,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D41 — Data layout: Postgres for money state, ClickHouse for history, Kafka topics, object storage for snapshots
 
+*(Amended by D61: execution's nonce ledger and firing dedupe move to a regional Postgres per chain.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -967,6 +975,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D42 — Intent-based execution: users sign intents, our executor wallets submit
+
+*(Amended by D59: intents carry a maximum amount and a minimum rate.)*
 
 *(Amended by D57: intents are signed in the user's own session when they're present; server signing only for absent flows. Amended by D58: submitter field.)*
 
@@ -1400,3 +1410,78 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Leaked intents are useless to others, and users can always submit their own.
 
 **Consequence:** Router invariant tests add "only a listed submitter can execute an intent". Rotating the executor set means new intents name the new set; armed orders are re-signed on rotation (user session when present, server signing under policy otherwise).
+
+---
+
+## D59 — Intent terms: maximum amount, minimum rate, submitter may only tighten
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D27, D42; from the final consistency review, G1)
+
+**Decision:** Each signed intent carries:
+
+| Field | Meaning |
+|---|---|
+| Input token, **maximum** input amount | The submitter may use less |
+| Output token, **minimum output rate** | Minimum output scales pro-rata with the amount actually used |
+| Deadline, recipient = signer | As before |
+| Allowed submitters | Our executor set or the user (D58) |
+| **Maximum fee rate, maximum gas refund** | Caps on what the router may deduct (D28, D42) |
+| Unordered nonce, order ID | Replay protection (Permit2); lineage (D53) |
+
+The submitter may pass a **tighter** minimum output than the signed one, never a looser one; the router enforces the stricter of the two. Execution always passes fresh quote × (1 − slippage) (D27).
+
+**Rejected:**
+- *Exact amount, fixed minimum (D42 as written).* Multi-level take-profits can't sell less than signed after a manual sale; trailing stops keep their starting-level protection; pre-signed orders lose fresh-quote protection.
+
+**Why:** Pre-signed orders stay flexible where the user benefits (smaller fills, tighter protection) and rigid where it protects them (never more than signed, never a worse rate, fees and gas capped).
+
+**Consequence:** Router invariant tests add: amount used ≤ signed maximum; output ≥ max(signed rate × amount, submitter minimum); fee and gas refund ≤ signed caps.
+
+---
+
+## D60 — Exit guarantee for stops
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D34; from G2)
+
+**Decision:** Stop-loss and trailing-stop orders default to **exit guarantee**: if a gap-down means the signed minimum can't be met, the server re-signs a fresh intent at the current quote (with the D27 stop-loss slippage) under the D57 policy caps, and the stop goes through. Users can switch it off per order to get a stop-limit ("never sell below X"). Limit orders and take-profits default to off.
+
+**Rejected:**
+- *Signed floor only.* In a crash, the stop sits unfilled, the opposite of why users set it.
+- *Always re-sign, no opt-out.* Some traders want a hard floor.
+
+**Why:** Matches what Trojan users expect from a stop-loss (it gets you out), while keeping a stop-limit for those who want one.
+
+**Consequence:** Every re-sign is a server signature and is visible in the order's lineage and the audit log (D53, D55).
+
+---
+
+## D61 — Execution high availability and regional state
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D35, D41; from G3)
+
+**Decision:**
+- The execution service runs **leader/standby** per chain with the same lease and fencing epochs as the engine (D40). A stale leader's submissions are rejected by its own state store.
+- Execution's durable state (firing-ID dedupe, executor nonce ledger) lives in a small **regional Postgres per chain** (CloudNativePG, synchronous replica in the same region, ~1ms writes).
+- The central Postgres keeps users, orders, positions and token metadata.
+
+**Rejected:**
+- *Execution state in the central Postgres (D41 as written).* A cross-region hop on the hot path (breaks D50).
+- *Local disk store only.* Doesn't survive losing the node, and the standby can't read it.
+
+**Why:** Execution becomes as recoverable as the engine without adding latency.
+
+**Consequence:** Failover drills (D48 #6) cover execution as well as the engine.
+
+---
+
+## D62 — Frontend: thin prototyping UI and a full terminal UI; mirror the leaders, then do better
+
+**Date:** 2026-09-28 · **Status:** Decided (closes product.md question 3)
+
+**Decision:**
+- **Two frontends, one API.** A thin UI for local work and prototyping (project lead). The full terminal UI is owned by **Jutin** (frontend developer), including its stack choices.
+- **Mirror the industry leaders** (Trojan, Axiom, Photon, GMGN) wherever users already have muscle memory; innovate where our backend enables something they can't do.
+- **User experience first:** every product decision is weighed by its effect on the trader.
+- **API first:** the API contract (REST + WebSocket, types generated from our Protobuf schemas) is the boundary between backend and both UIs, and a mock server driven by recorded data (D54) lets the frontend be built without a running backend. Details in `frontend.md`.
+
+**Why:** Traders switch terminals easily and punish unfamiliar layouts; familiarity where it helps, differentiation where it matters.

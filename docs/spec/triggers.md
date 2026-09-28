@@ -22,6 +22,8 @@ All firings go through the exactly-once path (D35) and fire instantly on the dis
 
 **Arming signs the intent (D42, D57):** creating or editing an order signs its intent in the user's own session (exact amount, minimum output, expiry, allowed submitters per D58). Auto-armed TP/SL after a buy lands, and copy trades, are signed server-side under policy caps. Firing needs no user signature.
 
+**Exit guarantee (D60):** stop-loss and trailing orders default to getting out even through a gap-down (server re-sign at the current quote); users can switch to a stop-limit. Multi-level TP sizes and trailing protection use D59's maximum amount and submitter-tightened minimum.
+
 **Brakes (D56):** a chain-level breaker or manual level 2+ pauses firing; orders stay armed. On release, orders crossed during the pause fire with a fresh quote and the user is notified.
 
 ## Supporting data

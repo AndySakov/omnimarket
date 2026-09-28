@@ -158,6 +158,14 @@ On BNB most new memecoins start on a four.meme bonding curve, not a DEX pool. We
 ### Reorgs are new versions, not deletes (D41)
 ClickHouse rows are keyed by (chain, block hash, log index) and carry a status and a version. A correction inserts a newer version (including "removed" for reorged-out events) and the table keeps the latest. Backfills can restart and overlap the live feed without duplicates, and nothing is ever mutated in place.
 
+## Product & UX
+
+### Familiar where it helps, better where we can (D62)
+The terminal mirrors what traders already know from Trojan and Axiom (discovery columns, trade presets, orders on the chart, global auto-sell), then adds what only our backend can show: "why did this fire?" on every order, verifiable trade receipts, step-by-step execution timing, safety checks with evidence, and trading with no gas balance.
+
+### Stops that actually get you out (D59, D60)
+Pre-signed orders stay safe and flexible: the executor may sell less or demand a better price than signed, never more or worse. If a crash gaps through a stop's signed floor, the exit guarantee re-signs at the current price so the stop still fires, unless the user chose a hard floor.
+
 ## Observability, safeguards & security
 
 ### Cypherpunk brakes (D52, D56)

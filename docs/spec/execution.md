@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D47, D57–D58. **Complete** (tuning and measurements aside).
+**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D47, D57–D61. **Complete** (tuning and measurements aside).
 
 One Execution service per chain (D8): route → build → simulate → sign → submit → track. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -30,6 +30,12 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 - **Who signs (D57):** the user's own Privy session when they're present (manual trades, creating/editing orders); server signing only for absent flows (copy trades, auto-armed TP/SL, background approve/wrap), under Privy policy: router EIP-712 domain only, per-intent and per-user daily caps, minimum-output floor.
 - **Submitter field (D58):** each intent lists who may submit it: our executor set or the user.
 - Carrier reviewed against Privy's smart wallets and EIP-7702 (D47): Permit2 in phase 1; a 7702 delegate is a phase 2 candidate; no 4337 smart wallets on the trade path.
+
+## Intent terms, exit guarantee, availability (D59–D61)
+
+- Intents carry a maximum amount and a minimum rate; execution may use less and always passes a tighter fresh-quote minimum (D59).
+- Stops default to exit guarantee: if a gap-down beats the signed floor, the server re-signs at the current quote under policy caps (D60).
+- Execution runs leader/standby with lease + fencing; firing dedupe and the executor nonce ledger live in a regional Postgres per chain (D61).
 
 ## Nonces (D32)
 
