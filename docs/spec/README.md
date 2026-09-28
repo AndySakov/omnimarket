@@ -17,10 +17,11 @@ OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live 
 | [execution.md](execution.md) | Submission paths, signing, nonces, gas, tracking | Draft |
 | [triggers.md](triggers.md) | Order catalogue, event triggers, copy trading | Draft |
 | [data.md](data.md) | Stores, keys, Kafka topics, retention, snapshots | Draft |
+| [slas.md](slas.md) | Latency targets and per-step budgets | Draft |
 | [verification.md](verification.md) | Results of checking every (verify) marker, with sources | Living |
 | [decisions.md](decisions.md) | Decision log — what we chose, what we rejected, why | Living |
 
-Planned: `infra.md`, `slas.md`, `loadtest.md` (k6 + custom usage scenarios against shadow execution).
+Planned: `infra.md`, `loadtest.md` (k6 + custom usage scenarios against shadow execution).
 
 Talking points: [../highlights.md](../highlights.md), the design choices worth explaining to others.
 

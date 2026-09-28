@@ -20,6 +20,8 @@ The order engine lives inside each Chain Engine (D6): orders are durable in Post
 
 All firings go through the exactly-once path (D35) and fire instantly on the display price (D20).
 
+**Arming signs the intent (D42):** creating an order signs its intent (exact amount, minimum output, expiry); editing an order re-signs it. Firing needs no user signature. Copy trades are the exception (amount unknown until the leader trades).
+
 ## Supporting data
 
 - **Cost basis** per position from its own fills.

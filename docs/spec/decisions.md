@@ -274,6 +274,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 ## D16 — RPC: Chainstack primary, QuickNode fallback, per-block streams
 
+*(Amended by D44: production also runs our own Base node.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (numbers **(verify)** by measurement)
 
 **Decision:**
@@ -429,6 +431,8 @@ Chart candles are built from actual swap prices (the universal convention), not 
 
 ## D22 — Recompute cadence: prices and triggers on every update, screens throttled
 
+*(Amended by D43: client pushes use a leading-edge throttle at 20/s.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -520,6 +524,8 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 ---
 
 ## D26 — Our own router contract, immutable, approvals via Permit2
+
+*(Amended by D42: the router executes signed intents submitted by our executor wallets.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -656,6 +662,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D31 — One signature on the hot path: per-position Permit2 allowances + fire-ready orders
 
+*(Superseded by D42: intents replace per-position allowances; fire-ready preparation carries over.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D26)
 
 **Decision:**
@@ -679,6 +687,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D32 — Nonces: per-wallet sequencer, durable nonce ledger, gap watchdog
+
+*(Amended by D42: sequential nonces now belong only to our executor wallets; user intents use Permit2's unordered nonces.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -704,6 +714,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D33 — Priority fees by situation, tracking live tips per chain
+
+*(Amended by D42: gas is paid by executor wallets and recovered from the trade.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -945,3 +957,116 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Each store does what it's good at. The hot path never waits on any of them: engines and execution hold what they need in memory and write in the background.
 
 **Consequence:** Postgres and ClickHouse schemas are written when we switch to build mode; this decision fixes ownership and keys, not columns.
+
+---
+
+## D42 — Intent-based execution: users sign intents, our executor wallets submit
+
+**Date:** 2026-09-28 · **Status:** Decided (supersedes D31; amends D26, D32, D33)
+
+**Decision:**
+- **User wallets never send trades.** Each trade is a signed **intent** (a Permit2 witness transfer): exact input token and amount, output token, minimum output, deadline, recipient = the user's own wallet. One Privy signature per trade, whatever the payment token.
+- **Trigger intents are signed when the order is created.** A stop-loss is "sell exactly N for at least (stop price − slippage), valid until the order's expiry". When it fires, no user signature is needed.
+- **Executor wallets submit.** A pool of executor wallets per chain, keys held by our own `Signer` (local encrypted keystore / KMS, D4), signs and sends the transaction in-process (< 1ms). Firings are spread across executors, so a cascade isn't serialised behind one nonce sequence.
+- **The router verifies the intent** (signature, terms, deadline, Permit2 unordered nonce), pulls exactly the signed amount, swaps along the route the executor supplies, enforces `minOut`, and sends the output to the user.
+- **Gas** is paid by the executor and recovered in the same transaction from the trade (alongside the D28 fee). Users never need to hold ETH/BNB for gas.
+- **Wrapped native balances.** Permit2 can't move native coin, so deposits of ETH/BNB are auto-wrapped to WETH/WBNB (a background transaction from the user's wallet). Sells can unwrap on output if the user wants native.
+- **Permit2 approval per token** is sent from the user's wallet in the background: for WETH/WBNB and stablecoins at wallet setup, and for each new token right after the buy lands (so auto-armed TP/SL are live within about one block).
+- **Copy trades** can't be pre-signed (the amount is unknown until the leader trades) and take one Privy signature at copy time.
+- **Privy policy** is narrowed to signing Permit2 intents for our router (plus the background approve/wrap transactions).
+
+**Rejected:**
+- *Per-position standing allowances (D31).* One signature for sells, but token-paid buys still need two, and allowances stay open for days.
+- *EIP-7702 delegation.* Removes permits, but hands broad power to delegated code; smart accounts were already set aside in D3.
+- *Standing allowance to executors without intents.* No per-trade user signature at all, but a compromised executor key could then trade user funds at any price.
+
+**Why:**
+- Trigger path loses the Privy round trip entirely (~130ms → ~15–30ms internal).
+- Every trade is one signature; no standing allowances; no per-user nonce gaps.
+- Executor keys hold only gas money: with them an attacker can execute only intents users already signed, on the signed terms.
+- Same model as UniswapX, CoW Swap and 1inch Fusion; unlike Trojan or Maestro, whose user wallets send transactions themselves.
+
+**Consequence:**
+- D32's nonce ledger and gap watchdog now manage executor wallets only; executors are funded from treasury and topped up automatically.
+- D33's tip policy is unchanged, but the executor pays and recovers it.
+- The executor can technically fire a trigger early, never below the signed minimum; the same trust users already place in delegated signing. Every firing is logged with the price that crossed.
+- Router contract grows intent verification: more fuzz and invariant tests (output always to the signer, never more than the signed amount pulled, deadline enforced).
+- `triggers.md`: arming an order includes signing its intent; editing an order re-signs.
+
+---
+
+## D43 — Free latency levers: co-location per chain, persistent submission, faster screen ticks
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D22)
+
+**Decision:**
+- **Co-location:** each chain's engine and execution run in the cloud region nearest that chain's sequencer or builders (engines are already per chain, D6). Execution also sits close to Privy's nearest signing region.
+- **Persistent submission:** transactions are sent over already-open WebSocket connections to every endpoint at once (first wins), not new HTTP requests. On Base, also directly to the sequencer's endpoint **(verify)**.
+- **Warm connections** to Privy, providers and builders; no per-request TLS or DNS.
+- **Screen ticks:** leading-edge throttle at 20/s per token, with delta encoding (a change is sent immediately unless one went out in the last 50ms; otherwise held and merged).
+
+**Why:** Each removes latency for no extra spend.
+
+**Consequence:** Multi-region deployment → `infra.md`. Tick → client target returns to ≤ 100ms p99.
+
+---
+
+## D44 — Production runs our own Base node
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D16)
+
+**Decision:** Production runs a Base node (reth with Flashblocks, per Base's node repo) next to the Base engine. It takes the Flashblocks feed directly, serves local simulation (< 5ms), state reads and pending `getLogs`, and backs the reconciler. Chainstack/QuickNode remain as fallback. Dev and staging stay on free tiers (D17).
+
+**Rejected:**
+- *Providers only* (D16's original stance). Every simulation and state read is a network round trip, and Flashblocks arrive via an extra hop.
+
+**Why:** The largest remaining latency and RPC-cost lever: removes a hop from ingestion, makes simulation local, and cuts most of Base's request volume from the paid plan.
+
+**Consequence:**
+- ~$150–250/mo for a dedicated machine (16+ cores, 4TB+ NVMe), plus node operations (upgrades, resyncs, monitoring).
+- Same move for BNB and MegaETH is evaluated after launch (MegaETH replica node availability still unknown).
+
+---
+
+## D45 — Rust is the lead candidate for engines and execution
+
+**Date:** 2026-09-28 · **Status:** Leaning (final in build mode)
+
+**Decision:** The Chain Engine and Execution service are planned in Rust. Cold-path services (candles, history job, API) are chosen per service in build mode.
+
+**Why:** p99 targets are dominated by tail latency, and garbage-collection pauses are the usual cause of p99 spikes in Go or Java. The EVM tooling is strong in Rust too (reth, alloy, revm for local simulation).
+
+**Consequence:** Confirmed or revised when we switch to build mode.
+
+---
+
+## D46 — Latency targets: measured internally, budgeted per step
+
+**Date:** 2026-09-28 · **Status:** Decided (hardens product.md's draft targets)
+
+**Decision:**
+- **Two clocks:** *internal latency* (our engine receives the event or request → broadcast) is what targets measure. *End-to-end* (chain timestamp → broadcast) is reported, not targeted, since provider delivery is outside our control.
+- **Targets (p99):**
+
+| Metric | Draft (product.md) | Target |
+|---|---|---|
+| Price move → trigger broadcast (internal) | ≤ 300ms | **≤ 50ms** |
+| Click → broadcast | ≤ 150ms | **≤ 100ms** (any payment token) |
+| Quote latency | ≤ 25ms | **≤ 10ms** |
+| Price tick → client | ≤ 100ms | ≤ 100ms |
+| Indexer lag | ≤ 1 block (Base/BNB), ≤ 250ms (MegaETH) | unchanged |
+| Engine recovery / failover | — | < 10s / ≤ 5s (D40) |
+| Trigger firing | — | exactly once: zero duplicates, zero missed (D35) |
+| Quote accuracy | — | < 0.1% shadow-check mismatches (D21) |
+| Concurrent orders | 100k | 100k per chain |
+
+- **Trigger path does not wait on simulation**, except where it's local (Base node, < 5ms). The signed minimum output bounds the outcome; a revert costs only executor gas and is retried per D34. Manual trades keep simulation in parallel with the Privy signature.
+- **Measurement:** every trade carries per-step timestamps as a trace; Prometheus + Grafana (free, D17) chart p99 per step.
+
+**Rejected:**
+- *Keep the draft targets.* After D42–D44 they'd hide regressions behind 5–10× headroom.
+- *Target end-to-end latency.* Mixes provider delay we can't control into our numbers.
+
+**Why:** Targets close to the budgets make regressions visible, and step-level traces point straight at the cause.
+
+**Consequence:** Amends D34 (simulation is non-blocking on the trigger path). Budgets per step → `slas.md`; load scenarios that exercise them → `loadtest.md`.
