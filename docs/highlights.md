@@ -150,6 +150,11 @@ Leader swaps are spotted in the pool events we already stream, so on Base and Me
 ### Launchpads are first-class venues (D36)
 On BNB most new memecoins start on a four.meme bonding curve, not a DEX pool. We price and trade the curve directly, and the moment it graduates, the new PancakeSwap pool is already active, so there's no gap in pricing and the "buy on migration" trigger has something to fire on.
 
+## Data
+
+### Reorgs are new versions, not deletes (D41)
+ClickHouse rows are keyed by (chain, block hash, log index) and carry a status and a version. A correction inserts a newer version (including "removed" for reorged-out events) and the table keeps the latest. Backfills can restart and overlap the live feed without duplicates, and nothing is ever mutated in place.
+
 ## Testing & operations
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)

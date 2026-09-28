@@ -907,3 +907,41 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 - Snapshot storage and format (versioned, compressed) → `data.md`.
 - Kafka pool-update retention must cover at least the snapshot interval plus recovery time (already exceeded by D12's finality requirement).
 - Failover drills (kill the primary under load) belong in `loadtest.md`.
+
+---
+
+## D41 — Data layout: Postgres for money state, ClickHouse for history, Kafka topics, object storage for snapshots
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+
+| Store | Holds |
+|---|---|
+| **Postgres** (one cluster, primary + read replica, tables keyed by chain) | Users, wallets, follows; orders and firings (D35); nonce ledger (D32); positions and cost basis (D37); token metadata: dev wallet, supply, safety results (D29); trailing highs (D39) |
+| **ClickHouse** | Swaps, pool events, candles (1s / 1m / 5m / 1h), 30-day backfill (D15), routing decision logs (D25), execution outcomes |
+| **Kafka** | Everything engines and execution publish (D6) |
+| **Object storage** (MinIO in dev/staging, D17) | Engine snapshots (D40): versioned, compressed, last 10 per chain |
+
+**ClickHouse reorg handling:** rows keyed by (chain, block hash, log index), so re-inserts are harmless. Each row has a status (provisional → confirmed → final → or removed) and a version; `ReplacingMergeTree` keeps the latest. Candles are built live by a candle service reading swaps from Kafka, stored in ClickHouse, and rebuilt for any window a correction touches.
+
+**Kafka topics** (Protobuf, schemas versioned in the repo, no registry service):
+
+| Topic | Key | Retention |
+|---|---|---|
+| `pool-updates.<chain>` (before + after) | pool | ≥ 24h |
+| `swaps.<chain>` | pool | 7 days |
+| `prices.<chain>` | token | 24h |
+| `corrections.<chain>` | block | 7 days |
+| `executions.<chain>` | wallet | 30 days |
+
+**Retention:** candles forever; raw swaps from the 30-day backfill onward, with downsampling past 90 days an option if storage cost grows.
+
+**Rejected:**
+- *One Postgres per chain.* Users hold wallets on all three chains; splitting scatters one user's data.
+- *Delete-and-rewrite on reorg in ClickHouse.* Mutations are expensive there; versioned inserts are the idiomatic path.
+- *Schema registry service.* One more thing to run; schemas in the repo give the same compatibility checks in CI.
+
+**Why:** Each store does what it's good at. The hot path never waits on any of them: engines and execution hold what they need in memory and write in the background.
+
+**Consequence:** Postgres and ClickHouse schemas are written when we switch to build mode; this decision fixes ownership and keys, not columns.
