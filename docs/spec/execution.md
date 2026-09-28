@@ -1,6 +1,6 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30–D31.
+**Status:** Draft. Decisions: D8, D30–D32.
 
 One Execution service per chain (D8): build → simulate → sign → submit → track. Sole owner of every wallet's nonce on its chain. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
 
@@ -20,12 +20,19 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 - Armed triggers are fire-ready: calldata layout, gas estimate and allowance prepared. At fire time: fresh quote → next nonce from memory → one signature → submit.
 - Nonces are never reserved per order (an unused reserved nonce blocks the wallet).
 
+## Nonces (D32)
+
+- Per-wallet sequencer with an in-memory counter (no RPC call per trade).
+- Durable nonce ledger: `assigned → signed → submitted → landed | replaced | filled`, compare-and-set writes, terminal states final. Recovery source for restarts and the standby.
+- Gap watchdog: not landed within a few blocks → same nonce, higher fee; stale → 0-value self-transfer filler.
+- Re-sync from chain on startup, failover, or nonce errors. Cap 5–10 in flight per wallet.
+
 ## Open questions
 
 Biggest first:
 
 1. ~~Signing latency~~ → **decided (D31).** Still to measure: Privy latency per region.
-2. **Nonces.** Proposed: per-wallet sequencer; gap watchdog (re-send same nonce with higher fee, or cancel with a 0-value self-transfer); re-sync from chain on startup, failover, or nonce errors; cap of 5–10 in flight per wallet.
+2. ~~Nonces~~ → **decided (D32).**
 3. **Gas and priority fees.** Per chain and per situation (reuse D25 order-origin cues).
 4. **Tracking and failure handling.** Stuck, dropped, reverted; replace and cancel.
 5. **Exactly-once trigger firing** across engine → execution (D8).

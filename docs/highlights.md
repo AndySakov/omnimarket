@@ -120,6 +120,10 @@ On BNB, the same signed transaction goes to several private block builders in pa
 Everything that can be prepared before a trigger fires is prepared: the allowance is signed when the position opens, the transaction layout and gas estimate are cached, and the nonce comes from an in-memory counter. At fire time: fresh quote, one signature, send.
 - **Say it as:** "When your stop fires, the only work left is one signature."
 
+### A nonce ledger that survives crashes and unblocks itself (D32)
+Nonces come from an in-memory counter (no RPC call per trade), but every assigned nonce is also recorded in a durable ledger with compare-and-set status writes. If a transaction is dropped, a watchdog re-sends it with a higher fee or burns the nonce with a 0-value self-transfer so the wallet isn't stuck.
+- **Say it as:** "Fast like a counter, recoverable like a ledger, and a dropped transaction never freezes a wallet."
+
 ## Testing & operations
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)

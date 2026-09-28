@@ -675,3 +675,28 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 - D26's "no standing permission" becomes "no *open-ended* permission".
 - Measure Privy signing latency per region early; it's the largest unknown in the 300ms trigger budget.
 - Allowance renewals and revocations (position closed → allowance set to zero) are background jobs with their own signing budget.
+
+---
+
+## D32 — Nonces: per-wallet sequencer, durable nonce ledger, gap watchdog
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Per-wallet sequencer.** Inside each chain's execution service (the sole sender, D8), every wallet has a queue that assigns nonces strictly in order from an in-memory counter.
+- **Durable nonce ledger.** Every assigned nonce is recorded with its status: `assigned → signed → submitted → landed | replaced | filled`. Status writes are compare-and-set, and terminal states are never overwritten. The ledger is what a restarted instance or the standby recovers from.
+- **Gap watchdog.** A nonce submitted but not landed within a few blocks is re-sent with the same nonce and a higher fee. If its purpose has gone stale (e.g. its quote expired), it is replaced by a **filler**: a 0-value transfer to self that uses up the nonce so later transactions can land.
+- **Re-sync.** On startup, failover, or any "nonce too low / too high" error, the wallet's count is re-read from the chain (`pending` tag) and reconciled against the ledger before anything else is sent.
+- **In-flight cap.** At most 5–10 unlanded transactions per wallet, so one stuck transaction can't strand a long queue.
+
+**Rejected:**
+- *Ask the RPC node for the nonce each time.* A round trip per trade, and wrong as soon as two transactions are in flight.
+- *Reserve nonces per armed order.* Freezes the wallet if the order never fires (D31).
+- *In-memory counter only.* Fast, but a crash or failover loses track of what was sent.
+
+**Why:** The counter keeps the hot path free of RPC calls; the ledger makes it survive crashes and failover; the watchdog keeps a dropped transaction from blocking a wallet.
+
+**Consequence:**
+- Where the ledger lives (Postgres, per chain) and its write latency on the hot path → `data.md`. Writing `assigned` must not add a network round trip before signing (write-behind, recovered by chain re-sync if lost).
+- Filler and re-send costs are gas the platform pays; logged per chain.
+- Local forks (D5) test nonce gaps, drops, and failover explicitly.
