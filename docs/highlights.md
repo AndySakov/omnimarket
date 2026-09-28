@@ -11,8 +11,8 @@ Every chain has one in-memory engine that holds live pool state and does pricing
 - **Why it's non-obvious:** event-driven designs usually put the broker in the middle of everything. Here that would add broker hops and consumer lag exactly where latency matters.
 - **Say it as:** "Kafka is the system of record and fan-out, not the hot path."
 
-### Execution is a separate service, with one owner per nonce (D8)
-Slow, failure-prone I/O (signing, RPC submission) lives outside the pricing loop, one sub-millisecond gRPC hop away. Each trigger firing carries a unique ID, so retries can't double-execute.
+### Execution is a separate service (D8, D42)
+Slow, failure-prone I/O (simulation, submission) lives outside the pricing loop, one sub-millisecond gRPC hop away. It owns the executor wallets and their nonces. Each trigger firing carries a unique ID, so retries can't double-execute.
 - **Say it as:** "The engine decides, execution acts, and a firing ID makes it exactly-once."
 
 ### Phase 1 is built so phase 2 is half done (D7)
@@ -47,7 +47,7 @@ Undo is tiered:
 No new storage system was needed for deep reorgs.
 
 ### Stream per block, not per event (D16)
-RPC providers bill every WebSocket push. Subscribing to one message per block (Base Flashblocks payloads, BNB headers plus one `getLogs`) instead of one per swap turns a cost that grows with trading volume into a fixed one. That's an estimated 5–10× cheaper.
+RPC providers bill every WebSocket push. Subscribing to one message per block (a Base Flashblocks tick plus one pending `getLogs`, BNB headers plus one `getLogs`) instead of one per swap turns a cost that grows with trading volume into a fixed one. That's an estimated 5–10× cheaper.
 - **Say it as:** "We shaped the data feed around the provider's billing model."
 
 ### Free tiers are chaos engineering for free (D17)

@@ -122,6 +122,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 
 ## D8 — Execution: separate service per chain, called directly by the engine
 
+*(Amended by D42: the service owns executor wallets and their nonces; user wallets sign intents rather than transactions.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Each chain has an Execution service (build → simulate → sign → submit → track) that the Chain Engine and the API call directly over gRPC. It is the single owner of every wallet's nonce on its chain. It publishes execution outcomes to Kafka for the cold path.
@@ -155,6 +157,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 ---
 
 ## D10 — Tip following: fastest stream per chain + canonical block reconciler
+
+*(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
