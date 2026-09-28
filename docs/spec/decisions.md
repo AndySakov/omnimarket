@@ -319,3 +319,165 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 - Config must make provider endpoints swappable per environment (free → paid is a config change, not code).
 - Free tiers rate-limit and drop connections more often, so dev and staging exercise the failover and gap-fill paths (D10, D16) constantly. That's a feature, but it means flakiness there isn't automatically a bug.
 - Load tests large enough to exceed free quotas are the likely first exception; they buy the D16 production plan early rather than a separate staging plan.
+
+---
+
+## D18 — Three prices; display price is the liquidity-weighted mid
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Each token has three distinct prices, each with one job.
+
+| Price | Used for | Definition |
+|---|---|---|
+| **Display** | UI ticker, token pages, PnL marks, fair price (D7) | Liquidity-weighted mid across the token's active pools above the liquidity floor (D11). A single-pool token gets that pool's price. |
+| **Trigger** | Stop-loss, take-profit, limit orders | The display price itself, evaluated instantly (D20). |
+| **Execution** | What a trade actually gets | Router quote at the trade's size. Never a "price". |
+
+Chart candles are built from actual swap prices (the universal convention), not from the mid. The token page also shows the main (deepest) pool's price so users comparing with DexScreener can see where any gap comes from.
+
+**Rejected:**
+- *Last trade price.* Flickers, and anyone can move it with one odd swap on a tiny pool.
+- *Deepest pool only.* The industry default (Uniswap's subgraph, DexScreener-style pair pages) and identical to our choice for single-pool tokens. Rejected for multi-pool tokens because the price jumps when the deepest pool changes, unless we add switch hysteresis.
+- *Volume- or time-weighted average (VWAP/TWAP).* Manipulation-resistant, as oracles and CoinGecko use, but lags by design and can't price a pool before it trades. May reappear inside the trigger price.
+- *Median of pools.* Meaningless with one or two pools, which covers most memecoins.
+- *Best executable quote.* Depends on size, and costs a routing pass per update at MegaETH rates.
+- *One price for everything.* Perpetual exchanges split display (last) from risk (mark) for a reason: a display price that stop-losses fire on can be hunted.
+
+**Why:** Fresh at millisecond speed, costs one in-memory recompute per pool update, smooth when liquidity moves between pools, and harder to move than any single pool.
+
+**Consequence:**
+- Every stop-loss explanation must be showable on the chart: the UI can draw the trigger price alongside the display price.
+- Pools below the liquidity floor don't count toward the weighted mid. If a token has *no* pool above the floor, it is priced from its deepest pool and flagged **thin** in the UI (amended by D20, which keeps triggers working on new memecoins). → `pricing.md`
+
+---
+
+## D19 — USD conversion: fixed reference pools, stablecoins pinned unless they diverge
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Path to USD:** each chain has a small, fixed set of reference pools: the deepest native/stablecoin pools (e.g. WETH/USDC, WETH/USDT on Base and MegaETH; WBNB/USDT, WBNB/USDC on BNB). The native token's USD price is their liquidity-weighted mid (same method as D18). A token's USD price = its price in its quote asset × that quote asset's USD price.
+- **Stablecoins:** pinned at $1 while the chain's reference stablecoins stay within ~0.5% of each other. If they diverge past that, the engine prices each stablecoin from its pools against the others, and the UI shows a depeg warning.
+
+**Rejected:**
+- *Best-path search per token.* Flexible, but slower, and every extra hop is another pool a manipulator can lean on.
+- *Always pin at $1.* Simplest, and what most terminals appear to do, but during a depeg (USDC, March 2023) every price on the platform is quietly wrong.
+- *Always float stablecoins.* Honest, but adds noise to every price for a case that is rare.
+
+**Why:** A fixed reference set keeps conversion cheap (one multiply per update) and hard to manipulate, because reference pools are the deepest on the chain. The divergence check costs almost nothing and catches the rare depeg.
+
+**Consequence:**
+- Reference pool lists are per-chain config, reviewed when liquidity moves. The tokens that quote everything else (quote assets) are limited to the native token and the reference stablecoins in phase 1. A token paired only with some other token is unpriced until promoted into that set **(verify coverage on each chain)**.
+- A change in native/USD reprices every token on the chain at once; the recompute path must handle that fan-out (→ recompute cadence question).
+
+---
+
+## D20 — Triggers: Trojan-style, instant on the display price
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Match what Trojan ships. Trigger orders evaluate the display price (D18) and fire the moment the level is hit, on provisional state, with no persistence window or smoothing.
+- **Trigger types:** price, market cap (price × supply), or ± % change from entry; trailing stop-loss (% below the highest price since the order was created); optional expiry.
+- **Execution guard:** each order carries a slippage limit (user-set, sensible default; Trojan defaults to 15%). That's the only protection between trigger and fill.
+- **Thin tokens:** triggers work on tokens with no pool above the liquidity floor (priced from the deepest pool, flagged thin), because new memecoins are exactly where users set stops.
+
+**Rejected:**
+- *Persistence window (~300ms) by default, fast mode opt-in.* Harder to stop-hunt, but slower than the product we're modelling, and an extra concept to explain.
+- *Smoothed "mark price" (perps style).* Lags in real crashes; users can't see why an order fired.
+- *Confirmed blocks only.* Adds a full block (1–2s) and throws away the fast stream (D10).
+
+**Why:** Parity with the reference product. Speed is what memecoin traders pay for, and they accept wick risk. The slippage limit bounds the damage of a bad fill.
+
+**Consequence:**
+- Stop hunting on thin pools is a known, accepted risk. The UI states that triggers fire on the live price.
+- The ≤300ms price move → broadcast target (product.md) stands as written.
+- Market-cap triggers need a supply figure per token (total supply at bootstrap, tracked via mint/burn if it changes). → `triggers.md`
+- Trojan's event triggers (e.g. bonding-curve migration, dev sell) and scheduled orders are candidates for `triggers.md`, not decided here.
+- Protected mode (persistence window) stays a possible later addition; the engine should keep the trigger rule pluggable per order.
+
+---
+
+## D21 — Quotes computed in memory; simulation only for opaque venues
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Every pool type we can model is quoted by in-memory math that reproduces the contract exactly, including its integer rounding. Simulation against chain state is used only for venues we can't model (opaque v4 hooks per D14, and later prop AMMs). A background **shadow check** samples live quotes, simulates the same swap on-chain, and alerts on any mismatch.
+
+| Pool type | Chains | Math |
+|---|---|---|
+| Uniswap v2 + forks (PancakeSwap v2) | All | Constant product, fee on input |
+| Uniswap v3 + forks (PancakeSwap v3) | All | Concentrated liquidity, tick walk |
+| Uniswap v4 standard | All | v3 math, singleton PoolManager |
+| Uniswap v4 hooks | All | Per hook: modelled, or opaque → simulated (D14) |
+| Aerodrome volatile / stable | Base | Constant product / stable curve (x³y + y³x) |
+| Aerodrome Slipstream | Base | v3-style concentrated liquidity |
+| MegaETH venues | MegaETH | Kumbaya (largest by TVL) and Algebra-based pools **(verify which forks and fee models)** |
+
+**Rejected:**
+- *Simulate every quote.* Always exactly right, but an RPC round trip per quote (milliseconds, and D16 budget) where in-memory takes microseconds. Can't keep up with triggers and routing at MegaETH rates.
+
+**Why:** Industry standard for terminals and routers. The router explores many route options per quote; only in-memory math makes that affordable.
+
+**Consequence:**
+- Each pool type needs a quoter whose results match the contract to the wei, tested against on-chain simulation (fork tests in CI; D17 keeps them free).
+- Shadow-check mismatch rate is a monitored SLA line; a pool type that drifts is demoted to simulated until fixed.
+- Fee-on-transfer and rebasing tokens break reserve math; they need detection (from the safety check) and quoting by simulation. → `routing.md`
+
+---
+
+## D22 — Recompute cadence: prices and triggers on every update, screens throttled
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Token price and trigger evaluation:** on every pool update, no batching. Triggers are kept in levels sorted per token, so an update only checks orders between the old and new price.
+- **Client pushes:** throttled per token (default ≤10/s, latest value wins). The ≤100ms tick → client target still holds.
+- **Quote-asset moves (e.g. ETH/USD):** trigger levels are stored in the pool's quote asset. A quote-asset price change converts the USD levels at the new rate and checks only orders between the old and new converted boundary, instead of repricing every token and scanning every trigger.
+
+**Rejected:**
+- *Coalesce per mini-block / block.* Saves a little CPU, adds up to a block of delay to triggers (D20 is instant).
+- *Push every update to clients.* Up to ~100 messages/s per token on MegaETH that nobody can read, multiplied by every subscriber.
+- *Eagerly reprice all tokens on a quote-asset move.* Thousands of recomputes and trigger scans per ETH tick, almost all of which fire nothing.
+
+**Why:** Spend work only where speed changes an outcome (triggers), and cap it where it doesn't (human eyes).
+
+**Consequence:**
+- Trigger index is keyed by (token, quote asset, level) with a USD view derived from quote-asset price. → `triggers.md`
+- Display-price consumers that need USD (UI, PnL) compute it lazily from quote price × quote-asset USD price.
+
+---
+
+## D23 — Fair price: display price, or cross-chain weighted for a curated asset list
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- A single-chain token's fair price is its display price (D18).
+- Assets on several chains (phase 1 list: ETH/WETH, BNB/WBNB, USDC, USDT, wrapped BTC) get a liquidity-weighted average of their per-chain display prices, weighted by ±2% depth (D24).
+- Which contracts are "the same asset" comes from a hand-maintained address map, never from names or symbols.
+- A small aggregator consumes each chain's price updates from Kafka and publishes the fair price.
+
+**Rejected:**
+- *Match assets by symbol.* Trivially spoofed by copycat tokens.
+- *Aggregator inside each Chain Engine (cross-engine calls).* Couples engines that D6 keeps independent, for consumers (UI, PnL) that tolerate milliseconds of Kafka lag.
+
+**Why:** Covers D7's phase 1 requirement with the smallest possible surface. Nearly every token users trade is single-chain.
+
+**Consequence:** Phase 2's prop AMM needs a lower-latency fair-price feed than Kafka; that design belongs to phase 2 (D7: phase 1 does no phase 2 work).
+
+---
+
+## D24 — Liquidity measure: ±2% depth in USD
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** A pool's liquidity is its **±2% depth**: the USD value that can be traded before its price moves 2% (buy side + sell side). Used for display-price weighting (D18), fair-price weighting (D23), and the D11 liquidity floor.
+
+**Rejected:**
+- *Total value locked.* Counts v3/v4 liquidity parked far from the current price, which does nothing for trades today.
+- *Active-tick liquidity only.* Too narrow: one tick can be empty while the next is deep.
+
+**Why:** The standard depth measure on crypto data sites (e.g. CoinGecko's ±2% order-book depth). Works identically across v2, v3, v4 and Aerodrome, so pools of different types compare fairly.
+
+**Consequence:** Computed in memory from reserves or ticks, refreshed on mint/burn and whenever price crosses a tick. D11's liquidity floor is expressed in ±2% depth per chain (value still TBD in tuning).
