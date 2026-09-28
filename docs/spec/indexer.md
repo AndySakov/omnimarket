@@ -58,8 +58,8 @@ Undo tiers: **hot** (memory, provisional + ~10s) → **warm** (Kafka before/afte
 
 | Environment | Provider |
 |---|---|
-| Development | Free tiers + public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint) |
-| Load tests, launch | Chainstack Pro (~$199/mo) primary · QuickNode Build (~$49/mo) failover |
+| Dev, CI, staging (D17) | Free tiers + public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint) |
+| Production (and load tests that exceed free quotas) | Chainstack Pro (~$199/mo) primary · QuickNode Build (~$49/mo) failover |
 
 Estimated load after per-block streams, per month **(verify)**:
 
@@ -74,7 +74,7 @@ Before paying: measure real event rates per chain, and confirm per-event WebSock
 
 ## History job (D15)
 
-Custom: the reconciler's `getLogs` loop pointed at past block ranges, writing idempotently into ClickHouse (keyed by chain, block hash, log index) so backfill can restart and overlap the live feed.
+Custom, 30 days of backfill per chain at launch: the reconciler's `getLogs` loop pointed at past block ranges, writing idempotently into ClickHouse (keyed by chain, block hash, log index) so backfill can restart and overlap the live feed.
 
 ## Open questions
 
@@ -82,4 +82,4 @@ Custom: the reconciler's `getLogs` loop pointed at past block ranges, writing id
 - ~~Uniswap v3 tick bootstrap cost~~ → **decided (D13): batched reads** (multicall / lens-style). Implementation details deferred.
 - ~~Uniswap v4 hooks~~ → **decided (D14): full support** in phase 1. Hook pools whose math can't be replicated are quoted by simulation (opaque venue type, which is now a phase 1 requirement).
 - ~~RPC providers & budget~~ → **decided (D16):** Chainstack Pro primary, QuickNode fallback, per-block streams.
-- ~~History job: build vs managed~~ → **decided (D15): build.** Still open: **backfill depth** per chain.
+- ~~History job: build vs managed~~ → **decided (D15): build**, backfilling **30 days** per chain at launch.

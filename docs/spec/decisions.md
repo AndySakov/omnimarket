@@ -258,7 +258,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 ## D15 — History job: build it ourselves
 
-**Date:** 2026-09-28 · **Status:** Decided (backfill depth open)
+**Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** The history job (D9) is custom: the same `getLogs` loop as the reconciler, run over past block ranges, writing replay-safe into ClickHouse.
 
@@ -268,7 +268,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 **Why:** Rule for build vs buy: if a managed service costs extra money, build. Here building costs almost nothing extra: it reuses reconciler code and runs on the RPC plan we pay for anyway (D16). It also covers skills worth having: backfill throughput, the backfill → live hand-off, and idempotent writes.
 
-**Consequence:** ClickHouse writes must be idempotent (keyed by chain, block hash, log index) so backfills can restart and overlap the live feed. Backfill depth is still a product choice. → `indexer.md`, `data.md`
+**Consequence:** ClickHouse writes must be idempotent (keyed by chain, block hash, log index) so backfills can restart and overlap the live feed. **Backfill depth: 30 days per chain at launch**, enough for charts, volume, and PnL on actively traded tokens; deeper backfills can run later without design changes. → `indexer.md`, `data.md`
 
 ---
 
@@ -278,7 +278,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 **Decision:**
 - **Development:** free tiers and public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint).
-- **Load tests and launch:** Chainstack Pro (~$199/mo, all three chains) as primary; a QuickNode Build key (~$49/mo) as failover on a separate provider.
+- **Production (and any load test that free quotas can't carry, per D17):** Chainstack Pro (~$199/mo, all three chains) as primary; a QuickNode Build key (~$49/mo) as failover on a separate provider.
 - **Fast-loop streams are one message per block, not one per log, wherever the chain allows** (amends D10):
 
 | Chain | Fast stream | Notifications/month |
@@ -301,3 +301,21 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 - Before paying: verify on each pricing page the per-event cost for WebSocket pushes, and that Chainstack serves MegaETH mini-block `logs`.
 - The engine needs a provider abstraction with failover per chain (primary → fallback), and the reconciler fills any gap left by a switch.
 - Base: the raw Flashblocks feed carries receipts (logs) in its `metadata` object, which Base marks as unstable. **(verify)** that the provider's `newFlashblocks` subscription returns logs in a stable shape; if not, fall back to filtered `pendingLogs` (per-log billing) for Base.
+
+---
+
+## D17 — Dev and staging run on free resources where possible
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Every non-production environment (local dev, CI, staging, shadow-mode load tests) uses free resources by default: free RPC tiers and public endpoints, free service tiers, self-hosted open-source components (Kafka, ClickHouse, Postgres in containers), and local forks. A paid resource enters dev or staging only when a free option can't do the job, and the reason is recorded here.
+
+**Rejected:**
+- *Mirror production (paid) in staging.* Most realistic, but doubles the bill for an environment that mostly runs idle.
+
+**Why:** Spend goes where it buys something: production reliability and the real-funds demos (D5). Free tiers' limits are also useful pressure: they force the batching (D13) and per-block streaming (D16) work to be done early.
+
+**Consequence:**
+- Config must make provider endpoints swappable per environment (free → paid is a config change, not code).
+- Free tiers rate-limit and drop connections more often, so dev and staging exercise the failover and gap-fill paths (D10, D16) constantly. That's a feature, but it means flakiness there isn't automatically a bug.
+- Load tests large enough to exceed free quotas are the likely first exception; they buy the D16 production plan early rather than a separate staging plan.
