@@ -1,6 +1,6 @@
 # Triggers
 
-**Status:** Draft. Decisions: D20, D22, D35–D38.
+**Status:** Draft. Decisions: D20, D22, D35–D39.
 
 The order engine lives inside each Chain Engine (D6): orders are durable in Postgres, and the engine holds an in-memory index rebuilt from it (D35).
 
@@ -37,9 +37,14 @@ Bonding curves, starting with four.meme on BNB. Migration promotes the new Panca
 - Fan-out routed with own-flow awareness (D25). Never copy from the mempool.
 - Pools traded by followed wallets are activated immediately (D11).
 
+## Mechanics (D39)
+
+- **Multi-level TP:** % of the original position, capped at holdings; empty position cancels siblings; stop-loss sells all that remains.
+- **Trailing high-water mark:** saved write-behind on >0.5% rises; recovered as max(saved, ClickHouse 1s-candle max since the save).
+- **Limits:** 200 active orders per user, 20 per token per user.
+- **Cascades:** everything fires; priority queue (stop-loss/trailing → TP/limit → scheduled).
+
 ## Open questions
 
-1. **Multi-level TP bookkeeping:** how sibling orders resize after partial sells and manual trades.
-2. **Trailing-stop state on failover:** is the running high persisted, or rebuilt from price history?
-3. **Limits:** max orders per user, per token; behaviour at the 100k concurrent-orders target (product.md).
-4. **Kumbaya launchpad** mechanics on MegaETH **(verify)**.
+1. ~~Multi-level TP bookkeeping~~, ~~trailing-stop failover~~, ~~limits~~ → **decided (D39).**
+2. **Kumbaya launchpad** on MegaETH: it has a "Memes" launch section; whether it uses a bonding curve and how graduation works **(verify)**.

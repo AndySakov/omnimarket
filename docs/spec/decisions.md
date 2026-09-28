@@ -853,3 +853,24 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Fastest honest signal available, at no extra ingestion cost.
 
 **Consequence:** Followed wallets are a D11 promotion reason: any pool a followed wallet trades is activated immediately, so its state is ready before the copies are routed.
+
+---
+
+## D39 — Trigger mechanics: take-profit sizing, trailing-stop recovery, limits and cascades
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Multi-level take-profit:** each level sells a % of the **original** position, capped at what is held when it fires. When the position empties (manual sell-all or a stop-loss), all sibling orders are cancelled. A stop-loss always sells everything that remains.
+- **Trailing-stop high-water mark:** persisted write-behind whenever it rises by more than ~0.5%. On recovery: the higher of the saved value and the max price since that save, from ClickHouse 1s candles.
+- **Limits:** 200 active orders per user, 20 per token per user. 100k concurrent orders (product.md) is ~10MB of index per chain.
+- **Cascades:** every crossed order fires; nothing is throttled. Firings enter a priority queue: stop-loss and trailing first, then take-profit and limit, then scheduled. Own-flow awareness (D25) spreads the trades across pools with realistic prices.
+
+**Rejected:**
+- *TP levels as % of the remaining position.* "25% at 5×" would shrink after every earlier level, which isn't what users mean.
+- *Persist the high-water mark on every tick.* A write per price move for data that can be rebuilt from candles.
+- *Throttle firings in a cascade.* Delaying a stop-loss is worse than the extra load.
+
+**Why:** Matches how traders think about their orders, survives failover without per-tick writes, and keeps urgent exits first under load.
+
+**Consequence:** The 1s candle table becomes part of engine recovery, so it needs to be complete up to at least the last trailing-stop save. → `data.md`
