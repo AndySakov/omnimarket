@@ -10,15 +10,17 @@
 | Output | In-memory pool state + Kafka events | ClickHouse (swaps, pool events, candles) |
 | Needs history? | No: bootstraps from contract reads | Yes: backfill depth is a product choice |
 | Latency | ms | Can lag, can restart |
-| Build/buy | Build | Either |
+| Build/buy | Build | Build (D15) |
 
-## Tip following (D10)
+## Tip following (D10, streams amended by D16)
 
 | Chain | Fast loop (provisional) | Reconciler loop (canonical) |
 |---|---|---|
-| MegaETH | Realtime API filtered log subscription, per ~10ms mini-block | `getLogs` per ~1s EVM block |
-| Base | Flashblocks `pendingLogs`, ~200ms | `getLogs` per 2s block |
-| BNB | Log subscription per 0.45s block | `getLogs` per block, trailing |
+| MegaETH | Realtime API filtered `logs` subscription, per ~10ms mini-block | `getLogs` per ~1s EVM block |
+| Base | `newFlashblocks`, one payload per ~200ms flashblock (fallback: filtered `pendingLogs`) | `getLogs` per 2s block |
+| BNB | `newHeads` + one `getLogs` per 0.45s block | `getLogs` per block, trailing |
+
+Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16).
 
 The reconciler:
 - confirms fast-loop events (provisional → confirmed)
@@ -29,7 +31,7 @@ The reconciler:
 ## Bootstrap (D9)
 
 1. Discover pools (see open question: coverage).
-2. Pick a block N. Read each pool's state at N (`getReserves`, `slot0`, liquidity, tick data).
+2. Pick a block N. Read each pool's state at N (`getReserves`, `slot0`, liquidity, tick data), batched via multicall or a lens contract (D13).
 3. Buffer live events from subscription start; apply everything after N in order.
 4. Mark the engine ready. Only then serve quotes and evaluate triggers.
 
@@ -52,10 +54,32 @@ Promotion reuses the bootstrap procedure for a single pool: read state at block 
 
 Undo tiers: **hot** (memory, provisional + ~10s) → **warm** (Kafka before/after events, up to final) → **rebuild** (bootstrap). The cold path advances a per-chain finality watermark.
 
+## RPC providers & budget (D16)
+
+| Environment | Provider |
+|---|---|
+| Dev, CI, staging (D17) | Free tiers + public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint) |
+| Production (and load tests that exceed free quotas) | Chainstack Pro (~$199/mo) primary · QuickNode Build (~$49/mo) failover |
+
+Estimated load after per-block streams, per month **(verify)**:
+
+| Source | Requests / events |
+|---|---|
+| Fast-loop pushes | Base ~13M · BNB ~11.5M · MegaETH scales with volume |
+| Reconciler `getLogs` | ~10M |
+| Simulations (shadow mode, opaque v4 venues) | 3–25M |
+| Bootstrap + history backfill (batched) | <1M each |
+
+Before paying: measure real event rates per chain, and confirm per-event WebSocket billing and MegaETH mini-block `logs` support on the chosen provider.
+
+## History job (D15)
+
+Custom, 30 days of backfill per chain at launch: the reconciler's `getLogs` loop pointed at past block ranges, writing idempotently into ClickHouse (keyed by chain, block hash, log index) so backfill can restart and overlap the live feed.
+
 ## Open questions
 
 - **Tuning:** liquidity floor, grace window, demotion hysteresis, hot-undo window per chain
-- ~~Uniswap v3 tick bootstrap cost~~ → **decided: batched reads** (multicall / lens-style). Implementation details deferred.
-- ~~Uniswap v4 hooks~~ → **decided: full support** in phase 1. Hook pools whose math can't be replicated are quoted by simulation (opaque venue type, which is now a phase 1 requirement).
-- **RPC providers & budget:** must support MegaETH Realtime API and Base Flashblocks
-- **History job:** build vs managed, and backfill depth
+- ~~Uniswap v3 tick bootstrap cost~~ → **decided (D13): batched reads** (multicall / lens-style). Implementation details deferred.
+- ~~Uniswap v4 hooks~~ → **decided (D14): full support** in phase 1. Hook pools whose math can't be replicated are quoted by simulation (opaque venue type, which is now a phase 1 requirement).
+- ~~RPC providers & budget~~ → **decided (D16):** Chainstack Pro primary, QuickNode fallback, per-block streams.
+- ~~History job: build vs managed~~ → **decided (D15): build**, backfilling **30 days** per chain at launch.
