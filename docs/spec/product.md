@@ -63,7 +63,7 @@ An active on-chain trader who today switches between a chart site, a block explo
 
 ## Draft performance targets
 
-Placeholders to be hardened in `slas.md`. Listed now so they shape design discussions.
+Superseded by [slas.md](slas.md) (D46): trigger ≤ 50ms, click ≤ 100ms, quote ≤ 10ms, tick ≤ 100ms (p99, internal). Original drafts kept below for reference.
 
 | Metric | Draft target |
 |---|---|
@@ -77,7 +77,7 @@ Placeholders to be hardened in `slas.md`. Listed now so they shape design discus
 ## Open questions
 
 1. ~~Demo environment~~ → decided in D5 (live reads, shadow execution, real-funds proof).
-2. **Router contract:** our own on-chain router (fees, bundling approve + swap, safety checks on-chain) vs calling DEX routers directly.
+2. ~~Router contract~~ → our own immutable router executing signed intents (D26, D42).
 3. **Frontend depth:** full terminal UI vs a thin UI that exists to demo the backend.
 4. **Prop AMMs as a venue class.** Proprietary AMMs (Tessera, ElfomoFi on Base; HumidiFi-style on Solana) quote from market-maker pricing that updates several times per block, so their output can't be computed from indexed state. Supporting them means a simulation-based quote adapter with very short quote lifetimes. Relevant mainly for major-pair legs (e.g. USDC → ETH), not memecoin pools. Which chains have them: Base and BNB confirmed (BNB: e.g. LunarBase on BNB/USDT, BTCB/USDT); none found on MegaETH yet. → `routing.md`
-5. **Historical backfill:** how much history to index per chain (days vs from genesis of each DEX).
+5. ~~Historical backfill~~ → 30 days per chain at launch (D15).

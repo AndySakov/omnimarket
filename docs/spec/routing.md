@@ -1,6 +1,6 @@
 # Routing
 
-**Status:** Draft. Decisions: D25–D29.
+**Status:** Draft. Decisions: D25–D29, D42.
 
 ## Route shapes (D25)
 
@@ -44,7 +44,7 @@ Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay or
 - Our own router on every chain, same CREATE2 address.
 - One call per route: any shape from D25, `minOut` + deadline enforced, fee taken in-transaction.
 - Immutable, holds no funds between transactions (zero-balance invariant).
-- Approvals via Permit2: one-time approval to Permit2. Sells use a per-position allowance (capped, 7 days, spendable only by the wallet's own transaction; D31); other token spends use a per-trade permit. New router versions need no re-approvals.
+- Executes signed intents (D42): verifies signature, terms and deadline, pulls exactly the signed amount via Permit2, enforces `minOut`, sends output to the signer, recovers executor gas. New router versions need no re-approvals.
 
 ## Quotes & slippage (D27)
 

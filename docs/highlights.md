@@ -20,6 +20,13 @@ The terminal (taker side) is designed so a proprietary AMM (maker side) can reus
 
 ---
 
+### Recovery replays values, not history (D40)
+The engine snapshots its pool state every ~30s. On restart it loads the snapshot and replays the pool updates published to Kafka since then. Each update already carries its after-state (D12), so recovery is applying values: no RPC calls, no recomputation, back in under 10 seconds.
+
+### A standby that can't double-fire (D40)
+The standby stays warm by applying the primary's Kafka stream (no extra RPC cost, identical state). Only the holder of a short lease may fire, every firing carries the lease's epoch, and execution rejects stale epochs, so a primary that freezes and wakes up can't act. Deterministic firing IDs (D35) cover the moment of the switch.
+- **Say it as:** "Leases decide who fires, fencing stops a zombie from firing, and firing IDs make the overlap harmless."
+
 ## Indexing
 
 ### A fast stream plus a reconciler, and one correction mechanism for both (D10)
@@ -90,9 +97,9 @@ When a copied whale buys and 500 copy trades follow within milliseconds, a norma
 - **Why it's non-obvious:** an outside aggregator can't do this. Only we see our own order flow.
 - **Say it as:** "The router knows about the trades it hasn't landed yet."
 
-### A router that can't be upgraded, can't hold funds, and never gets open-ended approvals (D26, D31)
-Our router is immutable (no admin key to steal) and must end every call with a zero balance. It spends only through Permit2: per-position allowances capped at the position size, expiring in a week, and spendable only in a transaction the wallet itself sends. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
-- **Say it as:** "The contract that touches user funds has no owner, no balance, and no open-ended permission."
+### A router that can't be upgraded, can't hold funds, and only moves what users signed for (D26, D42)
+Our router is immutable (no admin key to steal) and must end every call with a zero balance. It moves user funds only against a signed intent: exact amount, minimum output, deadline, output to the signer. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
+- **Say it as:** "The contract that touches user funds has no owner, no balance, and no permission beyond the trade you signed."
 
 ### Slippage is chosen by situation, not one flat number (D27)
 Slippage is both a fill guarantee and the amount a sandwich bot can take. Defaults follow what the router already knows: 15% for new pairs, 3% for established tokens, 0.5% for majors, doubled for stop-losses that must land. The displayed quote is never executed as-is: the route is re-quoted at send time.
@@ -116,16 +123,19 @@ Every routing decision and its outcome (quoted vs filled, reverts) is logged. Sh
 On BNB, the same signed transaction goes to several private block builders in parallel. It never touches the public mempool (so it can't be sandwiched), yet it reaches most of the block-building market. Because every copy shares one nonce, it can only land once.
 - **Say it as:** "Send one transaction to every private door at once; only one can open."
 
-### One signature between a price move and a stop-loss (D31)
-Everything that can be prepared before a trigger fires is prepared: the allowance is signed when the position opens, the transaction layout and gas estimate are cached, and the nonce comes from an in-memory counter. At fire time: fresh quote, one signature, send.
-- **Say it as:** "When your stop fires, the only work left is one signature."
+### Intents: the user signs once, we do the rest (D42)
+Users never send transactions. Each trade is a signed intent ("sell exactly N for at least X before T, output to me"), and our executor wallets submit it and pay the gas, recovered from the trade. Trigger intents are signed when the order is created, so when a stop fires there is no signing round trip to the wallet vendor: the executor signs locally in under a millisecond. Executor keys hold only gas money; they can only carry out intents users already signed, on the signed terms. Same model as UniswapX, CoW Swap and 1inch Fusion, applied to a trading terminal.
+- **Say it as:** "When your stop fires, nothing needs your signature: you signed it when you set it."
+
+### From ~130ms to ~25–50ms by questioning every "fixed" cost (D42–D46)
+We re-examined each large latency item instead of accepting it: intents removed the wallet-vendor signature from triggers, persistent WebSocket submission and per-chain co-location cut network hops, and a local Base node turns simulation into a < 5ms local call. Simulation still blocks every send: speed never comes from skipping a safety check.
 
 ### A nonce ledger that survives crashes and unblocks itself (D32)
-Nonces come from an in-memory counter (no RPC call per trade), but every assigned nonce is also recorded in a durable ledger with compare-and-set status writes. If a transaction is dropped, a watchdog re-sends it with a higher fee or burns the nonce with a 0-value self-transfer so the wallet isn't stuck.
+Only our executor wallets have sequential nonces (user intents use unordered ones). Nonces come from an in-memory counter (no RPC call per trade), but every assigned nonce is also recorded in a durable ledger with compare-and-set status writes. If a transaction is dropped, a watchdog re-sends it with a higher fee or burns the nonce with a 0-value self-transfer so the wallet isn't stuck.
 - **Say it as:** "Fast like a counter, recoverable like a ledger, and a dropped transaction never freezes a wallet."
 
 ### Simulate while signing (D34)
-The pre-send simulation doesn't need the signature, so it runs in parallel with the Privy signing call. The hot path pays for the slower of the two, not both.
+On manual trades, the pre-send simulation doesn't need the user's signature, so it runs in parallel with the Privy signing call. The hot path pays for the slower of the two, not both.
 
 ### Our indexer doubles as our receipt service (D34)
 Our own swaps show up in the pool events we already stream, so matching by transaction hash tells us a trade landed within 10–200ms, without polling for receipts.
@@ -133,6 +143,20 @@ Our own swaps show up in the pool events we already stream, so matching by trans
 ### Exactly-once by making retries safe (D35)
 Every trigger firing has a deterministic ID (order ID + firing count), so the standby engine computes the same ID after failover. Execution remembers IDs it has handled, so the engine can retry freely and a duplicate is always recognised.
 - **Say it as:** "Retries are always safe, duplicates are always recognised, so a stop-loss fires exactly once."
+
+## Triggers
+
+### Copy trading rides the indexer (D38)
+Leader swaps are spotted in the pool events we already stream, so on Base and MegaETH a copy can land one flashblock or mini-block after the leader, with no extra RPC calls. Followed wallets pre-activate the pools they trade, and fan-out to many followers is routed with own-flow awareness. We never copy from the mempool.
+- **Say it as:** "Copy trades one block behind the leader, never in front of them."
+
+### Launchpads are first-class venues (D36)
+On BNB most new memecoins start on a four.meme bonding curve, not a DEX pool. We price and trade the curve directly, and the moment it graduates, the new PancakeSwap pool is already active, so there's no gap in pricing and the "buy on migration" trigger has something to fire on.
+
+## Data
+
+### Reorgs are new versions, not deletes (D41)
+ClickHouse rows are keyed by (chain, block hash, log index) and carry a status and a version. A correction inserts a newer version (including "removed" for reorged-out events) and the table keeps the latest. Backfills can restart and overlap the live feed without duplicates, and nothing is ever mutated in place.
 
 ## Testing & operations
 

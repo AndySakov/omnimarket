@@ -42,7 +42,7 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 **Rejected:**
 - *Server-held encrypted keys (classic Telegram-bot model).* Fastest, but the operator is a single point of total loss — a honeypot for attackers.
 - *Connect-your-own-wallet (MetaMask).* Every trade needs a user click, which kills automated orders and speed.
-- *Smart accounts with session keys (ERC-4337 / EIP-7702).* Promising and elegant, but not yet what terminals ship, and support varies across our three chains. Kept as a stretch comparison.
+- *Smart accounts with session keys (ERC-4337 / EIP-7702).* Promising and elegant, but not yet what terminals ship, and support varies across our three chains. Kept as a stretch comparison. *(Revisited in D47: EIP-7702 is now live on all three chains; still set aside for blast radius and latency.)*
 
 ---
 
@@ -274,6 +274,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 ## D16 — RPC: Chainstack primary, QuickNode fallback, per-block streams
 
+*(Amended by D44: production also runs our own Base node.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (numbers **(verify)** by measurement)
 
 **Decision:**
@@ -429,6 +431,8 @@ Chart candles are built from actual swap prices (the universal convention), not 
 
 ## D22 — Recompute cadence: prices and triggers on every update, screens throttled
 
+*(Amended by D43: client pushes use a leading-edge throttle at 20/s.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -520,6 +524,8 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 ---
 
 ## D26 — Our own router contract, immutable, approvals via Permit2
+
+*(Amended by D42: the router executes signed intents submitted by our executor wallets.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -656,6 +662,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D31 — One signature on the hot path: per-position Permit2 allowances + fire-ready orders
 
+*(Superseded by D42: intents replace per-position allowances; fire-ready preparation carries over.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D26)
 
 **Decision:**
@@ -679,6 +687,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D32 — Nonces: per-wallet sequencer, durable nonce ledger, gap watchdog
+
+*(Amended by D42: sequential nonces now belong only to our executor wallets; user intents use Permit2's unordered nonces.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -704,6 +714,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D33 — Priority fees by situation, tracking live tips per chain
+
+*(Amended by D42: gas is paid by executor wallets and recovered from the trade.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -781,3 +793,311 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Turns "exactly once" into two simple rules: retries are always safe, and duplicates are always recognised.
 
 **Consequence:** Closes the architecture open questions on exactly-once firing and on where trigger orders live durably. Postgres schema for orders and firings → `data.md`.
+
+---
+
+## D36 — Bonding curves are a phase 1 venue type (four.meme first)
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Launchpad bonding curves join DEX pools as a venue type. Phase 1 covers **four.meme** on BNB; MegaETH's Kumbaya launchpad mechanics **(verify)**. Base's main launchpads (Clanker, Zora, Flaunch) launch directly into Uniswap v4 hook pools, already covered by D14.
+- **Indexer:** discovers curve tokens from the launchpad's create events and tracks curve state like any pool (bootstrap read + events).
+- **Pricing / quoting:** the curve formula in memory (D21), shadow-checked like other venues.
+- **Routing:** swaps go through the launchpad contract via our router (D26).
+- **Safety:** same round-trip simulation (D29).
+- **Migration:** a graduation event marks the curve closed and promotes the new PancakeSwap pool to active immediately (D11), with no gap in pricing.
+
+**Rejected:**
+- *DEX pools only.* Misses BNB's newest memecoins during their most active phase, and leaves the migration trigger nothing to watch.
+
+**Why:** On BNB, "new pair" mostly means "new four.meme curve". Trojan's migration trigger and the new-pairs feed both depend on it.
+
+**Consequence:** Launch-phase fees on Base v4 hooks (e.g. Zora's 99% → 1% over ten seconds) must be modelled exactly or quoted by simulation; sniping into a decaying fee is a real user risk and the quote must show it.
+
+---
+
+## D37 — Trigger order catalogue: Trojan parity
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Phase 1 ships the full Trojan-style order set.
+
+| Type | Behaviour |
+|---|---|
+| Limit buy / sell | At a price, market cap, or % change (D20) |
+| Stop-loss / take-profit | % from the position's entry |
+| Multi-level take-profit | Several levels, each selling a share (e.g. 50% at 2×, 25% at 5×) |
+| Trailing stop | % below the highest price since the order was created |
+| Auto-sell on buy | Each buy arms preset TP/SL orders |
+| Expiry | Optional on any order |
+| Event: dev sell | Fires when the token's dev wallet sells |
+| Event: migration | Fires when a bonding-curve token graduates (D36) |
+| Scheduled | Fires at a set time |
+
+- **Entry price:** positions keep a cost basis (average entry) from their own fills; "% from entry" orders use it.
+- **Dev wallet:** recorded per token at discovery (deployer, or the creator the launchpad records). Dev sells are detected from the swap stream the indexer already has.
+- **Market cap:** price × supply. Supply read at discovery; tokens with mint/burn powers (D29) track it from mint/burn events.
+- **Evaluation:** price-level orders use the sorted index in quote-asset units (D22); event orders are keyed by (token, event type); scheduled orders by time. All fire through the exactly-once path (D35).
+
+**Rejected:**
+- *Price orders only.* Event and scheduled triggers are part of the reference product and cheap given the data we already index.
+
+**Why:** Parity with the reference product; every trigger reuses data and machinery already specced.
+
+**Consequence:** Multi-level TP means one position can own several armed orders; fills update the position and cancel or resize siblings. → `triggers.md`
+
+---
+
+## D38 — Copy trading from our own indexer, never from the mempool
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Detection:** leader swaps are matched in the pool and curve events we already stream. On Base and MegaETH the copy can land one flashblock / mini-block after the leader; on BNB (private submission) we see the leader's trade when its block lands.
+- **Settings (per follow):** fixed or proportional size, max per trade, token filters (min liquidity, safety badges), buy-only or mirror sells, auto TP/SL on copied buys (D37).
+- **Fan-out:** many followers of one leader are routed with own-flow awareness (D25), so later copies see realistic prices and spread across pools.
+- **Never from the mempool:** no copying of pending transactions.
+
+**Rejected:**
+- *Copy from BNB's public mempool.* Faster, but it is frontrunning the leader, and private submission hides most leaders anyway.
+- *Poll leader wallets via RPC.* Slower and costs RPC calls for data the indexer already has.
+
+**Why:** Fastest honest signal available, at no extra ingestion cost.
+
+**Consequence:** Followed wallets are a D11 promotion reason: any pool a followed wallet trades is activated immediately, so its state is ready before the copies are routed.
+
+---
+
+## D39 — Trigger mechanics: take-profit sizing, trailing-stop recovery, limits and cascades
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Multi-level take-profit:** each level sells a % of the **original** position, capped at what is held when it fires. When the position empties (manual sell-all or a stop-loss), all sibling orders are cancelled. A stop-loss always sells everything that remains.
+- **Trailing-stop high-water mark:** persisted write-behind whenever it rises by more than ~0.5%. On recovery: the higher of the saved value and the max price since that save, from ClickHouse 1s candles.
+- **Limits:** 200 active orders per user, 20 per token per user. 100k concurrent orders (product.md) is ~10MB of index per chain.
+- **Cascades:** every crossed order fires; nothing is throttled. Firings enter a priority queue: stop-loss and trailing first, then take-profit and limit, then scheduled. Own-flow awareness (D25) spreads the trades across pools with realistic prices.
+
+**Rejected:**
+- *TP levels as % of the remaining position.* "25% at 5×" would shrink after every earlier level, which isn't what users mean.
+- *Persist the high-water mark on every tick.* A write per price move for data that can be rebuilt from candles.
+- *Throttle firings in a cascade.* Delaying a stop-loss is worse than the extra load.
+
+**Why:** Matches how traders think about their orders, survives failover without per-tick writes, and keeps urgent exits first under load.
+
+**Consequence:** The 1s candle table becomes part of engine recovery, so it needs to be complete up to at least the last trailing-stop save. → `data.md`
+
+---
+
+## D40 — Engine recovery: snapshot + Kafka replay; standby fed from Kafka, lease + fencing
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+
+**Recovery (target: serving again in < 10s)**
+1. Every ~30s, a background snapshot of all active pool state (reserves, ticks, liquidity), stamped with the block it reflects.
+2. On restart: load the latest snapshot at block B, then replay pool updates published to Kafka since B. Each carries its after-state (D12), so replay is value application: no RPC, no recompute.
+3. Resubscribe to the fast streams; the reconciler fills the last few blocks via `getLogs`.
+4. Orders reload from Postgres (D35); trailing highs recover per D39.
+
+**Standby (failover ≈ 3–5s detect + ~1s catch-up)**
+- **Fed from Kafka:** the standby applies the primary's published pool updates, staying milliseconds behind with identical state and no extra RPC cost. On takeover it opens its own subscriptions and the reconciler closes the gap.
+- **Leader lease:** only the holder of a short Kubernetes lease (renewed ~1s) may fire triggers.
+- **Fencing token:** each lease carries an increasing epoch; every firing includes it; execution rejects firings from an older epoch, so a primary that stalls and wakes after losing the lease can't fire.
+- **Overlap:** deterministic firing IDs (D35) mean any firing both engines emit near the switch executes once.
+
+**Rejected:**
+- *Standby with its own subscriptions.* Fully independent, but doubles pushed-event cost (D16) and can drift from the primary.
+- *Cold standby (start on failure).* Recovery time instead of failover time.
+- *Replay from the chain only.* Slower and RPC-heavy; Kafka already holds the after-states.
+- *Lease without fencing.* A paused process can still act after losing leadership.
+
+**Why:** Reuses what exists (Kafka's after-states, deterministic firing IDs, Postgres orders) so recovery and failover add almost no new machinery.
+
+**Consequence:**
+- Snapshot storage and format (versioned, compressed) → `data.md`.
+- Kafka pool-update retention must cover at least the snapshot interval plus recovery time (already exceeded by D12's finality requirement).
+- Failover drills (kill the primary under load) belong in `loadtest.md`.
+
+---
+
+## D41 — Data layout: Postgres for money state, ClickHouse for history, Kafka topics, object storage for snapshots
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+
+| Store | Holds |
+|---|---|
+| **Postgres** (one cluster, primary + read replica, tables keyed by chain) | Users, wallets, follows; orders and firings (D35); nonce ledger (D32); positions and cost basis (D37); token metadata: dev wallet, supply, safety results (D29); trailing highs (D39) |
+| **ClickHouse** | Swaps, pool events, candles (1s / 1m / 5m / 1h), 30-day backfill (D15), routing decision logs (D25), execution outcomes |
+| **Kafka** | Everything engines and execution publish (D6) |
+| **Object storage** (MinIO in dev/staging, D17) | Engine snapshots (D40): versioned, compressed, last 10 per chain |
+
+**ClickHouse reorg handling:** rows keyed by (chain, block hash, log index), so re-inserts are harmless. Each row has a status (provisional → confirmed → final → or removed) and a version; `ReplacingMergeTree` keeps the latest. Candles are built live by a candle service reading swaps from Kafka, stored in ClickHouse, and rebuilt for any window a correction touches.
+
+**Kafka topics** (Protobuf, schemas versioned in the repo, no registry service):
+
+| Topic | Key | Retention |
+|---|---|---|
+| `pool-updates.<chain>` (before + after) | pool | ≥ 24h |
+| `swaps.<chain>` | pool | 7 days |
+| `prices.<chain>` | token | 24h |
+| `corrections.<chain>` | block | 7 days |
+| `executions.<chain>` | wallet | 30 days |
+
+**Retention:** candles forever; raw swaps from the 30-day backfill onward, with downsampling past 90 days an option if storage cost grows.
+
+**Rejected:**
+- *One Postgres per chain.* Users hold wallets on all three chains; splitting scatters one user's data.
+- *Delete-and-rewrite on reorg in ClickHouse.* Mutations are expensive there; versioned inserts are the idiomatic path.
+- *Schema registry service.* One more thing to run; schemas in the repo give the same compatibility checks in CI.
+
+**Why:** Each store does what it's good at. The hot path never waits on any of them: engines and execution hold what they need in memory and write in the background.
+
+**Consequence:** Postgres and ClickHouse schemas are written when we switch to build mode; this decision fixes ownership and keys, not columns.
+
+---
+
+## D42 — Intent-based execution: users sign intents, our executor wallets submit
+
+**Date:** 2026-09-28 · **Status:** Decided (supersedes D31; amends D26, D32, D33)
+
+**Decision:**
+- **User wallets never send trades.** Each trade is a signed **intent** (a Permit2 witness transfer): exact input token and amount, output token, minimum output, deadline, recipient = the user's own wallet. One Privy signature per trade, whatever the payment token.
+- **Trigger intents are signed when the order is created.** A stop-loss is "sell exactly N for at least (stop price − slippage), valid until the order's expiry". When it fires, no user signature is needed.
+- **Executor wallets submit.** A pool of executor wallets per chain, keys held by our own `Signer` (local encrypted keystore / KMS, D4), signs and sends the transaction in-process (< 1ms). Firings are spread across executors, so a cascade isn't serialised behind one nonce sequence.
+- **The router verifies the intent** (signature, terms, deadline, Permit2 unordered nonce), pulls exactly the signed amount, swaps along the route the executor supplies, enforces `minOut`, and sends the output to the user.
+- **Gas** is paid by the executor and recovered in the same transaction from the trade (alongside the D28 fee). Users never need to hold ETH/BNB for gas.
+- **Wrapped native balances.** Permit2 can't move native coin, so deposits of ETH/BNB are auto-wrapped to WETH/WBNB (a background transaction from the user's wallet). Sells can unwrap on output if the user wants native.
+- **Permit2 approval per token** is sent from the user's wallet in the background: for WETH/WBNB and stablecoins at wallet setup, and for each new token right after the buy lands (so auto-armed TP/SL are live within about one block).
+- **Copy trades** can't be pre-signed (the amount is unknown until the leader trades) and take one Privy signature at copy time.
+- **Privy policy** is narrowed to signing Permit2 intents for our router (plus the background approve/wrap transactions).
+
+**Rejected:**
+- *Per-position standing allowances (D31).* One signature for sells, but token-paid buys still need two, and allowances stay open for days.
+- *EIP-7702 delegation.* Removes permits, but hands broad power to delegated code; smart accounts were already set aside in D3.
+- *Standing allowance to executors without intents.* No per-trade user signature at all, but a compromised executor key could then trade user funds at any price.
+
+**Why:**
+- Trigger path loses the Privy round trip entirely (~130ms → ~15–30ms internal).
+- Every trade is one signature; no standing allowances; no per-user nonce gaps.
+- Executor keys hold only gas money: with them an attacker can execute only intents users already signed, on the signed terms.
+- Same model as UniswapX, CoW Swap and 1inch Fusion; unlike Trojan or Maestro, whose user wallets send transactions themselves.
+
+**Consequence:**
+- D32's nonce ledger and gap watchdog now manage executor wallets only; executors are funded from treasury and topped up automatically.
+- D33's tip policy is unchanged, but the executor pays and recovers it.
+- The executor can technically fire a trigger early, never below the signed minimum; the same trust users already place in delegated signing. Every firing is logged with the price that crossed.
+- Router contract grows intent verification: more fuzz and invariant tests (output always to the signer, never more than the signed amount pulled, deadline enforced).
+- `triggers.md`: arming an order includes signing its intent; editing an order re-signs.
+
+---
+
+## D43 — Free latency levers: co-location per chain, persistent submission, faster screen ticks
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D22)
+
+**Decision:**
+- **Co-location:** each chain's engine and execution run in the cloud region nearest that chain's sequencer or builders (engines are already per chain, D6). Execution also sits close to Privy's nearest signing region.
+- **Persistent submission:** transactions are sent over already-open WebSocket connections to every endpoint at once (first wins), not new HTTP requests. On Base, also directly to the sequencer's endpoint **(verify)**.
+- **Warm connections** to Privy, providers and builders; no per-request TLS or DNS.
+- **Screen ticks:** leading-edge throttle at 20/s per token, with delta encoding (a change is sent immediately unless one went out in the last 50ms; otherwise held and merged).
+
+**Why:** Each removes latency for no extra spend.
+
+**Consequence:** Multi-region deployment → `infra.md`. Tick → client target returns to ≤ 100ms p99.
+
+---
+
+## D44 — Production runs our own Base node
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D16)
+
+**Decision:** Production runs a Base node (reth with Flashblocks, per Base's node repo) next to the Base engine. It takes the Flashblocks feed directly, serves local simulation (< 5ms), state reads and pending `getLogs`, and backs the reconciler. Chainstack/QuickNode remain as fallback. Dev and staging stay on free tiers (D17).
+
+**Rejected:**
+- *Providers only* (D16's original stance). Every simulation and state read is a network round trip, and Flashblocks arrive via an extra hop.
+
+**Why:** The largest remaining latency and RPC-cost lever: removes a hop from ingestion, makes simulation local, and cuts most of Base's request volume from the paid plan.
+
+**Consequence:**
+- ~$150–250/mo for a dedicated machine (16+ cores, 4TB+ NVMe), plus node operations (upgrades, resyncs, monitoring).
+- Same move for BNB and MegaETH is evaluated after launch (MegaETH replica node availability still unknown).
+
+---
+
+## D45 — Rust is the lead candidate for engines and execution
+
+**Date:** 2026-09-28 · **Status:** Leaning (final in build mode)
+
+**Decision:** The Chain Engine and Execution service are planned in Rust. Cold-path services (candles, history job, API) are chosen per service in build mode.
+
+**Why:** p99 targets are dominated by tail latency, and garbage-collection pauses are the usual cause of p99 spikes in Go or Java. The EVM tooling is strong in Rust too (reth, alloy, revm for local simulation).
+
+**Consequence:** Confirmed or revised when we switch to build mode.
+
+---
+
+## D46 — Latency targets: measured internally, budgeted per step
+
+**Date:** 2026-09-28 · **Status:** Decided (hardens product.md's draft targets)
+
+**Decision:**
+- **Two clocks:** *internal latency* (our engine receives the event or request → broadcast) is what targets measure. *End-to-end* (chain timestamp → broadcast) is reported, not targeted, since provider delivery is outside our control.
+- **Targets (p99):**
+
+| Metric | Draft (product.md) | Target |
+|---|---|---|
+| Price move → trigger broadcast (internal) | ≤ 300ms | **≤ 75ms** (Base ~25ms; BNB/MegaETH ~35–50ms, bounded by remote simulation) |
+| Click → broadcast | ≤ 150ms | **≤ 100ms** (any payment token) |
+| Quote latency | ≤ 25ms | **≤ 10ms** |
+| Price tick → client | ≤ 100ms | ≤ 100ms |
+| Indexer lag | ≤ 1 block (Base/BNB), ≤ 250ms (MegaETH) | unchanged |
+| Engine recovery / failover | — | < 10s / ≤ 5s (D40) |
+| Trigger firing | — | exactly once: zero duplicates, zero missed (D35) |
+| Quote accuracy | — | < 0.1% shadow-check mismatches (D21) |
+| Concurrent orders | 100k | 100k per chain |
+
+- **Simulation always blocks the send** (revised same day at the user's call): nothing is broadcast without a passing simulation. On Base it's local (< 5ms, D44); on BNB and MegaETH it's a call to a co-located provider (~10–30ms). Manual trades run it in parallel with the Privy signature.
+- **Measurement:** every trade carries per-step timestamps as a trace; Prometheus + Grafana (free, D17) chart p99 per step.
+
+**Rejected:**
+- *Keep the draft targets.* After D42–D44 they'd hide regressions behind 5–10× headroom.
+- *Target end-to-end latency.* Mixes provider delay we can't control into our numbers.
+
+**Why:** Targets close to the budgets make regressions visible, and step-level traces point straight at the cause.
+
+**Consequence:** Budgets per step → `slas.md`; load scenarios that exercise them → `loadtest.md`. Lever for later: own BNB/MegaETH nodes (D44 evaluation) or in-process simulation would bring BNB/MegaETH down to Base's number.
+
+---
+
+## D47 — Intent carrier: Permit2 in phase 1; EIP-7702 delegate as a phase 2 candidate; no ERC-4337 smart wallets
+
+**Date:** 2026-09-28 · **Status:** Decided (confirms D42 after reviewing Privy's smart-wallet and EIP-7702 support)
+
+**Context:** Privy supports ERC-4337 smart wallets (Kernel/ZeroDev, Safe, Alchemy, Biconomy, Coinbase, Thirdweb) with session keys, signing EIP-7702 authorizations for embedded wallets, native gas sponsorship, and a policy engine that can restrict EIP-712 signing by domain. EIP-7702 is live on all three chains: BNB (Pascal, March 2025), Base (Isthmus), MegaETH (Rex hardfork, based on Isthmus).
+
+**Decision:**
+- **Keep D42's model:** every trade carries a minimum output signed by the user (or signed at order creation for triggers).
+- **Phase 1 carrier: Permit2 intents.** Privy's policy engine restricts delegated EIP-712 signing to our router's domain.
+- **Phase 2 candidate: an EIP-7702 delegate.** The user's EOA delegates to our own minimal, immutable contract that verifies the same signed intent and executes it. It removes WETH wrapping and per-token Permit2 approvals (native coin works directly), at the cost of our code controlling the whole account.
+- **ERC-4337 smart wallets: rejected** for the trade path.
+
+| Option | Signed minimum per trade | Latency | Extra costs | Blast radius if our code or key fails |
+|---|---|---|---|---|
+| **Permit2 intents** (chosen) | Yes | Executor signs locally | Wrap native; one approval per token | Only signed intents, on their terms |
+| EIP-7702 delegate + intents | Yes | Same | New delegate contract to audit | Delegate bug touches the whole account |
+| EIP-7702 / 4337 session keys (no per-trade intent) | No: key can trade within caps at any price | Same (7702) or + bundler hop (4337) | Session-key policy design | Compromised key can dump holdings at bad prices, within caps |
+| ERC-4337 smart wallets (Privy-native) | Optional | + bundler hop per trade | Bundler/paymaster per chain; new account addresses | Depends on account + session setup |
+
+**Why:**
+- Session keys trade per-trade user protection for convenience; a signed minimum on every trade is the security core of D42.
+- Bundlers add a hop that the latency budget (D46) can't afford.
+- Permit2 is audited and widely deployed; a 7702 delegate is new code with account-wide power, better introduced after launch with the router proven.
+- Privy's gas sponsorship isn't needed: executors already pay gas and recover it (D42).
+
+**Consequence:**
+- D3's reason for setting smart accounts aside ("support varies across our three chains") no longer holds; the reason now is blast radius and latency.
+- Copy trades keep one Privy signature at copy time (a session key would remove it, but without a signed minimum).

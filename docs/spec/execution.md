@@ -1,8 +1,10 @@
 # Execution
 
-**Status:** Draft. Decisions: D8, D30–D35. **Complete** (tuning and measurements aside).
+**Status:** Draft. Decisions: D8, D30, D32–D35, D42–D47. **Complete** (tuning and measurements aside).
 
-One Execution service per chain (D8): build → simulate → sign → submit → track. Sole owner of every wallet's nonce on its chain. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
+One Execution service per chain (D8): route → build → simulate → sign → submit → track. Called by the Chain Engine and API over gRPC; publishes outcomes to Kafka.
+
+**Execution model (D42):** users sign **intents** (Permit2 witness transfers: exact amount in, minimum out, deadline, output to themselves). Our **executor wallets** submit the transactions and pay gas, recovered from the trade. The execution service owns the executor wallets and their nonces.
 
 ## Submission (D30)
 
@@ -14,18 +16,27 @@ One Execution service per chain (D8): build → simulate → sign → submit →
 
 Identical signed transactions share a nonce, so fan-out can't double-execute.
 
-## Hot-path signing (D31)
+## Intents and executors (D42)
 
-- Sells spend a per-position Permit2 allowance, signed when the buy lands (capped at position size, 7 days, renewed; router checks `owner == msg.sender`).
-- Armed triggers are fire-ready: calldata layout, gas estimate and allowance prepared. At fire time: fresh quote → next nonce from memory → one signature → submit.
-- Nonces are never reserved per order (an unused reserved nonce blocks the wallet).
+| | Manual trade | Trigger order | Copy trade |
+|---|---|---|---|
+| User signature | 1 Privy signature at click | 1 Privy signature **when the order is created** | 1 Privy signature at copy time |
+| On the hot path | Privy sign ∥ simulate → executor signs locally → submit | Fresh route → executor signs locally (< 1ms) → submit | Privy sign ∥ simulate → executor signs → submit |
+
+- Executor pool per chain; keys in our own `Signer` (keystore / KMS). Firings spread across executors, so cascades don't queue behind one nonce sequence.
+- Executor keys hold only gas money: they can execute only intents users signed, on the signed terms.
+- Balances kept as WETH/WBNB (auto-wrap on deposit). Permit2 approvals sent from the user's wallet in the background: base assets at setup, each new token right after its buy lands.
+- Armed triggers are fire-ready: intent signed, route candidates and gas estimates cached.
+- Privy policy: sign Permit2 intents for our router's EIP-712 domain, plus background approve/wrap transactions only.
+- Carrier reviewed against Privy's smart wallets and EIP-7702 (D47): Permit2 in phase 1; a 7702 delegate is a phase 2 candidate; no 4337 smart wallets on the trade path.
 
 ## Nonces (D32)
 
-- Per-wallet sequencer with an in-memory counter (no RPC call per trade).
+- Applies to **executor wallets** only; user intents use Permit2's unordered nonces (no gaps possible).
+- Per-executor sequencer with an in-memory counter (no RPC call per trade).
 - Durable nonce ledger: `assigned → signed → submitted → landed | replaced | filled`, compare-and-set writes, terminal states final. Recovery source for restarts and the standby.
 - Gap watchdog: not landed within a few blocks → same nonce, higher fee; stale → 0-value self-transfer filler.
-- Re-sync from chain on startup, failover, or nonce errors. Cap 5–10 in flight per wallet.
+- Re-sync from chain on startup, failover, or nonce errors. Cap 5–10 in flight per executor.
 
 ## Priority fees (D33)
 
@@ -37,12 +48,18 @@ Identical signed transactions share a nonce, so fan-out can't double-execute.
 | Take-profit / limit | Low |
 | Watchdog re-send | Previous + 25% |
 
-Levels follow live landed tips per chain; per-trade fee cap; user override. Gas is always paid by the user's wallet.
+Levels follow live landed tips per chain; per-trade fee cap; user override. Gas is paid by the executor and recovered from the trade (D42).
+
+## Latency levers (D43, D44)
+
+- Engine + execution per chain in the region nearest that chain's sequencer/builders; execution close to Privy's nearest region.
+- Submission over persistent WebSockets to all endpoints at once (first wins); Base also direct to the sequencer **(verify)**.
+- Production Base node next to the Base engine: direct Flashblocks feed, local simulation and state reads (< 5ms).
 
 ## Tracking & failures (D34)
 
 - `signed → submitted → preconfirmed → confirmed → final` | `reverted | dropped | replaced`.
-- Simulate in parallel with signing; a failing simulation cancels the send.
+- Simulation always blocks the send. Manual trades run it in parallel with the Privy signature; triggers run it before the executor signs (local on Base, co-located provider elsewhere). A failing simulation cancels the send.
 - Landing detected from our own indexer by transaction hash (MegaETH: receipt from the send call).
 - Revert handling: stop-loss auto-retry ×3 · TP/limit re-arm · manual: tell the user · copy: one retry.
 
@@ -56,7 +73,7 @@ Levels follow live landed tips per chain; per-trade fee cap; user override. Gas 
 
 Biggest first:
 
-1. ~~Signing latency~~ → **decided (D31).** Still to measure: Privy latency per region.
+1. ~~Signing latency~~ → **decided (D42):** intents; Privy off the trigger hot path.
 2. ~~Nonces~~ → **decided (D32).**
 3. ~~Gas and priority fees~~ → **decided (D33).**
 4. ~~Tracking and failure handling~~ → **decided (D34).**
