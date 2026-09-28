@@ -319,3 +319,33 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 - Config must make provider endpoints swappable per environment (free → paid is a config change, not code).
 - Free tiers rate-limit and drop connections more often, so dev and staging exercise the failover and gap-fill paths (D10, D16) constantly. That's a feature, but it means flakiness there isn't automatically a bug.
 - Load tests large enough to exceed free quotas are the likely first exception; they buy the D16 production plan early rather than a separate staging plan.
+
+---
+
+## D18 — Three prices; display price is the liquidity-weighted mid
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Each token has three distinct prices, each with one job.
+
+| Price | Used for | Definition |
+|---|---|---|
+| **Display** | UI ticker, token pages, PnL marks, fair price (D7) | Liquidity-weighted mid across the token's active pools above the liquidity floor (D11). A single-pool token gets that pool's price. |
+| **Trigger** | Stop-loss, take-profit, limit orders | Built on the display price, with manipulation protection. → open, `pricing.md` |
+| **Execution** | What a trade actually gets | Router quote at the trade's size. Never a "price". |
+
+Chart candles are built from actual swap prices (the universal convention), not from the mid. The token page also shows the main (deepest) pool's price so users comparing with DexScreener can see where any gap comes from.
+
+**Rejected:**
+- *Last trade price.* Flickers, and anyone can move it with one odd swap on a tiny pool.
+- *Deepest pool only.* The industry default (Uniswap's subgraph, DexScreener-style pair pages) and identical to our choice for single-pool tokens. Rejected for multi-pool tokens because the price jumps when the deepest pool changes, unless we add switch hysteresis.
+- *Volume- or time-weighted average (VWAP/TWAP).* Manipulation-resistant, as oracles and CoinGecko use, but lags by design and can't price a pool before it trades. May reappear inside the trigger price.
+- *Median of pools.* Meaningless with one or two pools, which covers most memecoins.
+- *Best executable quote.* Depends on size, and costs a routing pass per update at MegaETH rates.
+- *One price for everything.* Perpetual exchanges split display (last) from risk (mark) for a reason: a display price that stop-losses fire on can be hunted.
+
+**Why:** Fresh at millisecond speed, costs one in-memory recompute per pool update, smooth when liquidity moves between pools, and harder to move than any single pool.
+
+**Consequence:**
+- Every stop-loss explanation must be showable on the chart: the UI can draw the trigger price alongside the display price.
+- Pools below the liquidity floor never move the display price, even when they're the only venue. Then the token shows as "unpriced / thin" rather than a manipulable number. → `pricing.md`
