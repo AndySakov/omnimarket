@@ -1167,3 +1167,35 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** The dangerous bugs in this system live in combinations: a reorg during a cascade while Kafka lags, a failover mid-firing. Only randomised combination with reproducible seeds finds them.
 
 **Consequence (build mode):** Engine and execution cores must be deterministic given their inputs: time, randomness, network and RPC behind injectable interfaces, no hidden threads or wall-clock reads in core logic. This is a design constraint from the first line of code, not something that can be added later.
+
+---
+
+## D50 — Infrastructure layout: free dev/CI/staging, per-chain regional clusters, self-hosted data stores
+
+**Date:** 2026-09-28 · **Status:** Decided (production cloud: see D51)
+
+**Decision:**
+
+| Env | Where | Cost |
+|---|---|---|
+| Dev | Local: k3d + docker compose, Anvil forks | Free |
+| CI | GitHub Actions on **Blacksmith** runners (faster; 3,000 free min/month, then ~$0.004/min): unit tests, contract fork tests, Protobuf compatibility, nightly deterministic-simulation fuzz (D49) | Free tier, then cents |
+| Staging | Oracle Cloud Always Free ARM (k3s) on free RPC tiers **(verify current limits)** | Free |
+| Prod | Per-chain regional clusters + one central region | Paid (credits: D51) |
+
+- **Per-chain cluster** (region nearest the chain's sequencer/builders, D43): engine + standby, execution, local Kafka for engine topics (feeds the standby, D40), and the Base node (D44).
+- **Central region:** Postgres, ClickHouse, API/WebSocket gateway, candle service, history job; per-chain Kafka topics mirrored in.
+- **No hot-path call crosses regions.** Postgres writes from execution are write-behind (D32); firing-ID dedupe lives in execution's local store.
+- **Self-hosted data stores** on Kubernetes via operators: CloudNativePG, Strimzi (Kafka), Altinity (ClickHouse).
+- **Tooling:** Terraform, Helm, Argo CD; Prometheus, Grafana, Loki, Tempo; SOPS in staging, cloud KMS for executor keys in prod (D4, D42).
+
+**Rejected:**
+- *Managed databases and Kafka.* Cost more than self-hosting (build-vs-buy rule, D15).
+- *One global production cluster.* Every chain pays the distance to the others' sequencers.
+- *GitHub-hosted runners.* Slower and, since March 2026, not cheaper.
+
+**Why:** Free everywhere except production (D17); production placed for latency (D43).
+
+**Consequence:**
+- **MegaETH plans a rotating sequencer** that moves around the globe with the economic day. A fixed region is only near it part of the day; following it (or accepting the gap) is an open question for after launch.
+- Sequencer/builder locations for Base and BNB **(verify)** before picking regions.
