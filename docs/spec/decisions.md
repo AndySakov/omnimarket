@@ -25,7 +25,7 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 **Decision:** Support three EVM chains from day one.
 
 **Why:** Three chains with very different profiles force a real multi-chain abstraction instead of a single-chain design with a chain ID bolted on:
-- **MegaETH** — real-time chain with ~10ms mini-blocks and ~1s EVM blocks **(verify)**. Stress-tests ingestion throughput and what "confirmed" means.
+- **MegaETH** — real-time chain with ~10ms mini-blocks and ~1s EVM blocks (verified, MegaETH docs). Stress-tests ingestion throughput and what "confirmed" means.
 - **Base** — the main EVM memecoin venue. OP-stack L2, sequencer-ordered, private-ish mempool.
 - **BNB Chain** — high retail volume, public mempool, so MEV/sandwich protection matters. PancakeSwap-dominated.
 
@@ -284,7 +284,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 | Chain | Fast stream | Notifications/month |
 |---|---|---|
 | MegaETH | Filtered `logs` subscription (mini-block latency) | Scales with swap volume |
-| Base | `newFlashblocks` (one payload per 200ms flashblock) | ~13M, fixed |
+| Base | `newFlashblocks` tick + one filtered `getLogs` (pending) per 200ms flashblock (amended, see consequences) | ~26M, fixed |
 | BNB | `newHeads` + one `getLogs` per block | ~11.5M, fixed |
 
 **Rejected:**
@@ -300,7 +300,7 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 - Before paying: measure real event rates per chain (one day of `getLogs` over the active pool set) and confirm the plan tier.
 - Before paying: verify on each pricing page the per-event cost for WebSocket pushes, and that Chainstack serves MegaETH mini-block `logs`.
 - The engine needs a provider abstraction with failover per chain (primary → fallback), and the reconciler fills any gap left by a switch.
-- Base: the raw Flashblocks feed carries receipts (logs) in its `metadata` object, which Base marks as unstable. **(verify)** that the provider's `newFlashblocks` subscription returns logs in a stable shape; if not, fall back to filtered `pendingLogs` (per-log billing) for Base.
+- Base (checked 2026-09-28, see [verification.md](verification.md)): receipts were removed from the Flashblocks WebSocket payload in Base's v1 upgrade, and an open issue asks to bring them back. So `newFlashblocks` is used as a **tick** only: on each flashblock, one filtered `eth_getLogs` at the `pending` tag fetches our events. Still fixed cost (~26M requests/month: tick + call). Fallback if that proves unreliable: filtered `pendingLogs` (per-log billing).
 
 ---
 
@@ -410,9 +410,10 @@ Chart candles are built from actual swap prices (the universal convention), not 
 | Uniswap v3 + forks (PancakeSwap v3) | All | Concentrated liquidity, tick walk |
 | Uniswap v4 standard | All | v3 math, singleton PoolManager |
 | Uniswap v4 hooks | All | Per hook: modelled, or opaque → simulated (D14) |
+| PancakeSwap Infinity CL / bin pools (+ hooks) | BNB | CL: v4-like · bin pools: own math, to spec (added after verification) |
 | Aerodrome volatile / stable | Base | Constant product / stable curve (x³y + y³x) |
 | Aerodrome Slipstream | Base | v3-style concentrated liquidity |
-| MegaETH venues | MegaETH | Kumbaya (largest by TVL) and Algebra-based pools **(verify which forks and fee models)** |
+| MegaETH venues | MegaETH | Kumbaya: concentrated-liquidity (v3-like) but with non-standard pool bytecode and unverified source, so **quoted by simulation until our math passes the shadow check**. Algebra-based pools: Algebra's own math (dynamic fees). |
 
 **Rejected:**
 - *Simulate every quote.* Always exactly right, but an RPC round trip per quote (milliseconds, and D16 budget) where in-memory takes microseconds. Can't keep up with triggers and routing at MegaETH rates.
@@ -526,7 +527,7 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 - **One call per route:** executes any D25 route (single, multi-hop, split across DEXes), enforces `minOut` and deadline, and takes the platform fee in the same transaction.
 - **Holds nothing:** no funds between transactions; every call must end with a zero balance, or it reverts.
 - **Immutable:** no admin keys, no upgrade proxy. A new version is a new deployment.
-- **Approvals via Permit2:** users approve Uniswap's Permit2 once per token; each trade carries a signed, exact-amount, short-lived permit for our router. Native-token buys need no approval.
+- **Approvals via Permit2:** users approve Uniswap's Permit2 once per token; each trade carries a signed, exact-amount, short-lived permit for our router. Native-token buys need no approval. *(Amended by D31: sells use a per-position, capped, 7-day allowance instead.)*
 - **Same address everywhere:** deployed via CREATE2 so the router has one address on every chain.
 
 **Rejected:**
@@ -538,7 +539,7 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 
 **Consequence:**
 - Contract work enters phase 1: Solidity router with fork tests per DEX type, fuzzing, and invariant tests (zero residual balance, `minOut` always enforced).
-- **(verify)** Permit2 is deployed at its canonical address on MegaETH, Base and BNB.
+- Permit2 is deployed at its canonical address on MegaETH, Base and BNB (verified).
 - Signing a permit adds a signature per trade; with Privy delegated signing (D4) that's on the hot path, so its latency needs measuring. → `execution.md`
 - Fee design (rate, taken in input or output token) → routing open question.
 
@@ -569,3 +570,214 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 **Consequence:**
 - The UI shows the default chosen and why ("new pair: 15%").
 - Tax detection (fee-on-transfer) must run before routing. → token safety checks, routing open question.
+
+---
+
+## D28 — Fees: Trojan's 1%, taken in the native/quote asset
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Mirror Trojan: **1% per successful trade** (0.9% with a referral). The router contract (D26) takes the fee in the same transaction, always in the native or quote asset (ETH, BNB, stablecoin):
+- **Buys:** taken from what the user pays, before the swap.
+- **Sells:** taken from the native/quote proceeds, after the swap.
+
+Quotes, `minOut` and the UI show amounts net of the fee.
+
+**Rejected:**
+- *Take the fee from the token on sells* (literally "on pay" for both sides). Leaves the treasury holding memecoins that must be sold later (extra price impact, possible transfer taxes, honeypot risk), and adds a token transfer per sell.
+- *Fee on output for buys.* Same problem: the fee would be in the memecoin.
+
+**Why:** Parity with the reference product. Taking fees only in native/quote assets keeps the treasury clean and the router simple.
+
+**Consequence:** Referral tiers (Trojan has multi-level referrals) are a product feature for later; the router takes a fee rate per trade so referral discounts need no contract change.
+
+---
+
+## D29 — Token safety: simulate, inspect, and watch; block only confirmed honeypots
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Four layers of checks, results cached per token and shown as badges.
+
+| Layer | What | How | When |
+|---|---|---|---|
+| 1. Round-trip simulation | Honeypot (can't sell), buy tax, sell tax, max-tx / max-wallet limits | One `eth_call` with a state override: a simulator contract injected at a throwaway address, funded with native coin, buys then sells against the live pool | New pool discovered; pool promoted (D11); every few minutes while active; immediately on a behavioural alarm |
+| 2. Contract inspection | Owner not renounced; mint, blacklist, pause, set-fee / set-tax, max-tx functions; upgradeable proxy | Bytecode function-selector scan + owner read | Once per token, again on ownership change |
+| 3. Liquidity safety | LP burned or locked (v2), deployer-owned share of liquidity (v3/v4), pool age | Reads from state the engine already holds | On pool discovery and liquidity events |
+| 4. Behavioural signals | Sells stop succeeding while buys continue; realised tax drifts from simulated; sudden liquidity pull | Derived from the swap and transfer stream we already index | Continuously, free |
+
+**Policy:**
+- **Confirmed honeypot** (buy simulates, sell reverts or returns dust): **buys blocked**, no override.
+- **Everything else:** warn with badges (Trojan-style), never block.
+- **Sells are never blocked** by our checks: a user must always be able to try to exit.
+- Measured taxes feed slippage defaults (D27) and switch the token to simulated quoting (D21).
+- **Optional second opinion:** GoPlus Security API (free, 30 calls/min) for Base and BNB, asynchronously, never on the trade path. GoPlus doesn't list MegaETH; there, the Etherscan API (chain ID 4326) supplies verified-source checks instead.
+
+**Rejected:**
+- *Static analysis only.* Misses honeypots whose sell-block only triggers at runtime.
+- *Third-party API as the primary check.* Rate limits, added latency, and chain coverage we don't control.
+- *Simulate before every trade.* Adds an RPC round trip to the hot path; the router's `minOut` (D26) already protects each trade, and behavioural signals catch changes between re-checks.
+- *Block all risky tokens.* Most memecoins have some red flag; blocking would empty the product.
+
+**Why:** Simulation is the only check that catches runtime traps, and state overrides make it free of deployments and gas. Behavioural signals turn data the indexer already has into a continuous safety monitor.
+
+**Consequence:**
+- `eth_call` state overrides: supported by the node software on all three chains and documented for MegaETH (QuickNode also documents `eth_simulateV1`, which simulates a buy and sell as two real transactions without an injected contract). Chainstack support to confirm with the first test call.
+- Simulation calls count toward the RPC budget (D16); the re-check interval is a tuning parameter.
+- Holder concentration (top-10 share, deployer balance) needs a holder index or GoPlus; deferred.
+- Token taxes can change at any block; badges show when each check last ran.
+
+---
+
+## D30 — Transaction submission: private fan-out on BNB, parallel providers elsewhere
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+
+| Chain | Submission path | Why |
+|---|---|---|
+| BNB | Same signed transaction sent in parallel to 3–4 private builder RPCs (e.g. 48 Club, PancakeSwap MEV Guard, bloXroute, Blockrazor). Never the public mempool. | Public mempool = sandwiches. Several private builders together cover most block production, so inclusion stays fast. |
+| Base | Primary and fallback provider in parallel; priority fee set by situation | Single sequencer, no public mempool; ordering is by priority fee within each 200ms flashblock. Redundancy covers provider hiccups. |
+| MegaETH | `realtime_sendRawTransaction` via primary, fallback in parallel | Returns the receipt in the same call (~10ms). |
+
+**Rejected:**
+- *Public mempool on BNB.* Widest reach, but every trade becomes sandwich food up to its full slippage.
+- *A single private RPC on BNB.* Private, but inclusion depends on one builder network winning the block.
+
+**Why:** Fan-out of an identical signed transaction is safe (one nonce, so it can land only once) and buys both privacy and inclusion speed. Industry bots (Maestro, Banana Gun, Sigma) offer the same "anti-MEV" routing on BNB.
+
+**Consequence:**
+- On BNB, D27's slippage stops being a budget for sandwich bots.
+- Builder RPC list per chain is config; inclusion latency per builder is logged to choose and prune the set.
+- On Base, flashblock visibility still lets bots react one flashblock later (backruns, snipes); priority fee is our lever there. → gas policy question.
+
+---
+
+## D31 — One signature on the hot path: per-position Permit2 allowances + fire-ready orders
+
+**Date:** 2026-09-28 · **Status:** Decided (amends D26)
+
+**Decision:**
+- **Per-position allowance.** When a buy lands, the execution service signs, off the hot path, a Permit2 *allowance* for the router: that token only, capped at the position size, expiring in 7 days, renewed in the background while the position is open. Every later sell, stop-loss or take-profit needs only the transaction signature.
+- **Caller check.** The router spends a wallet's allowance only in a transaction sent by that wallet (`owner == msg.sender`). No one else can trigger it, even through a router bug.
+- **Fire-ready orders.** For each armed trigger, the transaction data layout, gas estimate and allowance are prepared ahead of time. At fire time only the fresh quote (D27), the nonce and one signature remain. The nonce comes from the execution service's in-memory counter (D8 makes it the sole sender), not an RPC call. Nonces are **not** reserved per order: an unused reserved nonce would block every later transaction from the wallet.
+- Token-funded buys (e.g. paying in USDC) keep a per-trade permit unless a standing allowance for that token already exists.
+
+**Rejected:**
+- *Per-trade permit on every spend (D26 as written).* Two sequential Privy signatures (~20–100ms each) on sells, the most urgent orders.
+- *Pre-signed permits per trigger order.* Covers triggers but not manual sells; long-dated permits amount to allowances with more bookkeeping.
+- *Reserve a nonce per armed order.* Freezes the wallet if the order never fires.
+
+**Why:** Halves hot-path signing for the orders that most need speed, while keeping exposure bounded: one token, one position's size, one week, and only spendable by the wallet's own transaction.
+
+**Consequence:**
+- D26's "no standing permission" becomes "no *open-ended* permission".
+- Measure Privy signing latency per region early; it's the largest unknown in the 300ms trigger budget.
+- Allowance renewals and revocations (position closed → allowance set to zero) are background jobs with their own signing budget.
+
+---
+
+## D32 — Nonces: per-wallet sequencer, durable nonce ledger, gap watchdog
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Per-wallet sequencer.** Inside each chain's execution service (the sole sender, D8), every wallet has a queue that assigns nonces strictly in order from an in-memory counter.
+- **Durable nonce ledger.** Every assigned nonce is recorded with its status: `assigned → signed → submitted → landed | replaced | filled`. Status writes are compare-and-set, and terminal states are never overwritten. The ledger is what a restarted instance or the standby recovers from.
+- **Gap watchdog.** A nonce submitted but not landed within a few blocks is re-sent with the same nonce and a higher fee. If its purpose has gone stale (e.g. its quote expired), it is replaced by a **filler**: a 0-value transfer to self that uses up the nonce so later transactions can land.
+- **Re-sync.** On startup, failover, or any "nonce too low / too high" error, the wallet's count is re-read from the chain (`pending` tag) and reconciled against the ledger before anything else is sent.
+- **In-flight cap.** At most 5–10 unlanded transactions per wallet, so one stuck transaction can't strand a long queue.
+
+**Rejected:**
+- *Ask the RPC node for the nonce each time.* A round trip per trade, and wrong as soon as two transactions are in flight.
+- *Reserve nonces per armed order.* Freezes the wallet if the order never fires (D31).
+- *In-memory counter only.* Fast, but a crash or failover loses track of what was sent.
+
+**Why:** The counter keeps the hot path free of RPC calls; the ledger makes it survive crashes and failover; the watchdog keeps a dropped transaction from blocking a wallet.
+
+**Consequence:**
+- Where the ledger lives (Postgres, per chain) and its write latency on the hot path → `data.md`. Writing `assigned` must not add a network round trip before signing (write-behind, recovered by chain re-sync if lost).
+- Fillers and re-sends are sent from the user's wallet, so their gas comes from the user's native balance (the platform can't pay gas for a wallet it doesn't own without sponsorship). Logged per chain; reimbursing users is a product choice.
+- Local forks (D5) test nonce gaps, drops, and failover explicitly.
+
+---
+
+## D33 — Priority fees by situation, tracking live tips per chain
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** The priority fee (tip) is chosen per transaction from the order's situation (D25 cues). Levels are relative to recently landed tips on that chain, not fixed numbers.
+
+| Situation | Tip level |
+|---|---|
+| New-pair buy (sniping) | Aggressive |
+| Stop-loss / trailing stop | High |
+| Manual buy / sell | Medium: recent median + margin |
+| Take-profit / limit order | Low |
+| Gap-watchdog re-send (D32) | Previous tip + 25% |
+
+- **Cap:** a per-trade maximum fee as a share of trade value, so a fee spike can't eat a small trade.
+- **Override:** users can set the level per order (Trojan-style).
+- **Who pays:** all gas comes from the sending wallet, i.e. the user's.
+
+**Rejected:**
+- *One fixed tip per chain.* Overpays on patient orders and underpays on urgent ones.
+- *Always maximum.* Wastes user money where position in the block doesn't matter.
+
+**Why:** On Base the sequencer orders each flashblock by tip; on BNB private builders favour higher payers. Tip is the only lever for position within a block, and its value depends on urgency, which we already infer.
+
+**Consequence:**
+- Each execution service keeps a rolling view of landed tips per chain (from the blocks the indexer already reads).
+- On MegaETH, fees are tiny and tips rarely change ordering; levels are kept for consistency.
+
+---
+
+## D34 — Trade tracking: simulate while signing, detect landing from the indexer, retry by order type
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Lifecycle:** `signed → submitted → preconfirmed → confirmed → final`, or `reverted | dropped | replaced`. Tracked per trade, above the nonce ledger (D32).
+- **Simulate in parallel with signing.** The unsigned transaction is simulated while Privy signs it; hot-path cost is the slower of the two, not the sum. A failing simulation cancels the send.
+- **Landing detection from our own indexer.** Our swaps appear in the pool events the engine already streams; matching by transaction hash gives preconfirmation in 10–200ms at no extra RPC cost. MegaETH's `realtime_sendRawTransaction` returns the receipt directly.
+- **Reorgs:** a landed trade reorged out returns to `submitted`; the D32 watchdog handles it if it doesn't re-land.
+- **Reverts** are diagnosed (price past `minOut`, deadline, tax change, allowance expired, insufficient balance) and handled by order type:
+
+| Order type | On revert |
+|---|---|
+| Stop-loss / trailing | Auto-retry with a fresh quote, up to 3 times |
+| Take-profit / limit | Re-arm; fires again if the level still holds |
+| Manual | No auto-retry; tell the user why, show a fresh quote |
+| Copy trade | One retry, then skip and notify |
+
+**Rejected:**
+- *Simulate, then sign (sequential).* Adds a full simulation round trip to every trade.
+- *Poll receipts per transaction.* An RPC call per trade per poll, for information the indexer already has.
+- *One retry policy for all orders.* A stop-loss must get out; a manual trade must not surprise the user.
+
+**Why:** Keeps the hot path to one signature plus submission, reuses data we already ingest, and matches retry behaviour to what each order is for.
+
+**Consequence:** The engine keeps a set of our pending transaction hashes per chain to match against incoming events; outcomes go to Kafka and user notifications.
+
+---
+
+## D35 — Exactly-once trigger firing: deterministic firing IDs, dedupe in execution, orders in Postgres
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+1. **Deterministic firing ID** = hash(order ID, per-order firing count). The main engine and the standby compute the same ID for the same firing.
+2. **Execution dedupes by firing ID**, stored when the firing is accepted (alongside the nonce ledger, D32). A repeat gets "already handled", not a second trade.
+3. **Engine retries until acknowledged.** Always safe because of 2.
+4. **One firing per order at a time.** A fired order is `firing` until execution reports the outcome; further price crossings are ignored until then.
+5. **Orders are durable in Postgres.** The engine's in-memory trigger index (D22) is a cache rebuilt from Postgres on startup and failover.
+
+**Rejected:**
+- *At-most-once (fire and forget).* A lost call means a stop-loss that never fires.
+- *Random firing IDs.* The standby would generate different IDs and double-fire after failover.
+- *Orders only in engine memory.* A crash loses every armed order.
+
+**Why:** Turns "exactly once" into two simple rules: retries are always safe, and duplicates are always recognised.
+
+**Consequence:** Closes the architecture open questions on exactly-once firing and on where trigger orders live durably. Postgres schema for orders and firings → `data.md`.

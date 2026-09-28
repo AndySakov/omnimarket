@@ -90,18 +90,49 @@ When a copied whale buys and 500 copy trades follow within milliseconds, a norma
 - **Why it's non-obvious:** an outside aggregator can't do this. Only we see our own order flow.
 - **Say it as:** "The router knows about the trades it hasn't landed yet."
 
-### A router that can't be upgraded, can't hold funds, and never gets unlimited approvals (D26)
-Our router is immutable (no admin key to steal), must end every call with a zero balance, and only ever spends via Permit2 permits: exact amount, short-lived, one per trade. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
-- **Say it as:** "The contract that touches user funds has no owner, no balance, and no standing permission."
+### A router that can't be upgraded, can't hold funds, and never gets open-ended approvals (D26, D31)
+Our router is immutable (no admin key to steal) and must end every call with a zero balance. It spends only through Permit2: per-position allowances capped at the position size, expiring in a week, and spendable only in a transaction the wallet itself sends. Because users approve Permit2 rather than the router, a new router version needs no re-approvals.
+- **Say it as:** "The contract that touches user funds has no owner, no balance, and no open-ended permission."
 
 ### Slippage is chosen by situation, not one flat number (D27)
 Slippage is both a fill guarantee and the amount a sandwich bot can take. Defaults follow what the router already knows: 15% for new pairs, 3% for established tokens, 0.5% for majors, doubled for stop-losses that must land. The displayed quote is never executed as-is: the route is re-quoted at send time.
 - **Say it as:** "Your slippage depends on what you're trading and why, not on a global setting."
 
+### Honeypot checks without deploying anything (D29)
+To test whether a token can be sold, the engine runs one read-only `eth_call` in which a simulator contract is *injected* through a state override at a throwaway address, given native coin, and made to buy then sell against the live pool. A sell that reverts means a honeypot; value missing from the round trip is the tax. No deployment, no gas, no on-chain footprint.
+- **Say it as:** "We test-sell every token in a simulation before anyone can buy it."
+
+### The indexer is also a safety monitor (D29)
+The swap and transfer stream we already index shows when sells stop succeeding while buys continue, when the realised tax drifts from the simulated one, or when liquidity is pulled. Those behavioural signals trigger an immediate re-check at no extra RPC cost.
+
 ### Heuristics are measured, not guessed (D25, D5)
 Every routing decision and its outcome (quoted vs filled, reverts) is logged. Shadow mode replays the same order flow under different penalty settings to compare.
 
 ---
+
+## Execution
+
+### Private fan-out: privacy without slow inclusion (D30)
+On BNB, the same signed transaction goes to several private block builders in parallel. It never touches the public mempool (so it can't be sandwiched), yet it reaches most of the block-building market. Because every copy shares one nonce, it can only land once.
+- **Say it as:** "Send one transaction to every private door at once; only one can open."
+
+### One signature between a price move and a stop-loss (D31)
+Everything that can be prepared before a trigger fires is prepared: the allowance is signed when the position opens, the transaction layout and gas estimate are cached, and the nonce comes from an in-memory counter. At fire time: fresh quote, one signature, send.
+- **Say it as:** "When your stop fires, the only work left is one signature."
+
+### A nonce ledger that survives crashes and unblocks itself (D32)
+Nonces come from an in-memory counter (no RPC call per trade), but every assigned nonce is also recorded in a durable ledger with compare-and-set status writes. If a transaction is dropped, a watchdog re-sends it with a higher fee or burns the nonce with a 0-value self-transfer so the wallet isn't stuck.
+- **Say it as:** "Fast like a counter, recoverable like a ledger, and a dropped transaction never freezes a wallet."
+
+### Simulate while signing (D34)
+The pre-send simulation doesn't need the signature, so it runs in parallel with the Privy signing call. The hot path pays for the slower of the two, not both.
+
+### Our indexer doubles as our receipt service (D34)
+Our own swaps show up in the pool events we already stream, so matching by transaction hash tells us a trade landed within 10–200ms, without polling for receipts.
+
+### Exactly-once by making retries safe (D35)
+Every trigger firing has a deterministic ID (order ID + firing count), so the standby engine computes the same ID after failover. Execution remembers IDs it has handled, so the engine can retry freely and a duplicate is always recognised.
+- **Say it as:** "Retries are always safe, duplicates are always recognised, so a stop-loss fires exactly once."
 
 ## Testing & operations
 

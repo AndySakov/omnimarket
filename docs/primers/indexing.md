@@ -77,8 +77,8 @@ At the tip, the chain can change its mind: a block you processed gets replaced b
 
 | Chain | Blocks | Faster-than-block stream | Finality |
 |---|---|---|---|
-| **MegaETH** | EVM block ~1s | **Mini-blocks every ~10ms**, via the Realtime API's `miniBlocks` subscription (transactions, receipts, state changes) | Sequencer-ordered L2; L1-derived finality is much later **(verify details)** |
-| **Base** | ~2s | **Flashblocks**: ~200ms preconfirmations **(verify)** | Sequencer-ordered L2; "safe" once posted to L1, "finalized" when that L1 block finalises |
+| **MegaETH** | EVM block ~1s | **Mini-blocks every ~10ms**, via the Realtime API's `miniBlocks` subscription (transactions, receipts, state changes) | Sequencer-ordered L2; final once its batch (data on EigenDA, commitment on Ethereum) is finalised on L1; exact lag to be measured |
+| **Base** | ~2s | **Flashblocks**: ~200ms preconfirmations (verified) | Sequencer-ordered L2; "safe" once posted to L1, "finalized" when that L1 block finalises |
 | **BNB Chain** | ~0.45s (Fermi fork, Jan 2026) | None needed; blocks are already fast | Fast finality ~1.1s |
 
 So "follow the head" means something different per chain. On MegaETH it's ~100 updates/second from one stream. Keeping up is a real throughput problem, not a trivial loop.

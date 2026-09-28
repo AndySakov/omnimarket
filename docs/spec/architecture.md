@@ -44,7 +44,7 @@
 
 ## Open for spec
 
-- Exactly-once trigger firing across engine → execution (D8)
+- ~~Exactly-once trigger firing across engine → execution (D8)~~ → decided (D35)
 - Engine recovery: snapshot format, replay window, time to recover
 - Standby and failover: how the standby stays warm, how double-firing of triggers is prevented
-- Where trigger orders live durably (engine memory is a cache; the source of truth is TBD)
+- ~~Where trigger orders live durably~~ → Postgres; engine memory is a cache (D35)

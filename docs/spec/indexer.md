@@ -17,7 +17,7 @@
 | Chain | Fast loop (provisional) | Reconciler loop (canonical) |
 |---|---|---|
 | MegaETH | Realtime API filtered `logs` subscription, per ~10ms mini-block | `getLogs` per ~1s EVM block |
-| Base | `newFlashblocks`, one payload per ~200ms flashblock (fallback: filtered `pendingLogs`) | `getLogs` per 2s block |
+| Base | `newFlashblocks` as a tick, then one filtered `getLogs` at `pending` per ~200ms flashblock (payload no longer carries receipts; fallback: filtered `pendingLogs`) | `getLogs` per 2s block |
 | BNB | `newHeads` + one `getLogs` per 0.45s block | `getLogs` per block, trailing |
 
 Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16).
@@ -50,7 +50,7 @@ Promotion reuses the bootstrap procedure for a single pool: read state at block 
 |---|---|---|---|
 | Provisional | Mini-block | Flashblock | n/a |
 | Confirmed | EVM block | Block | Block |
-| Final | L1-final batch **(verify timing)** | L1-final batch (~15–20 min) | Fast finality (~1.1s) |
+| Final | L1-final batch (EigenDA data + L1 commitment; lag **to measure**) | L1-final batch (~15–20 min) | Fast finality (~1.1s) |
 
 Undo tiers: **hot** (memory, provisional + ~10s) → **warm** (Kafka before/after events, up to final) → **rebuild** (bootstrap). The cold path advances a per-chain finality watermark.
 
@@ -65,7 +65,7 @@ Estimated load after per-block streams, per month **(verify)**:
 
 | Source | Requests / events |
 |---|---|
-| Fast-loop pushes | Base ~13M · BNB ~11.5M · MegaETH scales with volume |
+| Fast-loop pushes | Base ~26M (tick + getLogs) · BNB ~11.5M · MegaETH scales with volume |
 | Reconciler `getLogs` | ~10M |
 | Simulations (shadow mode, opaque v4 venues) | 3–25M |
 | Bootstrap + history backfill (batched) | <1M each |

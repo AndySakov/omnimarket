@@ -11,7 +11,7 @@ So the question isn't "custodial or not"; it's **who can make the key sign, unde
 | Model | How it works | Signing speed | Automation | Who can steal funds | Used by |
 |---|---|---|---|---|---|
 | **1. Server-held keys** | Backend generates keys, encrypts them at rest (AES / cloud KMS), and decrypts in memory to sign | Fastest (in-process) | Full | The operator, or anyone who breaches the operator | Early Telegram bots (Maestro, Banana Gun, Unibot era) |
-| **2. Embedded wallets in secure enclaves** | Keys are generated and used only inside hardware enclaves (TEE) run by a vendor. The user authenticates to unlock signing. The backend gets **delegated, policy-limited** signing rights | Fast (one network call to the vendor) | Full, within policy | Much harder: needs the user's auth or a policy-allowed action | Trojan (Privy, reportedly **(verify)**), Axiom (Turnkey) |
+| **2. Embedded wallets in secure enclaves** | Keys are generated and used only inside hardware enclaves (TEE) run by a vendor. The user authenticates to unlock signing. The backend gets **delegated, policy-limited** signing rights | Fast (one network call to the vendor) | Full, within policy | Much harder: needs the user's auth or a policy-allowed action | Trojan (Privy, verified), Axiom (Turnkey) |
 | **3. MPC wallets** | The key is split into shares held by different parties, and signatures are computed jointly without ever reassembling the key | Slower (multiple network round trips) | Possible | Needs several parties to collude | Institutional custody (Fireblocks) |
 | **4. Self-custody + session keys** | User keeps their own wallet (EOA or smart account) and grants a scoped, expiring "session key" to the backend via ERC-4337 or EIP-7702 | Fast once the session exists | Within session scope | Only within the session's limits | Emerging; not yet standard for terminals |
 
@@ -53,7 +53,7 @@ Turnkey is the stronger pick if we wanted to showcase the policy engine itself o
 
 ## Open questions
 
-- Confirm Privy supports all of MegaETH, Base, and BNB for server-side signing **(verify)**. Chain-agnostic EVM signing should make this a non-issue.
+- Privy supports server-side signing on any EVM chain and lists MegaETH explicitly (verified).
 - Do we route swaps through our own router contract (to take a fee and bundle approve + swap), or call DEX routers directly? This decides what the signing policy allowlists. → `execution.md`
 
 ## Sources
