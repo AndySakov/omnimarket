@@ -781,3 +781,75 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 **Why:** Turns "exactly once" into two simple rules: retries are always safe, and duplicates are always recognised.
 
 **Consequence:** Closes the architecture open questions on exactly-once firing and on where trigger orders live durably. Postgres schema for orders and firings → `data.md`.
+
+---
+
+## D36 — Bonding curves are a phase 1 venue type (four.meme first)
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Launchpad bonding curves join DEX pools as a venue type. Phase 1 covers **four.meme** on BNB; MegaETH's Kumbaya launchpad mechanics **(verify)**. Base's main launchpads (Clanker, Zora, Flaunch) launch directly into Uniswap v4 hook pools, already covered by D14.
+- **Indexer:** discovers curve tokens from the launchpad's create events and tracks curve state like any pool (bootstrap read + events).
+- **Pricing / quoting:** the curve formula in memory (D21), shadow-checked like other venues.
+- **Routing:** swaps go through the launchpad contract via our router (D26).
+- **Safety:** same round-trip simulation (D29).
+- **Migration:** a graduation event marks the curve closed and promotes the new PancakeSwap pool to active immediately (D11), with no gap in pricing.
+
+**Rejected:**
+- *DEX pools only.* Misses BNB's newest memecoins during their most active phase, and leaves the migration trigger nothing to watch.
+
+**Why:** On BNB, "new pair" mostly means "new four.meme curve". Trojan's migration trigger and the new-pairs feed both depend on it.
+
+**Consequence:** Launch-phase fees on Base v4 hooks (e.g. Zora's 99% → 1% over ten seconds) must be modelled exactly or quoted by simulation; sniping into a decaying fee is a real user risk and the quote must show it.
+
+---
+
+## D37 — Trigger order catalogue: Trojan parity
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:** Phase 1 ships the full Trojan-style order set.
+
+| Type | Behaviour |
+|---|---|
+| Limit buy / sell | At a price, market cap, or % change (D20) |
+| Stop-loss / take-profit | % from the position's entry |
+| Multi-level take-profit | Several levels, each selling a share (e.g. 50% at 2×, 25% at 5×) |
+| Trailing stop | % below the highest price since the order was created |
+| Auto-sell on buy | Each buy arms preset TP/SL orders |
+| Expiry | Optional on any order |
+| Event: dev sell | Fires when the token's dev wallet sells |
+| Event: migration | Fires when a bonding-curve token graduates (D36) |
+| Scheduled | Fires at a set time |
+
+- **Entry price:** positions keep a cost basis (average entry) from their own fills; "% from entry" orders use it.
+- **Dev wallet:** recorded per token at discovery (deployer, or the creator the launchpad records). Dev sells are detected from the swap stream the indexer already has.
+- **Market cap:** price × supply. Supply read at discovery; tokens with mint/burn powers (D29) track it from mint/burn events.
+- **Evaluation:** price-level orders use the sorted index in quote-asset units (D22); event orders are keyed by (token, event type); scheduled orders by time. All fire through the exactly-once path (D35).
+
+**Rejected:**
+- *Price orders only.* Event and scheduled triggers are part of the reference product and cheap given the data we already index.
+
+**Why:** Parity with the reference product; every trigger reuses data and machinery already specced.
+
+**Consequence:** Multi-level TP means one position can own several armed orders; fills update the position and cancel or resize siblings. → `triggers.md`
+
+---
+
+## D38 — Copy trading from our own indexer, never from the mempool
+
+**Date:** 2026-09-28 · **Status:** Decided
+
+**Decision:**
+- **Detection:** leader swaps are matched in the pool and curve events we already stream. On Base and MegaETH the copy can land one flashblock / mini-block after the leader; on BNB (private submission) we see the leader's trade when its block lands.
+- **Settings (per follow):** fixed or proportional size, max per trade, token filters (min liquidity, safety badges), buy-only or mirror sells, auto TP/SL on copied buys (D37).
+- **Fan-out:** many followers of one leader are routed with own-flow awareness (D25), so later copies see realistic prices and spread across pools.
+- **Never from the mempool:** no copying of pending transactions.
+
+**Rejected:**
+- *Copy from BNB's public mempool.* Faster, but it is frontrunning the leader, and private submission hides most leaders anyway.
+- *Poll leader wallets via RPC.* Slower and costs RPC calls for data the indexer already has.
+
+**Why:** Fastest honest signal available, at no extra ingestion cost.
+
+**Consequence:** Followed wallets are a D11 promotion reason: any pool a followed wallet trades is activated immediately, so its state is ready before the copies are routed.

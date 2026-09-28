@@ -134,6 +134,15 @@ Our own swaps show up in the pool events we already stream, so matching by trans
 Every trigger firing has a deterministic ID (order ID + firing count), so the standby engine computes the same ID after failover. Execution remembers IDs it has handled, so the engine can retry freely and a duplicate is always recognised.
 - **Say it as:** "Retries are always safe, duplicates are always recognised, so a stop-loss fires exactly once."
 
+## Triggers
+
+### Copy trading rides the indexer (D38)
+Leader swaps are spotted in the pool events we already stream, so on Base and MegaETH a copy can land one flashblock or mini-block after the leader, with no extra RPC calls. Followed wallets pre-activate the pools they trade, and fan-out to many followers is routed with own-flow awareness. We never copy from the mempool.
+- **Say it as:** "Copy trades one block behind the leader, never in front of them."
+
+### Launchpads are first-class venues (D36)
+On BNB most new memecoins start on a four.meme bonding curve, not a DEX pool. We price and trade the curve directly, and the moment it graduates, the new PancakeSwap pool is already active, so there's no gap in pricing and the "buy on migration" trigger has something to fire on.
+
 ## Testing & operations
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)
