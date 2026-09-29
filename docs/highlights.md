@@ -202,7 +202,7 @@ Beyond named load scenarios, a fuzzer mixes every lever we control at random (tr
 The engine and execution cores run deterministically given their inputs, with time, network and RPC injectable. That lets the same code run in a simulated world at thousands of hours per hour, where any failure replays exactly from its seed. It's the approach FoundationDB and TigerBeetle use, applied to a trading engine.
 
 ### Free until it has to be paid, then paid by credits (D17, D50, D51)
-Dev runs locally, CI on Blacksmith's free minutes, staging on Oracle's Always Free tier. Production goes to Google Cloud because its Web3 program counts a blockchain foundation grant as funding, turning a chain grant into up to $200k of cloud credits.
+Dev runs locally, CI on GitHub Actions (free for a public repository), staging on Oracle's Always Free tier. Production goes to Google Cloud because its Web3 program counts a blockchain foundation grant as funding, turning a chain grant into up to $200k of cloud credits.
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)
 The full pipeline (quote → build → simulate against live state → sign) runs against real mainnet data and stops just before broadcast. Load tests (flash crowds, stop-loss cascades, copy-trade fan-out) hit real conditions without spending money.
