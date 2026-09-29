@@ -8,7 +8,7 @@ Build a **walking skeleton on Base first**: every layer thin but real, from chai
 
 **Why Base first:** the first chain's job is to prove the architecture.
 - Base's Flashblocks exercise the full provisional → confirmed → undo machinery (D10, D12); BNB has no preconfirmations to test it with.
-- The fewest unverified pieces: Permit2, Privy, a free public Flashblocks feed (D17) and the own-node plan (D44) are all confirmed.
+- The fewest unverified pieces: Permit2, Privy, a free public Flashblocks feed (D17) and the own-node plan (D44) are all confirmed. *(Since found: the raw Flashblocks feed is for node operators, and Base plans to replace Flashblocks with 200ms blocks. See [verification.md](spec/verification.md#needs-a-decision).)*
 - Uniswap v2/v3/v4 math carries over to PancakeSwap on BNB and Kumbaya on MegaETH.
 - No public mempool, so private submission (D30), four.meme and Infinity bin pools can wait for BNB.
 
