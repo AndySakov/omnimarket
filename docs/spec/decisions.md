@@ -1203,6 +1203,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 **Date:** 2026-09-28 · **Status:** Decided (production cloud: see D51)
 
+*(Amended by D76: CI stays on GitHub-hosted runners.)*
+
 **Decision:**
 
 | Env | Where | Cost |
@@ -1729,3 +1731,20 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Why:** RustFS is the closest drop-in for MinIO: the same S3 API and console, a permissive license, and a 1.0 release (2026-09-16).
 
 **Consequence:** RustFS is young; if it misbehaves, SeaweedFS is the fallback, and the S3 client means switching is config only.
+
+---
+
+## D76 — CI stays on GitHub-hosted runners
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D50)
+
+**Decision:** CI runs on GitHub-hosted runners, not Blacksmith. Revisit if the repository goes private or CI time starts to hurt.
+
+**Found while setting up Blacksmith:** Blacksmith supports GitHub organizations only, not personal repositories ([quickstart](https://docs.blacksmith.sh/introduction/quickstart)), and `AndySakov/omnimarket` is a personal repository.
+
+**Rejected:**
+- *Move the repository into an organization to use Blacksmith.* A transfer for a speed-up CI doesn't need yet: the verify job takes about 20 seconds.
+
+**Why:** D50 chose Blacksmith for free minutes, but GitHub-hosted runners are free and unmetered for public repositories, so the cost reason is gone.
+
+**Consequence:** Going private brings GitHub's free-tier minute cap; that is the point to reconsider Blacksmith (with an organization) or paid minutes.

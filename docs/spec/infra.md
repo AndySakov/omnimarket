@@ -7,7 +7,7 @@
 | Env | Where | Cost |
 |---|---|---|
 | Dev | k3d + docker compose, Anvil forks | Free |
-| CI | GitHub Actions on Blacksmith runners | 3,000 free min/month, then ~$0.004/min |
+| CI | GitHub Actions on GitHub-hosted runners (D76) | Free: public repository |
 | Staging | Oracle Cloud Always Free ARM, k3s, free RPC tiers | Free |
 | Prod | Per-chain regional clusters + central region | Paid, offset by credits (D51) |
 
@@ -47,7 +47,7 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
-CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`) until Blacksmith is set up. CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
+CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
 ## Production cloud (D51)
 
