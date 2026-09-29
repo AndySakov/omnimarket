@@ -42,7 +42,7 @@ Telemetry uses pseudonymous user IDs. Per-user records are encrypted with a per-
 
 ## Snapshots
 
-Versioned, compressed binary per chain every ~30s (D40); last 10 kept. MinIO in dev/staging.
+Versioned, compressed binary per chain every ~30s (D40); last 10 kept. RustFS in dev/staging (D75); Cloud Storage in production (D51).
 
 ## Retention
 

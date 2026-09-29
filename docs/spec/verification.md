@@ -24,6 +24,7 @@ Results of checking every **(verify)** marker in the spec. Checked 2026-09-28 fr
 | Base `newFlashblocks` logs (D16) | Receipts were removed from the Flashblocks WebSocket payload in Base's v1 upgrade; an open issue asks to restore them | `newFlashblocks` becomes a tick; each tick triggers one filtered `getLogs` at `pending`. Base fast-loop cost ~13M → ~26M requests/month, still fixed. [Issue #2265](https://github.com/base/base/issues/2265), [issue #613](https://github.com/base/base/issues/613) |
 | Kumbaya (D21) | MegaETH's dominant DEX (~80% of chain TVL early 2026). v3-like concentrated liquidity, but non-standard pool bytecode and unverified source | Quoted by simulation until our v3 math passes the shadow check against it. [Report](https://github.com/Stengarl/DeFi_Bullshit_Detector/blob/main/kumbaya-report.md), [DefiLlama](https://defillama.com/protocol/kumbaya) |
 | GoPlus on MegaETH (D29) | Not listed | Use the Etherscan API (chain ID 4326) for verified-source checks on MegaETH. [MegaETH Etherscan API](https://mega.etherscan.io/api) |
+| MinIO open-source images (D41, D70) | Repository archived April 2026; `minio/minio` returns 404 on Docker Hub and has no active tags on quay.io. Checked 2026-09-29 | RustFS replaces it in dev and staging (D75). [minio/minio](https://github.com/minio/minio) |
 | PancakeSwap Infinity (found while checking) | BNB's PancakeSwap Infinity has concentrated-liquidity and **bin** pools, with hooks | Added to D21 scope; bin-pool math still to spec |
 
 ## Partly confirmed
