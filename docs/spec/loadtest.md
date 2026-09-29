@@ -15,7 +15,7 @@
 | 1 | Steady state | k6: 2k users, 100k armed orders per chain, live feed | All D46 targets at p99 |
 | 2 | Flash crowd on a new pair | k6: 5k buys on one new pool within 1s | Click ≤ 100ms p99; fills spread by own-flow awareness; executors keep up |
 | 3 | Stop-loss cascade | Synthetic 40% crash, 10k stops on one token | Each fires once; stops before TPs; trigger ≤ 75ms p99 |
-| 4 | Copy-trade fan-out | Injected leader swap, 2k followers | Copies ready for the next flashblock / mini-block |
+| 4 | Copy-trade fan-out | Injected leader swap, 2k followers | Copies ready for the next block / mini-block |
 | 5 | MegaETH firehose | Peak mini-block replay at 1×, 5×, 10× | Ceiling recorded; lag ≤ 250ms at 1× |
 | 6 | Failover under load | Kill primary during #3 | ≤ 5s; zero duplicate or missed firings |
 | 7 | Reorgs & dropped preconfs | Synthetic | Undo exact; corrections reach ClickHouse and UI |

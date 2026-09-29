@@ -18,7 +18,7 @@ The order engine lives inside each Chain Engine (D6): orders are durable in Post
 | Scheduled | Time reached | Timer wheel |
 | Expiry | Time reached → cancel | Timer wheel |
 
-All firings go through the exactly-once path (D35) and fire instantly on the display price (D20).
+All firings go through the exactly-once path (D35) and fire on canonical blocks, never on provisional state (D20, D77). Each trigger swap reverts on chain if the price is back on the wrong side of the level (D78).
 
 **Arming signs the intent (D42, D57):** creating or editing an order signs its intent in the user's own session (exact amount, minimum output, expiry, allowed submitters per D58). Auto-armed TP/SL after a buy lands, and copy trades, are signed server-side under policy caps. Firing needs no user signature.
 
@@ -38,7 +38,7 @@ Bonding curves, starting with four.meme on BNB. Migration promotes the new Panca
 
 ## Copy trading (D38)
 
-- Detect leader swaps in the event stream we already ingest; copy lands one flashblock / mini-block later on Base and MegaETH.
+- Detect leader swaps in the event stream we already ingest; copy lands one block later on Base, one mini-block later on MegaETH.
 - Per-follow settings: fixed or proportional size, max per trade, filters, buy-only or mirror sells, auto TP/SL.
 - Fan-out routed with own-flow awareness (D25). Never copy from the mempool.
 - Pools traded by followed wallets are activated immediately (D11).

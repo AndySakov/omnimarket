@@ -2,7 +2,7 @@
 
 **Status:** Draft. Decisions: D42–D47.
 
-Targets measure **internal latency**: from our engine receiving the event (or the API receiving the click) to the transaction being broadcast. End-to-end latency from the chain's timestamp is reported alongside, not targeted.
+Targets measure **internal latency**: from our engine receiving the event (or the API receiving the click) to the transaction being broadcast. For triggers, the event is a canonical block (D77). End-to-end latency from the chain's timestamp is reported alongside, not targeted.
 
 ## Targets (p99)
 

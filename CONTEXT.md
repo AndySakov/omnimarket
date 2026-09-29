@@ -18,13 +18,13 @@ _Avoid_: fast path
 Consumers fed from Kafka: ClickHouse history, Postgres, UI feeds, candles (D6, D41).
 
 **Fast loop**:
-The engine loop that applies events from the chain's fastest stream (Flashblocks on Base) immediately. Everything it applies is provisional (D10).
+The engine loop that applies events from the chain's fastest stream immediately: canonical blocks on Base and BNB (D77), mini-blocks on MegaETH, which are provisional (D10).
 
 **Reconciler**:
 The engine loop that reads canonical blocks, confirms or corrects fast-loop state, detects reorgs and fills gaps (D10).
 
 **Provisional state**:
-State applied from the fast loop before canonical confirmation. Triggers fire on it (D10, D20).
+State applied from the fast loop before canonical confirmation. Shown in the display price; triggers never fire on it (D10, D77).
 
 **Tiered undo**:
 Automatic rollback all the way to L1 finality, stored in three tiers: hot (engine memory), then warmer and colder stores (D12).

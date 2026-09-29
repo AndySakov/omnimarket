@@ -6,7 +6,7 @@
 
 ```
       MegaETH / Base / BNB  (providers; own Base node in prod, D44)
-                        │ logs, flashblocks, mini-blocks, blocks
+                        │ logs, mini-blocks, blocks
                         ▼   (every input also recorded → input log, D54)
    ┌──────────────── Chain Engine (one per chain, + Kafka-fed standby, D40) ───────┐
    │  head follower → pool state (in memory) → pricing → router/quoter             │
