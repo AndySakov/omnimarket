@@ -1597,6 +1597,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 - **Crates:** M0 creates `proto/` and the `types`, `det` and `sim` crates only. Every other crate in the build-plan layout is created by the first ticket that needs it.
 - **Local stack:** docker compose with Postgres, Kafka (Apache Kafka in KRaft mode, the broker Strimzi runs in production), MinIO, Tempo and Grafana, plus Anvil. k3d waits for the first staging deploy.
 - **Proto tooling:** `buf lint` and `buf breaking` against `main` in CI, prost for Rust codegen.
+- **Observability skeleton:** `tracing` with an OTLP exporter to Tempo, lineage IDs as span attributes, the toy core's decision records as wide events. Prometheus, Loki and Pyroscope wait until there's a service to watch.
+- **Toolchain:** stable Rust pinned in `rust-toolchain.toml`, bumped deliberately.
 - **Measurement tasks:** M0 keeps the two Base measurements that gate M1: event rates and provider delivery delay. The rest move to the milestone that first uses the result; the placement table is in [build-plan.md](../build-plan.md#measurement-tasks-need-live-network-access).
 
 **Rejected:**
@@ -1639,13 +1641,17 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 - **Traits in M0:** Clock, Rng, EventSource and Rpc. Store arrives with the first M1 ticket that needs it; Signer and Broadcaster in M5.
 - **Sync or async traits: open.** Settled by a throwaway spike, the first M0 ticket, that runs one toy core with sync traits (core blocks on an I/O task) and with async traits (one task on a current-thread runtime, simulated implementations completing in seed order), and replays both. Expected winner: async.
 - **Determinism check (rule 1):** a `clippy.toml` in each core crate bans, via `disallowed-methods` and `disallowed-types`: wall-clock reads (`SystemTime::now`, `Instant::now`), OS randomness (`rand::thread_rng`, `rand::random`), `tokio::time`, `tokio::spawn`, `std::thread::spawn`, and std `HashMap` / `HashSet` (random iteration order; use `BTreeMap` or a fixed hasher). A CI grep rejects any `select!` without `biased;`. Clippy reading a per-crate `clippy.toml` **(verify)**.
-- **Recording:** every recording wrapper writes `InputRecord`s (source, sequence number, arrival time, payload) to the Kafka input log from M0 (D54).
-- **Replay demo:** a toy core in `sim` reads EventSource, Clock, Rng and Rpc and emits decision records. The test asserts that the same seed run twice gives an identical decision digest, and that a recorded run replayed from its recording gives the same digest. CI runs 100 seeds.
+- **Recording:** every recording wrapper writes `InputRecord`s (source, sequence number, arrival time, payload) through a recording sink. The real sink is the Kafka input log from M0 (D54); tests use an in-memory sink.
+- **Input-log layout:** `inputs.<chain>` (and `inputs.sim` for M0) has one partition, keyed by core instance, so replay sees the exact order the core saw. A chain's input rate fits in one partition **(verify)** against the M0 Base event-rate measurement.
+- **Archive:** the Cloud Storage copy of the input log arrives with the engine in M1; M0 relies on Kafka retention.
+- **Replay demo:** a toy core in `sim` reads EventSource, Clock, Rng and Rpc and emits decision records. The test asserts that the same seed run twice gives an identical decision digest, and that a recorded run replayed from its recording gives the same digest. CI runs 100 seeds against the in-memory sink; one integration test records a seed to Kafka (a CI service container) and replays it from there.
 
 **Rejected:**
 - *All seven traits in M0.* Signer, Broadcaster and Store have no caller until M1 or M5.
 - *A dependency ban only (cargo-deny).* Doesn't catch `HashMap` iteration order or wall-clock reads through std.
 - *Recording to a local file first.* The input log's real home is Kafka; building the file format first means building the log twice.
+- *Every seed through Kafka.* Slow and flaky in CI for no extra coverage past the first seed.
+- *Several partitions keyed by source, re-merged by sequence number on replay.* More moving parts for throughput a chain doesn't need.
 - *Deciding sync vs async on paper.* It's an empirical question (CLAUDE.md: prototype, don't write a D-entry).
 
 **Why:** M0 has to prove the property everything later depends on: a core driven only through `det` replays exactly, and nothing in core code can quietly break that.
