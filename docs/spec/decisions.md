@@ -1799,4 +1799,4 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - The router contract needs a price check per trigger swap → `routing.md`, `security.md` when `contracts/` is built.
 - Relative triggers (% from entry, trailing) pass the absolute level computed at firing.
-- How often Base reorgs canonical blocks is unmeasured → [verification.md](verification.md), still to measure.
+- Base replaced no canonical block in an hour of measurement (1,801 blocks), so reorg phantoms are rare, not impossible → [verification.md](verification.md).

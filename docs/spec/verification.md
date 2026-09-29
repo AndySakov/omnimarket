@@ -68,10 +68,18 @@ The delay includes the poll interval and the round trip, so it is an upper bound
 
 **Pending state over HTTP.** `eth_getBlockByNumber("pending")` changed on 174 of 176 polls over 2 minutes, 3.6 changes per block on average: it updates faster than one client can poll from here (~440ms between polls), consistent with ~200ms Flashblocks. The free HTTP endpoint serves pending state; resolving the 200ms cadence needs a WebSocket or a closer client.
 
+**Reorgs of canonical blocks (D78)**, `scripts/measure-base.py reorgs`, measured 2026-09-30 00:03–01:03 EAT: `latest` polled every 500ms for 60 minutes, 1,801 consecutive blocks. Each block's parent was checked against the hash already held, and every height was re-read 10 blocks (20s) and 300 blocks (10 min) later.
+
+| | Count |
+|---|---|
+| Reorgs seen when the next block arrived | 0 |
+| Heights whose hash changed on a re-read | 0 |
+
+No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at about 3 per 1,801 blocks (1 per ~20 minutes) at 95% confidence, so this shows reorgs are rare, not that they never happen: a longer run or a sequencer incident would tighten it. The public endpoint is load-balanced, so a single lagging backend could in principle report a stale hash; none did. D78's guard stays, as insurance against the rare case rather than a frequent one.
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).
-- How often Base reorgs canonical blocks, and how deep (D78): record each height's hash from the public RPC and re-check it N blocks later.
 - Chainstack serving MegaETH mini-block `logs` subscriptions, and per-event WebSocket billing (D16).
 - Quote-asset coverage per chain: share of active tokens paired with native or reference stablecoins (D19).
 - MegaETH L1 finality lag (D12).
