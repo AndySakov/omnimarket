@@ -1,6 +1,6 @@
 # Build Plan
 
-**Status:** Approved (D63). Build mode not yet started. Implements decisions D1–D69 in [spec/decisions.md](spec/decisions.md).
+**Status:** Approved (D63). In build since 2026-09-29, at M0. Implements the decisions in [spec/decisions.md](spec/decisions.md).
 
 ## Approach: one chain end to end, then widen
 
