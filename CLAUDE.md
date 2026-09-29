@@ -64,6 +64,8 @@ M0 creates the workspace and the commands. Until then there is nothing to run. O
 - `forge test` passes for anything under `contracts/`
 - any spec or D-entry the change touches is updated in the same commit
 
+`scripts/verify.sh` runs these checks. CI runs it, and a hook refuses `git commit` while it fails: fix the failure, never bypass the hook.
+
 Run the real thing before claiming done, and say what you could not verify.
 
 ## When you change X, update Y

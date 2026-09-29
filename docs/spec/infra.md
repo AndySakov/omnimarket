@@ -34,6 +34,8 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
+CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. The gate is a Claude Code `PreToolUse` hook on `git commit` (`.claude/settings.json`).
+
 ## Production cloud (D51)
 
 Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: Start tier ($2k) at MVP → blockchain foundation grant (BNB Chain Builder Grant first) → Web3 program Scale tier, up to $200k over 2 years.
