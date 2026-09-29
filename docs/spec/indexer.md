@@ -58,7 +58,7 @@ Undo tiers: **hot** (memory, provisional + ~10s) → **warm** (Kafka before/afte
 
 | Environment | Provider |
 |---|---|
-| Dev, CI, staging (D17) | Free tiers + public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint) |
+| Dev, CI, staging (D17) | Free tiers + public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint). Base's raw Flashblocks WebSocket turns out to be for node operators only, and Flashblocks may be removed: see [verification.md](verification.md), needs a decision |
 | Production (and load tests that exceed free quotas) | Chainstack Pro (~$199/mo) primary · QuickNode Build (~$49/mo) failover |
 
 Estimated load after per-block streams, per month **(verify)**:

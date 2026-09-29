@@ -34,9 +34,47 @@ Results of checking every **(verify)** marker in the spec. Checked 2026-09-28 fr
 | State overrides on Base/BNB providers (D29) | Supported by the node software (reth, BSC's geth fork); QuickNode documents `eth_simulateV1` on Base. Chainstack: confirm with the first test call. |
 | MegaETH finality (D12) | Settles through the OP Stack with data on EigenDA; "final" = batch finalised on L1. Exact lag not published; measure. [L2BEAT](https://l2beat.com/scaling/projects/megaeth) |
 
+## Measured: Base (M0)
+
+Measured 2026-09-29 from Nairobi with `scripts/measure-base.py`, against the free public RPC (`mainnet.base.org`) only. No HTTP 429s. Local clock within 1ms of `time.apple.com` (±166ms uncertainty).
+
+**Event rates**, 300 blocks sampled evenly over the previous 24h (head 51,929,153):
+
+| Per 2s block | p50 | p90 | p99 | max | mean |
+|---|---|---|---|---|---|
+| All logs | 834 | 1,393 | 2,565 | 2,902 | 921 |
+| M1 logs: v2 Sync + Swap, v3 Swap + Mint + Burn | 73 | 146 | 247 | 299 | 86 |
+| v3 Swap | 23 | 75 | 163 | 185 | 34 |
+| v4 Swap (M9) | 5 | 14 | 29 | 47 | 7 |
+| All logs, KB of JSON | 575 | 940 | 1,636 | 1,858 | 629 |
+| M1 logs, KB of JSON | 63 | 126 | 214 | 259 | 74 |
+
+Per second: M1 logs 43 mean, 124 at p99; all logs 461 mean, 1,282 at p99. v2 is a small share of Base's DEX traffic; v3 carries most of it.
+
+**One Kafka partition per chain holds the input rate (D72).** The worst case, every log on the chain recorded twice (fast loop and reconciler) at p99, is about 1.6 MB/s of JSON. Common sizing guidance for one partition is around 10 MB/s, so the headroom is over 6x, and following only M1 pools needs about a tenth of that.
+
+**Delivery delay**, `latest` polled every 100ms for 5 minutes (149 blocks):
+
+| | p50 | p90 | p99 | max |
+|---|---|---|---|---|
+| Block first seen, minus its timestamp | 473ms | 690ms | 1,941ms | 2,151ms |
+| Request round trip to the public RPC | 314ms | 410ms | 1,300ms | 3,757ms |
+| Interval between consecutive blocks | 2,052ms | 2,292ms | 3,155ms | 3,450ms |
+
+The delay includes the poll interval and the round trip, so it is an upper bound on the provider's delay, and it is from East Africa: production co-locates with the sequencer (D43). Roughly half a round trip (~160ms) of the p50 is the reply's return trip.
+
+**Pending state over HTTP.** `eth_getBlockByNumber("pending")` changed on 174 of 176 polls over 2 minutes, 3.6 changes per block on average: it updates faster than one client can poll from here (~440ms between polls), consistent with ~200ms Flashblocks. The free HTTP endpoint serves pending state; resolving the 200ms cadence needs a WebSocket or a closer client.
+
+## Needs a decision
+
+| Finding | Affects |
+|---|---|
+| **Base plans to remove Flashblocks.** Its upcoming Denim hard fork "replaces Flashblocks with canonical 200ms blocks, so Flashblocks subscriptions and pending state are unavailable after activation". Not active on Sepolia or mainnet; activation time undecided. Live for testing on Vibenet. Checked 2026-09-29. [Migrate from Flashblocks](https://docs.base.org/upgrades/denim/migrate-from-flashblocks) | D10 (Base fast loop), D12 (Base provisional tier), D44 (own node for the Flashblocks feed), build plan (Base first because Flashblocks exercise provisional state) |
+| **The raw Flashblocks WebSocket is for node operators.** "Applications should not connect to it directly", and "Base does not provide a free public WebSocket RPC endpoint". The free option is HTTP polling of `pending` on `mainnet.base.org`. [Flashblocks FAQ](https://docs.base.org/specifications/flashblocks) | D16 and D17 (free Base feed for dev), build plan ("a free public Flashblocks feed") |
+
 ## Still to measure (needs live network access)
 
-- Real event rates per chain, to size the RPC plan (D16).
+- Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).
 - Chainstack serving MegaETH mini-block `logs` subscriptions, and per-event WebSocket billing (D16).
 - Quote-asset coverage per chain: share of active tokens paired with native or reference stablecoins (D19).
 - MegaETH L1 finality lag (D12).
