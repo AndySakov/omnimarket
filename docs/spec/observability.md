@@ -49,6 +49,7 @@ Stored as edges in ClickHouse; walk backwards for root cause, forwards for blast
 
 - **Input log:** every core input (provider messages, RPC responses, API requests, clock reads, seeds) → Kafka → Cloud Storage.
 - **Exact replay:** snapshot + recorded inputs reproduce every decision (deterministic cores, D49).
+- **det runtime (built):** `Clock` (wall clock, or simulated time that moves only when the simulator advances it) and `Rng` (ChaCha8 from a 64-bit seed; production draws the seed from the OS once, so recording the seed replays every draw). Workspace clippy bans keep every other crate off the wall clock, OS randomness, threads and std hash maps (D73).
 - **Point-in-time everywhere:** engine, Postgres (PITR), ClickHouse (versions), config (Git), binaries (signed digests).
 - **Replay-gated deploys:** replay recorded production inputs through the release candidate and review every differing decision → shadow → one chain first → auto-rollback on SLO burn.
 - **Retention:** input log 30 days hot / 1 year cold; money-path traces and decisions 1 year; audit log forever.

@@ -13,6 +13,8 @@ Results of checking every **(verify)** marker in the spec. Checked 2026-09-28 fr
 | Trojan uses Privy (wallets.md) | Confirmed | [trojan.com](https://trojan.com/) |
 | Prop AMMs on BNB (product.md) | Present, e.g. LunarBase (BNB/USDT, BTCB/USDT) | [BNB Chain market-making landscape](https://www.bnbchain.org/en/blog/bnb-chain-market-making-landscape-liquidity-venues-how-to-integrate) |
 | Prop AMMs on MegaETH | None found | — |
+| Clippy config lookup (D72, D73) | Clippy uses the nearest `clippy.toml`, walking up from each crate's directory; a crate's own file replaces the root one rather than merging with it. Checked 2026-09-29 on clippy 1.98: the root bans reject a fixture two directories down, and removing `crates/det/clippy.toml` makes `det` fail on `SystemTime::now` | Local run |
+| ChaCha8 stream is portable (D72) | `ChaCha8Rng::seed_from_u64(0)` gives the same first three `u64`s on rand_chacha 0.3.1 and 0.10.0; pinned in `det`'s tests | Local run, [rand reproducibility](https://rust-random.github.io/book/crate-reprod.html) |
 | State overrides on MegaETH (D29) | `eth_call` overrides and `eth_simulateV1` documented | [QuickNode MegaETH eth_call](https://www.quicknode.com/docs/megaeth/eth_call), [eth_simulateV1](https://www.quicknode.com/docs/megaeth/eth_simulateV1) |
 
 ## Changed the design

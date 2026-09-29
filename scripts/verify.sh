@@ -12,6 +12,7 @@ if [[ -f Cargo.toml ]]; then
   cargo fmt --all --check
   cargo clippy --workspace --all-targets -- -D warnings
   cargo test --workspace
+  scripts/check-determinism.sh
   ran=1
 fi
 

@@ -1,0 +1,24 @@
+# Build-mode rule 1 (D72): core code reaches time, randomness and threads only through `det`.
+# Applies to every crate that doesn't ship its own clippy.toml. Crates at the I/O boundary
+# (today only `det`) opt out with their own file.
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "read time through det::Clock" },
+  { path = "std::time::Instant::now", reason = "read time through det::Clock" },
+  { path = "std::thread::spawn", reason = "cores are single-threaded (rule 6)" },
+  { path = "tokio::spawn", reason = "cores are single-threaded (rule 6)", allow-invalid = true },
+  { path = "tokio::time::sleep", reason = "wait on det::Clock", allow-invalid = true },
+  { path = "tokio::time::sleep_until", reason = "wait on det::Clock", allow-invalid = true },
+  { path = "tokio::time::interval", reason = "wait on det::Clock", allow-invalid = true },
+  { path = "tokio::time::timeout", reason = "wait on det::Clock", allow-invalid = true },
+  { path = "tokio::time::Instant::now", reason = "read time through det::Clock", allow-invalid = true },
+  { path = "rand::random", reason = "draw from det::Rng", allow-invalid = true },
+  { path = "rand::rng", reason = "draw from det::Rng", allow-invalid = true },
+  { path = "rand::thread_rng", reason = "draw from det::Rng", allow-invalid = true },
+  { path = "getrandom::fill", reason = "draw from det::Rng", allow-invalid = true },
+  { path = "getrandom::u64", reason = "draw from det::Rng", allow-invalid = true },
+]
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "iteration order differs per process; use BTreeMap" },
+  { path = "std::collections::HashSet", reason = "iteration order differs per process; use BTreeSet" },
+  { path = "std::hash::RandomState", reason = "seeded per process; breaks replay" },
+]
