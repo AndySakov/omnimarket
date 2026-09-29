@@ -1639,7 +1639,7 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 **Decision:**
 - **Traits in M0:** Clock, Rng, EventSource and Rpc. Store arrives with the first M1 ticket that needs it; Signer and Broadcaster in M5.
-- **Sync or async traits: open.** Settled by a throwaway spike, the first M0 ticket, that runs one toy core with sync traits (core blocks on an I/O task) and with async traits (one task on a current-thread runtime, simulated implementations completing in seed order), and replays both. Expected winner: async.
+- **Sync or async traits: open.** *(Settled by D74: traits that wait are async.)* Settled by a throwaway spike, the first M0 ticket, that runs one toy core with sync traits (core blocks on an I/O task) and with async traits (one task on a current-thread runtime, simulated implementations completing in seed order), and replays both. Expected winner: async.
 - **Determinism check (rule 1):** a `clippy.toml` in each core crate bans, via `disallowed-methods` and `disallowed-types`: wall-clock reads (`SystemTime::now`, `Instant::now`), OS randomness (`rand::thread_rng`, `rand::random`), `tokio::time`, `tokio::spawn`, `std::thread::spawn`, and std `HashMap` / `HashSet` (random iteration order; use `BTreeMap` or a fixed hasher). A CI grep rejects any `select!` without `biased;`. Clippy reading a per-crate `clippy.toml` **(verify)**. *(Amended by D73: one workspace-wide `clippy.toml`, with `det` opting out.)*
 - **Recording:** every recording wrapper writes `InputRecord`s (source, sequence number, arrival time, payload) through a recording sink. The real sink is the Kafka input log from M0 (D54); tests use an in-memory sink.
 - **Input-log layout:** `inputs.<chain>` (and `inputs.sim` for M0) has one partition, keyed by core instance, so replay sees the exact order the core saw. A chain's input rate fits in one partition **(verify)** against the M0 Base event-rate measurement.
@@ -1672,3 +1672,36 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Why:** Clippy uses the nearest `clippy.toml` and doesn't merge files, so a root default with explicit opt-outs makes forgetting fail closed.
 
 **Consequence:** Crates that join the I/O boundary later (`chain-io`, `api`) add their own `clippy.toml` with a comment saying why.
+
+---
+
+## D74 — det traits that wait are async; the core is one task on a current-thread runtime
+
+**Date:** 2026-09-29 · **Status:** Decided (settles D72's open question, from the sync-vs-async spike)
+
+**Decision:**
+- **Reads stay sync.** `Clock` and `Rng` never wait, so they stay plain methods.
+- **Waits are async.** `EventSource`, `Rpc`, and later `Signer`, `Broadcaster` and `Store` return `LocalBoxFuture`s, so cores keep holding `Box<dyn …>` with no generics. A call's future owns what it needs (`'static`), so the core can park it with other in-flight calls and keep handling events.
+- **One task.** Each core runs as a single task on a current-thread tokio runtime. It waits with `select!` (always `biased;`) over its event source and a `FuturesUnordered` of in-flight calls.
+- **Simulation** starts that runtime with paused time: simulated sources wait on tokio's clock, which jumps to the next timer when the task is idle. Simulated `Clock` reads the same paused clock so waits and reads agree.
+- **Cancel safety.** The core drops a pending `EventSource::next()` whenever another branch wins, so sources must be cancel-safe. In production an `EventSource` is a channel receiver fed by the I/O tasks, which is cancel-safe by construction.
+- **Replay** enforces the recorded order: a source's future is ready only when its record is next in the log, and a replay that stalls is reported as diverged.
+
+**Evidence** (spike on branch `spike/det-sync-async`, 300 seeds, 2,000 events 10ms apart, one in ten needing a 20–200ms RPC call):
+
+| | Sync traits | Async traits |
+|---|---|---|
+| Same seed, same digest; recorded run replays exactly | Yes | Yes |
+| Worst lag between an event and the core handling it | 7,605ms, growing with run length | 0ms |
+| Core code | 156 lines, plain calls | 220 lines: boxed futures, `select!`, an in-flight set, an order-enforcing replay log |
+
+Both variants made identical quote and firing decisions. Removing `biased;` broke determinism at the first seed. An event source that advanced before its wait silently dropped events when cancelled, with no panic.
+
+**Rejected:**
+- *Sync traits.* Deterministic by construction, but a blocked core stops handling events for the whole call. Execution waits 100ms+ on signing (D46, D57), so every other trade would queue behind it.
+- *Async traits with generics (`async fn` in traits).* Not dyn-compatible, so type parameters spread through every core type; boxed futures keep Boring Rust's plain `dyn` (D45).
+- *Sans-IO* was already rejected by D70.
+
+**Why:** Only async keeps the core responsive while calls are in flight, and the spike showed it stays exactly replayable.
+
+**Consequence:** `det` gains a tokio dependency (it's the I/O boundary, D73). The simulated clock moves onto tokio's paused clock when the first waiting trait lands. Cancel safety needs a test per `EventSource`: drop `next()` mid-wait and check nothing is lost.
