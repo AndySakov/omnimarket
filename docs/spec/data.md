@@ -26,7 +26,7 @@
 | `prices.<chain>` | token | 24h |
 | `corrections.<chain>` | block | 7 days |
 | `executions.<chain>` | wallet | 30 days |
-| `inputs.<chain>` (flight recorder, D54) | source | 30 days hot, then Cloud Storage for 1 year |
+| `inputs.<chain>` (flight recorder, D54); one partition, so replay sees the core's exact input order (D72) | core instance | 30 days hot, then Cloud Storage for 1 year |
 
 Protobuf; schemas versioned in the repo and checked for compatibility in CI.
 

@@ -1281,6 +1281,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D53 — Observability: end-to-end lineage, wide events, 100% tracing on money paths
 
+*(Extended by D71: lineage ID format.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -1501,6 +1503,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
 
+*(Amended by D70: M0 scope trimmed.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** The build follows [build-plan.md](../build-plan.md): a walking skeleton on Base first (M0–M5, ending in the first real-funds trade), then depth on Base (M6–M7), BNB (M8), MegaETH (M9), copy trading and event orders (M10), hardening (M11), and launch readiness (M12). The frontend track starts at M2 against a mock server.
@@ -1581,3 +1585,75 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Decision:** MegaETH stays in scope but moves behind copy trading (M11), onboarded through the chain kit (D67).
 
 **Why:** ~$1.6M/day DEX volume versus hundreds of millions on BNB. Option value, not a market yet.
+
+---
+
+## D70 — M0 scope: only what the replay demo exercises
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D63; from the M0 grilling session)
+
+**Decision:**
+- **Core shape:** engine and execution cores call the `det` traits directly (Clock, Rng, EventSource, Rpc, …). Tests and the simulation harness swap in simulated implementations; production wraps real ones in recording wrappers.
+- **Crates:** M0 creates `proto/` and the `types`, `det` and `sim` crates only. Every other crate in the build-plan layout is created by the first ticket that needs it.
+- **Local stack:** docker compose with Postgres, Kafka (Apache Kafka in KRaft mode, the broker Strimzi runs in production), MinIO, Tempo and Grafana, plus Anvil. k3d waits for the first staging deploy.
+- **Proto tooling:** `buf lint` and `buf breaking` against `main` in CI, prost for Rust codegen.
+- **Observability skeleton:** `tracing` with an OTLP exporter to Tempo, lineage IDs as span attributes, the toy core's decision records as wide events. Prometheus, Loki and Pyroscope wait until there's a service to watch.
+- **Toolchain:** stable Rust pinned in `rust-toolchain.toml`, bumped deliberately.
+- **Measurement tasks:** M0 keeps the two Base measurements that gate M1: event rates and provider delivery delay. The rest move to the milestone that first uses the result; the placement table is in [build-plan.md](../build-plan.md#measurement-tasks-need-live-network-access).
+
+**Rejected:**
+- *Sans-IO cores* (a pure `step(input) -> outputs`, with every trait in the I/O shell). Makes replay trivially the input stream and rule 6 hold by construction, but turns every multi-step flow (simulate, sign, submit) into hand-written states. Trait calls keep core code readable while the learning curve is steep (D45).
+- *Scaffolding every crate up front.* Empty stubs are stale docs.
+- *k3d in M0.* Nothing in M0 deploys.
+- *Redpanda in dev.* Lighter, but a different broker from production.
+- *prost without buf.* Leaves D41's schema compatibility checks for later, when they are cheapest now.
+- *All eleven measurement tasks as M0 blockers.* Most need keys and chains M1 doesn't touch.
+
+**Why:** M0's demo is "CI green; a simulated-clock test replays identically". Anything that doesn't serve that demo or unblock M1 delays the first code.
+
+**Consequence:** Because the core calls traits, determinism rests on the trait boundary: the simulated and recorded implementations, plus a check that core crates reach time, randomness and the network no other way (rule 1).
+
+---
+
+## D71 — Lineage IDs are content-derived where a natural key exists
+
+**Date:** 2026-09-29 · **Status:** Decided (extends D53)
+
+**Decision:** A record's lineage ID is derived from its natural key wherever one exists: a chain event from (chain, block hash, log index), a firing from its firing ID (D35), an intent from its hash. Records with no natural key take an ID from the core's seeded `det` Rng.
+
+**Format:** 16 bytes. A content-derived ID is BLAKE3 of the natural key's canonical encoding, truncated to 128 bits; a seeded ID is 16 bytes from the Rng. Every wide event carries a shared `Lineage { id, caused_by[] }` message.
+
+**Rejected:**
+- *UUIDv7 everywhere, drawn from the seeded Rng.* Deterministic under replay, but the same chain event seen twice (fast loop, then reconciler, or a re-insert after a reorg) gets two IDs.
+- *keccak-256, or 32-byte IDs.* Matches EVM tooling, but doubles the size of every lineage edge for no collision benefit at our volumes.
+
+**Why:** The same fact always gets the same ID, across replays, reprocessing and services. ClickHouse re-inserts stay harmless (D41), and lineage edges join without a lookup table.
+
+**Consequence:** Proto schemas define each record's natural key alongside its lineage ID.
+
+---
+
+## D72 — det runtime in M0: four traits, lint-enforced, recorded to Kafka
+
+**Date:** 2026-09-29 · **Status:** Decided, except sync vs async (from the M0 grilling session; builds on D49, D54, D70)
+
+**Decision:**
+- **Traits in M0:** Clock, Rng, EventSource and Rpc. Store arrives with the first M1 ticket that needs it; Signer and Broadcaster in M5.
+- **Sync or async traits: open.** Settled by a throwaway spike, the first M0 ticket, that runs one toy core with sync traits (core blocks on an I/O task) and with async traits (one task on a current-thread runtime, simulated implementations completing in seed order), and replays both. Expected winner: async.
+- **Determinism check (rule 1):** a `clippy.toml` in each core crate bans, via `disallowed-methods` and `disallowed-types`: wall-clock reads (`SystemTime::now`, `Instant::now`), OS randomness (`rand::thread_rng`, `rand::random`), `tokio::time`, `tokio::spawn`, `std::thread::spawn`, and std `HashMap` / `HashSet` (random iteration order; use `BTreeMap` or a fixed hasher). A CI grep rejects any `select!` without `biased;`. Clippy reading a per-crate `clippy.toml` **(verify)**.
+- **Recording:** every recording wrapper writes `InputRecord`s (source, sequence number, arrival time, payload) through a recording sink. The real sink is the Kafka input log from M0 (D54); tests use an in-memory sink.
+- **Input-log layout:** `inputs.<chain>` (and `inputs.sim` for M0) has one partition, keyed by core instance, so replay sees the exact order the core saw. A chain's input rate fits in one partition **(verify)** against the M0 Base event-rate measurement.
+- **Archive:** the Cloud Storage copy of the input log arrives with the engine in M1; M0 relies on Kafka retention.
+- **Replay demo:** a toy core in `sim` reads EventSource, Clock, Rng and Rpc and emits decision records. The test asserts that the same seed run twice gives an identical decision digest, and that a recorded run replayed from its recording gives the same digest. CI runs 100 seeds against the in-memory sink; one integration test records a seed to Kafka (a CI service container) and replays it from there.
+
+**Rejected:**
+- *All seven traits in M0.* Signer, Broadcaster and Store have no caller until M1 or M5.
+- *A dependency ban only (cargo-deny).* Doesn't catch `HashMap` iteration order or wall-clock reads through std.
+- *Recording to a local file first.* The input log's real home is Kafka; building the file format first means building the log twice.
+- *Every seed through Kafka.* Slow and flaky in CI for no extra coverage past the first seed.
+- *Several partitions keyed by source, re-merged by sequence number on replay.* More moving parts for throughput a chain doesn't need.
+- *Deciding sync vs async on paper.* It's an empirical question (CLAUDE.md: prototype, don't write a D-entry).
+
+**Why:** M0 has to prove the property everything later depends on: a core driven only through `det` replays exactly, and nothing in core code can quietly break that.
+
+**Consequence:** The spike's result amends this entry with the sync-or-async choice.
