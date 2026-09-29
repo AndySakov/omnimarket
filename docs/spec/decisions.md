@@ -20,6 +20,8 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D2 — Chains: MegaETH, Base, BNB Chain
 
+*(Amended by D64 and D69: BNB is the launch beachhead; MegaETH is deprioritised until it has real volume.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Support three EVM chains from day one.
@@ -590,6 +592,8 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 ---
 
 ## D28 — Fees: Trojan's 1%, taken in the native/quote asset
+
+*(Amended by D68: referral tiers and cashback from launch.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1256,6 +1260,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D52 — Cypherpunk ground rules for every safeguard and every byte of telemetry
 
+*(Extended by D66: anti-snooping rule.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Five constraints that the observability, safeguard and security designs (D53–D58) must satisfy.
@@ -1504,3 +1510,74 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Why:** One chain end to end proves the architecture with the fewest unknowns; widening after that reuses what the skeleton built.
 
 **Consequence:** Build mode starts only when explicitly switched on; until then the repo stays docs-only.
+
+---
+
+## D64 — Build on Base, launch on BNB
+
+**Date:** 2026-09-29 · **Status:** Decided (from [market.md](../market.md); amends D2, D63)
+
+**Decision:** The walking skeleton stays on Base (M0–M5). BNB moves ahead of Base depth in the build order, and **BNB is the launch beachhead**: anti-sandwich by default, the full four.meme lifecycle, safety with evidence.
+
+**Why:** Terminal revenue on EVM is concentrated on BNB (GMGN's BSC fees ~$30M vs ~$0.4M on Base), while Base remains the lowest-risk chain to prove the architecture on.
+
+**Consequence:** Milestones reordered: M7 Safety, M8 BNB, M9 Base depth (build-plan.md).
+
+---
+
+## D65 — Public execution-quality report
+
+**Date:** 2026-09-29 · **Status:** Decided
+
+**Decision:** Publish, per chain and over time: quoted vs realised price, sandwich attempts avoided on BNB, fill latency, stop-loss exit rate, revert rate. Each trader also sees their own figures and "what our execution saved you" on each trade. Built from lineage and decision records (D53).
+
+**Why:** Traders lose 15–30% to slippage, taxes and MEV without seeing it, and no terminal reports execution quality. It makes our execution work visible and turns the fee into a net-positive story.
+
+**Consequence:** The report's numbers must be reproducible from public on-chain data plus our published methodology (D52 rule 4).
+
+---
+
+## D66 — Anti-snooping rule
+
+**Date:** 2026-09-29 · **Status:** Decided (extends D52, D57)
+
+**Decision:** No internal tool shows which wallets belong to which user by default. Any lookup of an identity ↔ wallet mapping requires a stated reason and is written to the public, on-chain-anchored audit log (D55), with the user's pseudonymous ID and the reason (never the wallets themselves). Aggregate analytics never expose per-user wallet sets.
+
+**Rejected:**
+- *Internal access controls without public logging.* Exactly what failed at Axiom (Feb 2026 allegations).
+
+**Why:** Makes "we can't quietly track your wallets" a verifiable property, not a promise.
+
+---
+
+## D67 — Chain onboarding kit: day-zero support for new EVM chains
+
+**Date:** 2026-09-29 · **Status:** Decided
+
+**Decision:** Adding an EVM chain is a packaged process: per-chain config (block timing, finality, streams, submission path), venue adapters reusing the shared math (D21), a verification checklist (Permit2, Privy, state overrides, providers), and shadow-mode acceptance tests. Target: support a new EVM chain within days of its mainnet.
+
+**Why:** Early flow on new chains goes to whoever supports them first (Robinhood Chain: GMGN took 18.5% of volume in three days).
+
+**Consequence:** MegaETH is the kit's first real use (M11).
+
+---
+
+## D68 — Fees: 1% headline with referral tiers and cashback
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D28)
+
+**Decision:** Keep the 1% headline (D28), with multi-level referrals and activity-based cashback from launch, landing active traders at a lower effective rate. Every trade shows what our execution saved (D65).
+
+**Why:** 1% is market rate on EVM (Banana Gun, GMGN), but the category competes on cashback and referrals; Solana terminals net ~0.45–0.75%.
+
+**Consequence:** Exact tiers are a launch decision (M13). The router's signed fee cap (D59) is per trade, so tiers need no contract change.
+
+---
+
+## D69 — MegaETH deprioritised until it has real volume
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D2)
+
+**Decision:** MegaETH stays in scope but moves behind copy trading (M11), onboarded through the chain kit (D67).
+
+**Why:** ~$1.6M/day DEX volume versus hundreds of millions on BNB. Option value, not a market yet.
