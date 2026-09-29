@@ -1,6 +1,6 @@
 # OmniMarket Spec
 
-**Status:** Planning. Docs only — no code until we explicitly switch to build mode.
+**Status:** Building, since 2026-09-29. Specs stay the source of truth: code that disagrees with a spec or D-entry changes both in the same commit.
 
 OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live pricing, best-route swaps, fast execution, and automated orders across MegaETH, Base, and BNB Chain. It's modelled on what an on-chain trading terminal like Trojan needs as it expands into EVM.
 

@@ -4,7 +4,7 @@ OmniMarket is a multi-chain EVM trading terminal backend (Base first, then BNB C
 
 ## Current mode
 
-The repo is in **docs mode** until the project lead says "switch to build mode". In docs mode, change only `docs/` and these two files. Build mode starts at milestone M0 in [docs/build-plan.md](docs/build-plan.md).
+**Build mode**, since 2026-09-29. Work comes from GitHub issues, grouped by milestone; M0 is current. Pick up only issues with no open blockers.
 
 ## Where things are
 
