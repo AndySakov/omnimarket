@@ -1,0 +1,9 @@
+# Code that breaks rule 1 on purpose. scripts/check-determinism.sh asserts that clippy,
+# under the root clippy.toml, rejects every line of it.
+[package]
+name = "determinism-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]

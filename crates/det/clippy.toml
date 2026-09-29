@@ -1,0 +1,2 @@
+# `det` is the boundary where the wall clock and OS randomness are allowed in,
+# so it opts out of the workspace bans in the root clippy.toml.

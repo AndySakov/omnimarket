@@ -1640,7 +1640,7 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Decision:**
 - **Traits in M0:** Clock, Rng, EventSource and Rpc. Store arrives with the first M1 ticket that needs it; Signer and Broadcaster in M5.
 - **Sync or async traits: open.** Settled by a throwaway spike, the first M0 ticket, that runs one toy core with sync traits (core blocks on an I/O task) and with async traits (one task on a current-thread runtime, simulated implementations completing in seed order), and replays both. Expected winner: async.
-- **Determinism check (rule 1):** a `clippy.toml` in each core crate bans, via `disallowed-methods` and `disallowed-types`: wall-clock reads (`SystemTime::now`, `Instant::now`), OS randomness (`rand::thread_rng`, `rand::random`), `tokio::time`, `tokio::spawn`, `std::thread::spawn`, and std `HashMap` / `HashSet` (random iteration order; use `BTreeMap` or a fixed hasher). A CI grep rejects any `select!` without `biased;`. Clippy reading a per-crate `clippy.toml` **(verify)**.
+- **Determinism check (rule 1):** a `clippy.toml` in each core crate bans, via `disallowed-methods` and `disallowed-types`: wall-clock reads (`SystemTime::now`, `Instant::now`), OS randomness (`rand::thread_rng`, `rand::random`), `tokio::time`, `tokio::spawn`, `std::thread::spawn`, and std `HashMap` / `HashSet` (random iteration order; use `BTreeMap` or a fixed hasher). A CI grep rejects any `select!` without `biased;`. Clippy reading a per-crate `clippy.toml` **(verify)**. *(Amended by D73: one workspace-wide `clippy.toml`, with `det` opting out.)*
 - **Recording:** every recording wrapper writes `InputRecord`s (source, sequence number, arrival time, payload) through a recording sink. The real sink is the Kafka input log from M0 (D54); tests use an in-memory sink.
 - **Input-log layout:** `inputs.<chain>` (and `inputs.sim` for M0) has one partition, keyed by core instance, so replay sees the exact order the core saw. A chain's input rate fits in one partition **(verify)** against the M0 Base event-rate measurement.
 - **Archive:** the Cloud Storage copy of the input log arrives with the engine in M1; M0 relies on Kafka retention.
@@ -1657,3 +1657,18 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Why:** M0 has to prove the property everything later depends on: a core driven only through `det` replays exactly, and nothing in core code can quietly break that.
 
 **Consequence:** The spike's result amends this entry with the sync-or-async choice.
+
+---
+
+## D73 — Determinism bans are workspace-wide; det opts out
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D72)
+
+**Decision:** The rule 1 bans live in one `clippy.toml` at the workspace root, so they apply to every crate by default. A crate at the I/O boundary opts out with its own `clippy.toml`; today that is only `det`, whose real implementations read the wall clock and the OS random source. A fixture that breaks each ban on purpose is linted on every verify run, so a weakened ban fails the build.
+
+**Rejected:**
+- *A `clippy.toml` in each core crate (D72 as written).* A new crate that forgets the file gets no bans; the safe default is banned.
+
+**Why:** Clippy uses the nearest `clippy.toml` and doesn't merge files, so a root default with explicit opt-outs makes forgetting fail closed.
+
+**Consequence:** Crates that join the I/O boundary later (`chain-io`, `api`) add their own `clippy.toml` with a comment saying why.

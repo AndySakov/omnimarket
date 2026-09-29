@@ -1,0 +1,6 @@
+async fn race(a: Rx, b: Rx) {
+    tokio::select! {
+        x = a.recv() => x,
+        y = b.recv() => y,
+    }
+}
