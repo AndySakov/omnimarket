@@ -11,6 +11,19 @@
 | Staging | Oracle Cloud Always Free ARM, k3s, free RPC tiers | Free |
 | Prod | Per-chain regional clusters + central region | Paid, offset by credits (D51) |
 
+## Local stack
+
+`scripts/stack up` starts the dev stack from `deploy/local/compose.yaml` and waits until every service is healthy (about 10s once images are pulled); `scripts/stack down` stops it and deletes its data.
+
+| Service | Port | Notes |
+|---|---|---|
+| Postgres 18 | 5432 | user, password and database `omnimarket` |
+| Kafka 4.3 (KRaft, single node) | 9092 | advertised as `localhost:9092` for clients on the host |
+| RustFS 1.0 (D75) | 9000 S3, 9001 console | access key `omnimarket`, secret `omnimarket-dev` |
+| Tempo 3.0 | 3200 API, 4317 OTLP gRPC, 4318 OTLP HTTP | local storage |
+| Grafana 13 | 3000 | anonymous admin, Tempo provisioned as the default data source |
+| Anvil (Foundry 1.8) | 8545 | forks Base; set `BASE_RPC_URL` to use your own endpoint instead of the public one |
+
 ## Production layout
 
 | Where | Runs |
@@ -22,7 +35,7 @@ No hot-path call crosses regions.
 
 ## Data stores (self-hosted on Kubernetes)
 
-CloudNativePG (Postgres) · Strimzi (Kafka) · Altinity operator (ClickHouse) · MinIO or cloud object storage (snapshots).
+CloudNativePG (Postgres) · Strimzi (Kafka) · Altinity operator (ClickHouse) · RustFS in dev and staging, Cloud Storage in production (snapshots, input-log archive; D75).
 
 ## Tooling
 

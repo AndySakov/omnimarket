@@ -942,7 +942,7 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D41 — Data layout: Postgres for money state, ClickHouse for history, Kafka topics, object storage for snapshots
 
-*(Amended by D61: execution's nonce ledger and firing dedupe move to a regional Postgres per chain.)*
+*(Amended by D61: execution's nonce ledger and firing dedupe move to a regional Postgres per chain. Amended by D75: RustFS replaces MinIO.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1234,6 +1234,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D51 — Production cloud: Google Cloud, funded by credits via the Web3 startup program
+
+*(Amended by D75: RustFS replaces MinIO in dev and staging.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1592,6 +1594,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D70 — M0 scope: only what the replay demo exercises
 
+*(Amended by D75: RustFS replaces MinIO in the local stack.)*
+
 **Date:** 2026-09-29 · **Status:** Decided (amends D63; from the M0 grilling session)
 
 **Decision:**
@@ -1707,6 +1711,26 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Why:** Only async keeps the core responsive while calls are in flight, and the spike showed it stays exactly replayable.
 
 **Consequence:** `det` gains a tokio dependency (it's the I/O boundary, D73). The simulated clock moves onto tokio's paused clock when the first waiting trait lands. Cancel safety needs a test per `EventSource`: drop `next()` mid-wait and check nothing is lost.
+
+---
+
+## D75 — RustFS replaces MinIO for dev and staging object storage
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D41, D51, D70)
+
+**Decision:** Dev and staging use RustFS (Apache-2.0, S3-compatible) wherever the spec said MinIO. Production stays on Cloud Storage (D51). Code reaches object storage through one S3/GCS-capable client, so the store is a per-environment config choice.
+
+**Found while building the local stack:** MinIO's open-source repository was archived in April 2026, and `minio/minio` is gone from Docker Hub and has no active tags on quay.io. The maintained edition, AIStor, is a separately licensed product.
+
+**Rejected:**
+- *Keep MinIO from an old image or a source build.* Unmaintained from here on.
+- *SeaweedFS.* Apache-2.0 and mature, but a larger system (master, volume and filer servers) than a snapshot store needs.
+- *fake-gcs-server.* Matches production's API, but staging runs outside Google Cloud (D17), so dev would match neither staging nor the S3 tooling.
+- *Defer the choice to M1*, when the input-log archive first writes objects. Leaves the M0 stack without the store the spec lists.
+
+**Why:** RustFS is the closest drop-in for MinIO: the same S3 API and console, a permissive license, and a 1.0 release (2026-09-16).
+
+**Consequence:** RustFS is young; if it misbehaves, SeaweedFS is the fallback, and the S3 client means switching is config only.
 
 ---
 
