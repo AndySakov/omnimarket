@@ -164,6 +164,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 
 *(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
+*(Amended by D77: Base follows canonical blocks only, like BNB. No Flashblocks feed.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Each Chain Engine runs two loops.
@@ -284,6 +286,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 *(Amended by D44: production also runs our own Base node.)*
 
+*(Amended by D77: Base's fast stream is `newHeads` + one `getLogs` per 2s block, ~2.6M requests/month; the Flashblocks tick and its ~26M are dropped.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (numbers **(verify)** by measurement)
 
 **Decision:**
@@ -384,6 +388,8 @@ Chart candles are built from actual swap prices (the universal convention), not 
 ---
 
 ## D20 — Triggers: Trojan-style, instant on the display price
+
+*(Amended by D77: triggers fire on canonical blocks, not provisional state. The rest stands.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1036,6 +1042,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D44 — Production runs our own Base node
+
+*(Amended by D77: the node serves canonical blocks, simulation and state reads. No Flashblocks feed.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (amends D16)
 
@@ -1748,3 +1756,47 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Why:** D50 chose Blacksmith for free minutes, but GitHub-hosted runners are free and unmetered for public repositories, so the cost reason is gone.
 
 **Consequence:** Going private brings GitHub's free-tier minute cap; that is the point to reconsider Blacksmith (with an organization) or paid minutes.
+
+---
+
+## D77 — Triggers fire on canonical blocks; Base follows canonical blocks only
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D10, D16, D20, D44)
+
+**Decision:**
+- Trigger orders evaluate on state from the chain's canonical blocks, never on provisional state. The display price updates as soon as the engine applies new state.
+- The engine checks triggers whenever canonical state changes: a new block from the fast loop, and a block the reconciler confirms or gap-fills.
+- Base follows canonical blocks only (`newHeads` + one filtered `getLogs` per 2s block, like BNB). M1 drops the Flashblocks tick, pending `getLogs` and dropped-preconfirmation handling.
+- Chains with a preconfirmation layer (MegaETH mini-blocks) revisit this when they are grilled.
+
+**Rejected:**
+- *Fire instantly on provisional state* (D20 as written). A dropped preconfirmation leaves a firing whose cause never happened, and a sell cannot be taken back.
+- *Per-order opt-in instant mode.* Kept as a later option: D20 already keeps the trigger rule pluggable per order.
+- *Wait for L1 finality.* No phantom firings, but 15 to 20 minutes makes a stop-loss useless.
+
+**Why:** A throwaway prototype (branch `prototype/base-tip-following`, `crates/engine/tip-following.PROTOTYPE.html`) modelled the fast loop and reconciler under Flashblocks and under Base's planned 200ms blocks (Denim). Firing on canonical blocks removed every phantom firing caused by a dropped preconfirmation; only reorgs still cause them. The cost is up to one block: 2s on Base today plus ~0.5s delivery (measured, [verification.md](verification.md)), about 200ms after Denim. Flashblocks are also an unstable dependency: the raw feed is for node operators, there is no free public WebSocket (D17), and Denim plans to remove them. Following canonical blocks makes the design the same before and after Denim.
+
+**Consequence:**
+- The UI says triggers fire on confirmed blocks. A user can briefly see the display price past their level before the order fires.
+- The trigger latency target ([slas.md](slas.md)) starts when the engine applies a canonical block.
+- Base stays first (build plan), for being measured, free and having reorgs to exercise the reconciler. It no longer exercises provisional state.
+- Reorgs remain the only source of phantom firings: D78.
+
+---
+
+## D78 — Trigger swaps carry an on-chain price guard
+
+**Date:** 2026-09-29 · **Status:** Decided **(verify)** feasibility and gas cost in the router
+
+**Decision:** A trigger order's swap reverts if the pool price at execution is on the wrong side of the trigger level (for a stop-loss, above it). A firing caused by a reorged-out block then costs gas instead of the position.
+
+**Rejected:**
+- *Accept reorg phantoms.* The slippage limit bounds how bad a fill is, not whether the order should have fired.
+- *Wait N blocks before firing.* Slower, and a deeper reorg still gets through.
+
+**Why:** Under D77, reorgs are the only way a trigger fires on a price that never settled, and the chain itself is the only place that knows the settled price at execution.
+
+**Consequence:**
+- The router contract needs a price check per trigger swap → `routing.md`, `security.md` when `contracts/` is built.
+- Relative triggers (% from entry, trailing) pass the absolute level computed at firing.
+- How often Base reorgs canonical blocks is unmeasured → [verification.md](verification.md), still to measure.

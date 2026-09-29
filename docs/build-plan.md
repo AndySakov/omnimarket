@@ -7,8 +7,8 @@
 Build a **walking skeleton on Base first**: every layer thin but real, from chain events to a landed trade and a firing stop-loss, demoable in shadow mode (D5). Then add depth (venues, order types, safety) and breadth (BNB, MegaETH).
 
 **Why Base first:** the first chain's job is to prove the architecture.
-- Base's Flashblocks exercise the full provisional → confirmed → undo machinery (D10, D12); BNB has no preconfirmations to test it with.
-- The fewest unverified pieces: Permit2, Privy, a free public Flashblocks feed (D17) and the own-node plan (D44) are all confirmed. *(Since found: the raw Flashblocks feed is for node operators, and Base plans to replace Flashblocks with 200ms blocks. See [verification.md](spec/verification.md#needs-a-decision).)*
+- Base is measured, free to follow (public RPC, D17) and has reorgs to exercise the reconciler and tiered undo (D10, D12). It follows canonical blocks only, so Base's planned switch from Flashblocks to 200ms blocks doesn't change the design (D77).
+- The fewest unverified pieces: Permit2, Privy and the own-node plan (D44) are all confirmed.
 - Uniswap v2/v3/v4 math carries over to PancakeSwap on BNB and Kumbaya on MegaETH.
 - No public mempool, so private submission (D30), four.meme and Infinity bin pools can wait for BNB.
 
@@ -59,7 +59,7 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 | # | Milestone | Scope | Demo |
 |---|---|---|---|
 | **M0** | Foundations | `proto/`, `types`, `det` and `sim` crates only (D70); CI on GitHub Actions (D76); `det` runtime (real, recorded, simulated); local stack (compose + Anvil); observability skeleton (lineage, traces); Base **measurement tasks** (below) | CI green; a simulated-clock test replays identically |
-| **M1** | Base indexer | Flashblocks tick + pending `getLogs`, reconciler, reorg and dropped-preconfirmation handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
+| **M1** | Base indexer | Canonical blocks via `newHeads` + `getLogs` (D77), reconciler, reorg handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
 | **M2** | Pricing + feeds | Display price, USD conversion, candle service, discovery and token WebSocket feeds, API contract v0 + **mock server for Jutin** | Thin UI shows live Base prices, candles and new pools |
 | **M3** | Router contract | Intents (Permit2 witness), submitter field, D59 terms, fee and gas caps; Foundry fuzz + invariants, Slither, Aderyn | Invariant suite green; router deployed on a Base fork |
 | **M4** | Routing + quotes | Single, 2-hop, split; cues; quote API; shadow check vs simulation | Quotes ≤ 10ms p99; shadow mismatch dashboard |

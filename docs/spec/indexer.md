@@ -17,10 +17,10 @@
 | Chain | Fast loop (provisional) | Reconciler loop (canonical) |
 |---|---|---|
 | MegaETH | Realtime API filtered `logs` subscription, per ~10ms mini-block | `getLogs` per ~1s EVM block |
-| Base | `newFlashblocks` as a tick, then one filtered `getLogs` at `pending` per ~200ms flashblock (payload no longer carries receipts; fallback: filtered `pendingLogs`) | `getLogs` per 2s block |
+| Base | `newHeads` + one `getLogs` per 2s block (canonical, D77) | `getLogs` per block, trailing |
 | BNB | `newHeads` + one `getLogs` per 0.45s block | `getLogs` per block, trailing |
 
-Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16). In production, Base's fast loop reads Flashblocks from our own Base node (D44), with providers as fallback.
+Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16). In production, Base's fast loop reads blocks from our own Base node (D44), with providers as fallback.
 
 The reconciler:
 - confirms fast-loop events (provisional → confirmed)
@@ -48,7 +48,7 @@ Promotion reuses the bootstrap procedure for a single pool: read state at block 
 
 | Status | MegaETH | Base | BNB |
 |---|---|---|---|
-| Provisional | Mini-block | Flashblock | n/a |
+| Provisional | Mini-block | n/a (D77) | n/a |
 | Confirmed | EVM block | Block | Block |
 | Final | L1-final batch (EigenDA data + L1 commitment; lag **to measure**) | L1-final batch (~15–20 min) | Fast finality (~1.1s) |
 
@@ -58,7 +58,7 @@ Undo tiers: **hot** (memory, provisional + ~10s) → **warm** (Kafka before/afte
 
 | Environment | Provider |
 |---|---|
-| Dev, CI, staging (D17) | Free tiers + public feeds (Base public Flashblocks WebSocket, MegaETH public endpoint). Base's raw Flashblocks WebSocket turns out to be for node operators only, and Flashblocks may be removed: see [verification.md](verification.md), needs a decision |
+| Dev, CI, staging (D17) | Free tiers + public endpoints (Base public RPC over HTTP, MegaETH public endpoint) |
 | Production (and load tests that exceed free quotas) | Chainstack Pro (~$199/mo) primary · QuickNode Build (~$49/mo) failover |
 
 Estimated load after per-block streams, per month **(verify)**:

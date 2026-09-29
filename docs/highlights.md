@@ -30,7 +30,7 @@ The standby stays warm by applying the primary's Kafka stream (no extra RPC cost
 ## Indexing
 
 ### A fast stream plus a reconciler, and one correction mechanism for both (D10)
-Each chain follows its fastest feed (MegaETH 10ms mini-blocks, Base 200ms Flashblocks) for provisional state. A reconciler then confirms against canonical blocks.
+Each chain follows its fastest feed (MegaETH 10ms mini-blocks for provisional state; Base and BNB canonical blocks, D77). A reconciler then confirms against canonical blocks. Triggers fire only on canonical state, so a dropped preconfirmation can't fire a stop-loss.
 - **The clever part:** a dropped preconfirmation is treated as a reorg of depth zero, so one undo path handles both.
 - **Say it as:** "Act on the preconfirmation, reconcile on the block, and treat every mismatch as a reorg."
 
@@ -47,7 +47,7 @@ Undo is tiered:
 No new storage system was needed for deep reorgs.
 
 ### Stream per block, not per event (D16)
-RPC providers bill every WebSocket push. Subscribing to one message per block (a Base Flashblocks tick plus one pending `getLogs`, BNB headers plus one `getLogs`) instead of one per swap turns a cost that grows with trading volume into a fixed one. That's an estimated 5–10× cheaper.
+RPC providers bill every WebSocket push. Subscribing to one message per block (block headers plus one `getLogs` on Base and BNB) instead of one per swap turns a cost that grows with trading volume into a fixed one. That's an estimated 5–10× cheaper.
 - **Say it as:** "We shaped the data feed around the provider's billing model."
 
 ### Free tiers are chaos engineering for free (D17)
@@ -147,7 +147,7 @@ Every trigger firing has a deterministic ID (order ID + firing count), so the st
 ## Triggers
 
 ### Copy trading rides the indexer (D38)
-Leader swaps are spotted in the pool events we already stream, so on Base and MegaETH a copy can land one flashblock or mini-block after the leader, with no extra RPC calls. Followed wallets pre-activate the pools they trade, and fan-out to many followers is routed with own-flow awareness. We never copy from the mempool.
+Leader swaps are spotted in the pool events we already stream, so a copy can land one block (Base) or mini-block (MegaETH) after the leader, with no extra RPC calls. Followed wallets pre-activate the pools they trade, and fan-out to many followers is routed with own-flow awareness. We never copy from the mempool.
 - **Say it as:** "Copy trades one block behind the leader, never in front of them."
 
 ### Launchpads are first-class venues (D36)
