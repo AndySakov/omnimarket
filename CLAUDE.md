@@ -54,3 +54,13 @@ Run the real thing before claiming done, and say what you could not verify.
 - Keep changes to the task. List unrelated problems you notice as follow-ups instead of fixing them.
 - Branch per task and open a PR. The PR title states the effect of the change; the body opens with the problem, then the fix.
 - When compacting, preserve the goal, the done criteria, decisions made and open questions.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `AndySakov/omnimarket`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` plus D-entries in `docs/spec/decisions.md` (no `docs/adr/`). See `docs/agents/domain.md`.
