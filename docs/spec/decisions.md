@@ -1281,6 +1281,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D53 — Observability: end-to-end lineage, wide events, 100% tracing on money paths
 
+*(Extended by D71: lineage ID format.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -1501,6 +1503,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
 
+*(Amended by D70: M0 scope trimmed.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** The build follows [build-plan.md](../build-plan.md): a walking skeleton on Base first (M0–M5, ending in the first real-funds trade), then depth on Base (M6–M7), BNB (M8), MegaETH (M9), copy trading and event orders (M10), hardening (M11), and launch readiness (M12). The frontend track starts at M2 against a mock server.
@@ -1581,3 +1585,40 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Decision:** MegaETH stays in scope but moves behind copy trading (M11), onboarded through the chain kit (D67).
 
 **Why:** ~$1.6M/day DEX volume versus hundreds of millions on BNB. Option value, not a market yet.
+
+---
+
+## D70 — M0 scope: only what the replay demo exercises
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D63; from the M0 grilling session)
+
+**Decision:**
+- **Core shape:** engine and execution cores call the `det` traits directly (Clock, Rng, EventSource, Rpc, …). Tests and the simulation harness swap in simulated implementations; production wraps real ones in recording wrappers.
+- **Crates:** M0 creates `proto/` and the `types`, `det` and `sim` crates only. Every other crate in the build-plan layout is created by the first ticket that needs it.
+- **Local stack:** docker compose with Postgres, Kafka, MinIO, Tempo and Grafana, plus Anvil. k3d waits for the first staging deploy.
+- **Measurement tasks:** M0 keeps the two Base measurements that gate M1: event rates and provider delivery delay. The rest move to the milestone that first uses the result; the placement table is in [build-plan.md](../build-plan.md#measurement-tasks-need-live-network-access).
+
+**Rejected:**
+- *Sans-IO cores* (a pure `step(input) -> outputs`, with every trait in the I/O shell). Makes replay trivially the input stream and rule 6 hold by construction, but turns every multi-step flow (simulate, sign, submit) into hand-written states. Trait calls keep core code readable while the learning curve is steep (D45).
+- *Scaffolding every crate up front.* Empty stubs are stale docs.
+- *k3d in M0.* Nothing in M0 deploys.
+- *All eleven measurement tasks as M0 blockers.* Most need keys and chains M1 doesn't touch.
+
+**Why:** M0's demo is "CI green; a simulated-clock test replays identically". Anything that doesn't serve that demo or unblock M1 delays the first code.
+
+**Consequence:** Because the core calls traits, determinism rests on the trait boundary: the simulated and recorded implementations, plus a check that core crates reach time, randomness and the network no other way (rule 1).
+
+---
+
+## D71 — Lineage IDs are content-derived where a natural key exists
+
+**Date:** 2026-09-29 · **Status:** Decided (extends D53)
+
+**Decision:** A record's lineage ID is derived from its natural key wherever one exists: a chain event from (chain, block hash, log index), a firing from its firing ID (D35), an intent from its hash. Records with no natural key take an ID from the core's seeded `det` Rng.
+
+**Rejected:**
+- *UUIDv7 everywhere, drawn from the seeded Rng.* Deterministic under replay, but the same chain event seen twice (fast loop, then reconciler, or a re-insert after a reorg) gets two IDs.
+
+**Why:** The same fact always gets the same ID, across replays, reprocessing and services. ClickHouse re-inserts stay harmless (D41), and lineage edges join without a lookup table.
+
+**Consequence:** Proto schemas define each record's natural key alongside its lineage ID.

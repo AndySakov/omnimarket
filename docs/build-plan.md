@@ -58,7 +58,7 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 
 | # | Milestone | Scope | Demo |
 |---|---|---|---|
-| **M0** | Foundations | Repo layout, CI on Blacksmith, proto, `det` runtime (real + simulated), local stack (k3d, compose, Anvil), observability skeleton (lineage, traces), **measurement tasks** (below) | CI green; a simulated-clock test replays identically |
+| **M0** | Foundations | `proto/`, `types`, `det` and `sim` crates only (D70); CI on Blacksmith; `det` runtime (real, recorded, simulated); local stack (compose + Anvil); observability skeleton (lineage, traces); Base **measurement tasks** (below) | CI green; a simulated-clock test replays identically |
 | **M1** | Base indexer | Flashblocks tick + pending `getLogs`, reconciler, reorg and dropped-preconfirmation handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
 | **M2** | Pricing + feeds | Display price, USD conversion, candle service, discovery and token WebSocket feeds, API contract v0 + **mock server for Jutin** | Thin UI shows live Base prices, candles and new pools |
 | **M3** | Router contract | Intents (Permit2 witness), submitter field, D59 terms, fee and gas caps; Foundry fuzz + invariants, Slither, Aderyn | Invariant suite green; router deployed on a Base fork |
@@ -77,9 +77,19 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 
 **Frontend track (parallel, Jutin):** starts at M2 against the mock server; switches to the real API per milestone.
 
-## Measurement tasks (M0, need live network access)
+## Measurement tasks (need live network access)
 
-From [verification.md](spec/verification.md): event rates per chain · Chainstack MegaETH mini-block `logs` · quote-asset coverage · MegaETH finality lag · Privy signing latency (server and browser) · BNB builder inclusion latency · provider delivery delay · Base sequencer direct submission · sequencer and builder locations · Kumbaya launchpad · Chainstack state overrides.
+From [verification.md](spec/verification.md), placed at the milestone that uses each result (D70):
+
+| Milestone | Tasks |
+|---|---|
+| M0 | Base event rates · Base provider delivery delay |
+| M4 | Chainstack state overrides (simulation for the shadow check) |
+| M5 | Privy signing latency (server and browser) · Base sequencer direct submission · Base sequencer location |
+| M8 | BNB event rates, delivery delay and quote-asset coverage · BNB builder inclusion latency and locations |
+| M11 | Chainstack MegaETH mini-block `logs` · MegaETH finality lag · Kumbaya launchpad |
+
+Base quote-asset coverage is measured in M2, where USD conversion lands.
 
 ## Relative effort (no timeline commitment, D63)
 
