@@ -34,7 +34,7 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
-CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. The gate is a Claude Code `PreToolUse` hook on `git commit` (`.claude/settings.json`).
+CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
 ## Production cloud (D51)
 
