@@ -1,6 +1,6 @@
 # Build Plan
 
-**Status:** Approved (D63). Build mode not yet started. Implements decisions D1–D63 in [spec/decisions.md](spec/decisions.md).
+**Status:** Approved (D63). Build mode not yet started. Implements decisions D1–D69 in [spec/decisions.md](spec/decisions.md).
 
 ## Approach: one chain end to end, then widen
 
@@ -65,12 +65,15 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 | **M4** | Routing + quotes | Single, 2-hop, split; cues; quote API; shadow check vs simulation | Quotes ≤ 10ms p99; shadow mismatch dashboard |
 | **M5** | Execution (skeleton complete) | Executor pool, nonce ledger, blocking simulation, submission, tracking, user-session signing via Privy | Manual buy → landed trade in shadow; **first real-funds trade on Base** |
 | **M6** | Triggers | Order catalogue core (limit, TP/SL, multi-level TP, trailing, auto-sell), exactly-once firing, exit guarantee | Stop-loss cascade scenario (D48 #3) in shadow |
-| **M7** | Safety + depth on Base | Four safety layers, v4 hooks + launchpad hook pools, Aerodrome | Honeypot blocked in shadow; safety evidence in UI |
-| **M8** | BNB | PancakeSwap v2/v3/Infinity, four.meme curves + migration, private builder fan-out | New four.meme token → buy → graduation → sell, in shadow |
-| **M9** | MegaETH | Realtime API, Kumbaya (simulated until verified), Algebra | MegaETH firehose replay at 5× |
+| **M7** | Safety | Four safety layers (simulation, inspection, liquidity, behaviour), safety evidence in UI | Honeypot blocked in shadow; safety evidence shown |
+| **M8** | BNB (launch beachhead, D64) | PancakeSwap v2/v3/Infinity, four.meme curves + migration, private builder fan-out, execution-quality report (D65) | New four.meme token → buy → graduation → sell, in shadow; sandwiches avoided shown in the report |
+| **M9** | Base depth | v4 hooks + launchpad hook pools (Clanker, Zora, Flaunch), Aerodrome | Launch-fee decay quoted exactly in shadow |
 | **M10** | Copy trading + event orders | Copy trading, dev-sell, migration, scheduled orders | Copy fan-out scenario (D48 #4) |
-| **M11** | Hardening | Engine + execution failover, brakes, independent watcher, audit-log anchoring, chaos fuzz in CI, full load suite, security pass | Failover under load with zero duplicate or missed firings |
-| **M12** | Launch readiness | GCP production, SLOs and alerts, runbooks, public status page, audit contest / bug bounty | Production canaries green on all three chains |
+| **M11** | Chain onboarding kit + MegaETH (D67, D69) | Chain adapter kit and checklist; MegaETH (Realtime API, Kumbaya simulated until verified, Algebra) as its first use | MegaETH onboarded through the kit; firehose replay at 5× |
+| **M12** | Hardening | Engine + execution failover, brakes, independent watcher, audit-log anchoring, chaos fuzz in CI, full load suite, security pass | Failover under load with zero duplicate or missed firings |
+| **M13** | Launch readiness | GCP production, SLOs and alerts, runbooks, public status page, audit contest / bug bounty, fees + referral tiers (D68) | Production canaries green; BNB launch first |
+
+*(Order revised by D64 and D69 after the market research in [market.md](market.md): BNB moves ahead of Base depth, MegaETH moves behind copy trading.)*
 
 **Frontend track (parallel, Jutin):** starts at M2 against the mock server; switches to the real API per milestone.
 
@@ -85,9 +88,9 @@ Relative size of each stretch of milestones, for one backend developer with the 
 | Milestones | Rough size |
 |---|---|
 | M0–M5 (walking skeleton on Base, first real trade) | 6–8 weeks |
-| M6–M7 (triggers, safety, Base depth) | 4–5 weeks |
-| M8–M10 (BNB, MegaETH, copy trading) | 6–8 weeks |
-| M11–M12 (hardening, launch) | 4–6 weeks |
+| M6–M7 (triggers, safety) | 4–5 weeks |
+| M8–M11 (BNB, Base depth, copy trading, MegaETH) | 6–8 weeks |
+| M12–M13 (hardening, launch) | 4–6 weeks |
 | **Total** | **~5–6 months** |
 
 Rough relative sizes only, before AI assistance; no dates are committed (D63). The walking skeleton (M5) is the first point where the project is demoable end to end.

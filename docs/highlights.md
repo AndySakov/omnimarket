@@ -166,6 +166,13 @@ The terminal mirrors what traders already know from Trojan and Axiom (discovery 
 ### Stops that actually get you out (D59, D60)
 Pre-signed orders stay safe and flexible: the executor may sell less or demand a better price than signed, never more or worse. If a crash gaps through a stop's signed floor, the exit guarantee re-signs at the current price so the stop still fires, unless the user chose a hard floor.
 
+### Execution quality you can see (D65)
+Every trade shows quoted vs realised price and what our execution saved, and a public per-chain report covers sandwiches avoided, fill latency and stop-loss exit rates. No terminal publishes this.
+
+### A terminal that can't quietly track you (D66)
+Looking up which wallets belong to a user requires a stated reason written to the public, on-chain-anchored audit log. After the 2026 insider-tracking allegations elsewhere, that's a verifiable property, not a promise.
+- **Say it as:** "If anyone here looks at your wallets, the whole world can see that it happened."
+
 ## Observability, safeguards & security
 
 ### Cypherpunk brakes (D52, D56)
