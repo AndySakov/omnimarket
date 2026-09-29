@@ -1595,13 +1595,16 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Decision:**
 - **Core shape:** engine and execution cores call the `det` traits directly (Clock, Rng, EventSource, Rpc, …). Tests and the simulation harness swap in simulated implementations; production wraps real ones in recording wrappers.
 - **Crates:** M0 creates `proto/` and the `types`, `det` and `sim` crates only. Every other crate in the build-plan layout is created by the first ticket that needs it.
-- **Local stack:** docker compose with Postgres, Kafka, MinIO, Tempo and Grafana, plus Anvil. k3d waits for the first staging deploy.
+- **Local stack:** docker compose with Postgres, Kafka (Apache Kafka in KRaft mode, the broker Strimzi runs in production), MinIO, Tempo and Grafana, plus Anvil. k3d waits for the first staging deploy.
+- **Proto tooling:** `buf lint` and `buf breaking` against `main` in CI, prost for Rust codegen.
 - **Measurement tasks:** M0 keeps the two Base measurements that gate M1: event rates and provider delivery delay. The rest move to the milestone that first uses the result; the placement table is in [build-plan.md](../build-plan.md#measurement-tasks-need-live-network-access).
 
 **Rejected:**
 - *Sans-IO cores* (a pure `step(input) -> outputs`, with every trait in the I/O shell). Makes replay trivially the input stream and rule 6 hold by construction, but turns every multi-step flow (simulate, sign, submit) into hand-written states. Trait calls keep core code readable while the learning curve is steep (D45).
 - *Scaffolding every crate up front.* Empty stubs are stale docs.
 - *k3d in M0.* Nothing in M0 deploys.
+- *Redpanda in dev.* Lighter, but a different broker from production.
+- *prost without buf.* Leaves D41's schema compatibility checks for later, when they are cheapest now.
 - *All eleven measurement tasks as M0 blockers.* Most need keys and chains M1 doesn't touch.
 
 **Why:** M0's demo is "CI green; a simulated-clock test replays identically". Anything that doesn't serve that demo or unblock M1 delays the first code.
@@ -1616,9 +1619,35 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 **Decision:** A record's lineage ID is derived from its natural key wherever one exists: a chain event from (chain, block hash, log index), a firing from its firing ID (D35), an intent from its hash. Records with no natural key take an ID from the core's seeded `det` Rng.
 
+**Format:** 16 bytes. A content-derived ID is BLAKE3 of the natural key's canonical encoding, truncated to 128 bits; a seeded ID is 16 bytes from the Rng. Every wide event carries a shared `Lineage { id, caused_by[] }` message.
+
 **Rejected:**
 - *UUIDv7 everywhere, drawn from the seeded Rng.* Deterministic under replay, but the same chain event seen twice (fast loop, then reconciler, or a re-insert after a reorg) gets two IDs.
+- *keccak-256, or 32-byte IDs.* Matches EVM tooling, but doubles the size of every lineage edge for no collision benefit at our volumes.
 
 **Why:** The same fact always gets the same ID, across replays, reprocessing and services. ClickHouse re-inserts stay harmless (D41), and lineage edges join without a lookup table.
 
 **Consequence:** Proto schemas define each record's natural key alongside its lineage ID.
+
+---
+
+## D72 — det runtime in M0: four traits, lint-enforced, recorded to Kafka
+
+**Date:** 2026-09-29 · **Status:** Decided, except sync vs async (from the M0 grilling session; builds on D49, D54, D70)
+
+**Decision:**
+- **Traits in M0:** Clock, Rng, EventSource and Rpc. Store arrives with the first M1 ticket that needs it; Signer and Broadcaster in M5.
+- **Sync or async traits: open.** Settled by a throwaway spike, the first M0 ticket, that runs one toy core with sync traits (core blocks on an I/O task) and with async traits (one task on a current-thread runtime, simulated implementations completing in seed order), and replays both. Expected winner: async.
+- **Determinism check (rule 1):** a `clippy.toml` in each core crate bans, via `disallowed-methods` and `disallowed-types`: wall-clock reads (`SystemTime::now`, `Instant::now`), OS randomness (`rand::thread_rng`, `rand::random`), `tokio::time`, `tokio::spawn`, `std::thread::spawn`, and std `HashMap` / `HashSet` (random iteration order; use `BTreeMap` or a fixed hasher). A CI grep rejects any `select!` without `biased;`. Clippy reading a per-crate `clippy.toml` **(verify)**.
+- **Recording:** every recording wrapper writes `InputRecord`s (source, sequence number, arrival time, payload) to the Kafka input log from M0 (D54).
+- **Replay demo:** a toy core in `sim` reads EventSource, Clock, Rng and Rpc and emits decision records. The test asserts that the same seed run twice gives an identical decision digest, and that a recorded run replayed from its recording gives the same digest. CI runs 100 seeds.
+
+**Rejected:**
+- *All seven traits in M0.* Signer, Broadcaster and Store have no caller until M1 or M5.
+- *A dependency ban only (cargo-deny).* Doesn't catch `HashMap` iteration order or wall-clock reads through std.
+- *Recording to a local file first.* The input log's real home is Kafka; building the file format first means building the log twice.
+- *Deciding sync vs async on paper.* It's an empirical question (CLAUDE.md: prototype, don't write a D-entry).
+
+**Why:** M0 has to prove the property everything later depends on: a core driven only through `det` replays exactly, and nothing in core code can quietly break that.
+
+**Consequence:** The spike's result amends this entry with the sync-or-async choice.
