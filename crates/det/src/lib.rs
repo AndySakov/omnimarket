@@ -6,6 +6,7 @@
 //! never know which. `Clock` and `Rng` never wait, so they are plain methods; `EventSource`
 //! and `Rpc` wait, so they return futures and the core runs as one task (D74).
 
+mod chain;
 mod clock;
 mod events;
 pub mod kafka;
@@ -17,7 +18,7 @@ mod rpc;
 use std::future::Future;
 
 pub use clock::{Clock, SimClock, SystemClock};
-pub use events::{EventSource, SimEventSource};
+pub use events::{ChannelEventSource, EventSource, SimEventSource};
 pub use record::{
     InMemorySink, InputRecord, InvalidInputRecord, Recordable, Recorder, RecordingClock,
     RecordingEventSource, RecordingRng, RecordingRpc, RecordingSink, Source,

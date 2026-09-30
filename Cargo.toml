@@ -1,6 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["crates/types", "crates/proto", "crates/det", "crates/telemetry", "crates/sim"]
+members = [
+  "crates/types",
+  "crates/proto",
+  "crates/det",
+  "crates/telemetry",
+  "crates/chain-io",
+  "crates/engine",
+  "crates/sim",
+]
 exclude = ["scripts/fixtures/determinism"]
 
 [workspace.package]
@@ -13,7 +21,12 @@ types = { path = "crates/types" }
 det = { path = "crates/det" }
 proto = { path = "crates/proto" }
 telemetry = { path = "crates/telemetry" }
+chain-io = { path = "crates/chain-io" }
+engine = { path = "crates/engine" }
+alloy = { version = "2.5", default-features = false }
+alloy-primitives = "1.7"
 blake3 = "1.8"
+clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 getrandom = "0.4"
 opentelemetry = "0.33"

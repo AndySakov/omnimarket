@@ -7,6 +7,12 @@ pub mod lineage {
     }
 }
 
+pub mod chain {
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.chain.v1.rs"));
+    }
+}
+
 pub mod det {
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.det.v1.rs"));

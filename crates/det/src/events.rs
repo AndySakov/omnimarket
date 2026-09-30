@@ -44,6 +44,27 @@ impl<E> EventSource for SimEventSource<E> {
     }
 }
 
+/// Events from the I/O tasks around a core (D74): the production `EventSource`. Receiving from
+/// a tokio channel is cancel-safe, so a dropped `next()` loses nothing. The source ends when
+/// every sender is dropped.
+pub struct ChannelEventSource<E> {
+    receiver: tokio::sync::mpsc::Receiver<E>,
+}
+
+impl<E> ChannelEventSource<E> {
+    pub fn new(receiver: tokio::sync::mpsc::Receiver<E>) -> Self {
+        Self { receiver }
+    }
+}
+
+impl<E> EventSource for ChannelEventSource<E> {
+    type Event = E;
+
+    fn next(&mut self) -> LocalBoxFuture<'_, Option<E>> {
+        Box::pin(self.receiver.recv())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use futures::FutureExt;
@@ -63,6 +84,19 @@ mod tests {
             assert_eq!(start.elapsed(), Duration::from_millis(10));
             assert_eq!(source.next().await, Some('b'));
             assert_eq!(start.elapsed(), Duration::from_millis(30));
+            assert_eq!(source.next().await, None);
+        });
+    }
+
+    #[test]
+    fn a_channel_source_ends_when_the_senders_go() {
+        run_simulated(async {
+            let (sender, receiver) = tokio::sync::mpsc::channel(4);
+            let mut source = ChannelEventSource::new(receiver);
+            assert_eq!(source.next().now_or_never(), None);
+            sender.send('a').await.unwrap();
+            drop(sender);
+            assert_eq!(source.next().await, Some('a'));
             assert_eq!(source.next().await, None);
         });
     }
