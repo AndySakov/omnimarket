@@ -1816,3 +1816,23 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Why:** librdkafka is the client most Kafka deployments run, with idempotence, transactions and consumer groups we'll need past M0. Boring Rust (D45) favours the well-known crate.
 
 **Consequence:** Building `det` compiles librdkafka (C), about a minute and a half on a clean build; CI caches it. A C toolchain is needed locally, which macOS and the CI image already have.
+
+---
+
+## D80 — On free RPC, Base is followed by polling, and pools are discovered as they appear or trade
+
+**Date:** 2026-09-30 · **Status:** Decided (from building M1, #37; dev and staging only, D17)
+
+**Decision:**
+- **Head following:** in dev and staging, the Base head follower polls the free public RPC over HTTP (`eth_blockNumber` every 500ms). For each new block it reads the header by number and the followed logs by block hash, and fills any skipped block by number, in order. Production swaps in `newHeads` from our own node or the paid provider (D16, D44) behind the same `ChainReader`.
+- **Pool discovery:** a pool becomes known from its creation event, or from its first followed event (`Sync`, `Swap`, `Mint`, `Burn`) if it was created before the engine started. Each is proven genuine by recomputing its CREATE2 address from the factory, its tokens (and fee) and the init code hash. A contract answering `factory()` can lie; its address can't.
+
+**Rejected:**
+- *A factory scan from genesis at cold start.* The free endpoint caps `eth_getLogs` at 2,000 blocks, so covering Base's ~52M blocks takes about 26,000 calls and returns over a million v2 pairs, most never traded again. Cold start would take hours.
+- *A free third-party WebSocket.* No signup-free Base WebSocket is documented by Base, and polling measured fine: blocks first seen ~473ms after their timestamp (verification.md).
+
+**Why:** A pool that trades shows up in the logs we already follow, and a pool that never trades can't be priced anyway. Proving pools by address keeps discovery free of extra trust.
+
+**Consequence:**
+- A pool created before startup that hasn't traded since is unknown until it trades. The history job's 30-day backfill (D15) populates known pools for search when it lands.
+- Discovery needs the factory addresses and init code hashes per venue in config, each checked against a live pool in a test.

@@ -3,6 +3,7 @@ fn main() {
     let root = "../../proto";
     let files = [
         "omnimarket/lineage/v1/lineage.proto",
+        "omnimarket/chain/v1/block.proto",
         "omnimarket/det/v1/input_record.proto",
         "omnimarket/sim/v1/toy.proto",
     ];

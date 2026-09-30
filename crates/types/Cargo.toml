@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+alloy-primitives.workspace = true
 blake3.workspace = true
 
 [lints]

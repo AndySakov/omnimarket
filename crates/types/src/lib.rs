@@ -1,5 +1,7 @@
 //! Plain value types shared by every crate.
 
+pub mod chain;
+
 use std::time::Duration;
 
 /// A point in time, in nanoseconds since the Unix epoch. Every clock read is one of these.

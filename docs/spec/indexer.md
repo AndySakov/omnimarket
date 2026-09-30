@@ -22,6 +22,12 @@
 
 Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16). In production, Base's fast loop reads blocks from our own Base node (D44), with providers as fallback.
 
+**Head follower (built, `chain-io`, D80).** On its own thread with its own runtime, it asks the node for the latest block number every 500ms. For each block after the last one delivered, it reads the header by number and the followed logs by block hash (`eth_getLogs` with `blockHash` and the event signatures), sorts the logs by index and sends the block down a channel to the core. A block the poll skipped is fetched by number, and a failed call is retried with backoff (250ms doubling to 8s), never skipped, so the core sees every block in order. A header the node doesn't have yet (load-balanced nodes can lag each other) waits for the next poll.
+
+**Free Base RPC limits (dev, D17):** HTTP only; `eth_getLogs` is limited to a 2,000-block range; historical state reads work at least 1M blocks back. Measured 2026-09-30.
+
+**Engine core (built, `engine`).** One task on a current-thread runtime (D74) reads blocks through a channel `EventSource` and the clock through `det`, both recorded to `inputs.base`. It keeps the last 128 block hashes. A block whose number isn't the next one is a follower bug and stops the core; a block whose parent isn't the held head is a reorg (undo arrives with D12's tiers). `engine follow` runs it live; `engine replay` reruns a recording from Kafka.
+
 The reconciler:
 - confirms fast-loop events (provisional → confirmed)
 - detects reorgs (parent hash mismatch) and dropped preconfirmations (event seen in fast loop, absent from canonical block)

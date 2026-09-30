@@ -1,0 +1,2 @@
+# `chain-io` is the I/O boundary with chains (D73): it runs threads, timers and retries around
+# the cores, so it opts out of the workspace bans in the root clippy.toml.
