@@ -13,6 +13,45 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Picking the next issue
+
+The order is CLAUDE.md's "Current mode" (D87). These are the queries behind each rule. Several sessions run at once under the one GitHub account, so an issue counts as taken once it has an assignee or an open PR that closes it.
+
+1. **Your own open PRs** are the ones this session opened; you know them. Red CI, a conflict or a failed `watchdog/review` comes first.
+2. **Critical:**
+   ```bash
+   gh issue list --state open --label critical --json number,title,milestone,assignees
+   ```
+3. **Demo sprint** (backend only; the `frontend` issues are assigned to Jutin):
+   ```bash
+   gh issue list --state open --label demo --label backend --limit 100 \
+     --json number,title,assignees,body \
+     --jq '[.[] | select(.assignees | length == 0)
+            | {number, title, stage: (.body | capture("Demo stage (?<s>[0-9])").s)}]
+           | sort_by(.stage, .number)'
+   ```
+4. **M1:**
+   ```bash
+   gh issue list --state open --milestone M1 --json number,title,assignees
+   ```
+
+For each candidate, in order:
+
+- **Blocked?** Look at every issue under `## Blocked by` in its body, and at `issue_dependencies_summary.blocked_by` from `gh api repos/AndySakov/omnimarket/issues/<n>`. If any blocker is open, move on. At rule 3, if an open blocker is an M1 issue, follow the chain through its own `## Blocked by` to the first M1 issue that is unblocked and untaken, and take that. For example, #88 → #42 → #40 or #41.
+- **Taken?** Skip it if it has an assignee, or if an open PR closes it:
+  ```bash
+  gh pr list --state open --search "<n> in:body" --json number,title,body
+  ```
+  Read the matches: only a `Closes #<n>` (or `Fixes`) line counts.
+- **Claim it** before your first commit, in this order:
+  ```bash
+  gh issue edit <n> --add-assignee @me
+  gh issue comment <n> --body "Taking this: <session link>"
+  ```
+  Then put `Closes #<n>` in the PR body. If another session's claim comment appears first, back off and pick again.
+
+If a rule yields nothing, go to the next one. If none does, stop and tell Temi what is blocked and on what.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

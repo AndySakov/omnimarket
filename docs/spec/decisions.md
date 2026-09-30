@@ -1906,3 +1906,29 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - Every binary that records a core records its config first; `engine replay` refuses a recording that doesn't start with one.
 - Changing a config schema needs the same compatibility care as any recorded payload (`buf breaking` covers it).
+
+---
+
+## D87 — Work order: critical work first, then the demo sprint, then M1
+
+**Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
+
+**Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
+1. Their own open PRs.
+2. Issues labelled `critical`, in any milestone.
+3. Backend issues in the demo sprint (#62), lowest demo stage first. M1 issues in the blocking chain of the next demo issue count as demo work.
+4. The rest of M1, only when no demo issue is left to take.
+
+`critical` means red CI on `main`, a bug that stops or corrupts the live read path (following, pool state, recording or replay), or a security problem. An agent that applies the label says which part of the bar the issue meets. An issue is claimed by an assignee and a claim comment before the first commit, and it counts as taken once it has an assignee or an open PR that closes it. That lets several sessions pick work at the same time without a coordinator.
+
+**Rejected:**
+- *The demo sprint only, until it ships.* A stalled follower or a red `main` would wait behind features that depend on them. The demo shows the M0 and M1 engine, so a critical bug there breaks the demo too.
+- *A fixed share of sessions per track (e.g. one in three on M1).* Sessions don't see what the others picked, so nothing could enforce the share.
+- *Milestone order: finish M1, then M2.* It delays anything showable by weeks, and M1's open issues (#40, #41) don't affect the demo.
+
+**Why:** The demo is the priority, and the engine it runs on must stay correct. A written order lets every session choose the same way.
+
+**Consequence:**
+- Non-critical M1 work waits until the demo sprint has no backend issue left to take. When the sprint reaches replay mode (#88), its chain pulls #42 forward, and through #42, #40 and #41. #46 is `critical`, since the follower stalls forever.
+- The sprint's scope and shortcuts are recorded separately (#74).
+- When the sprint ends, this entry gets an amendment note and CLAUDE.md's current mode returns to milestone order.
