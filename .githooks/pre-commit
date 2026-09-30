@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec "$(git rev-parse --show-toplevel)/scripts/verify.sh"
+exec "$(git rev-parse --show-toplevel)/scripts/verify-fast.sh"

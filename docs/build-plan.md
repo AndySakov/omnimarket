@@ -61,7 +61,7 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 | # | Milestone | Scope | Demo |
 |---|---|---|---|
 | **M0** | Foundations | `proto/`, `types`, `det` and `sim` crates only (D70); CI on GitHub Actions (D76); `det` runtime (real, recorded, simulated); local stack (compose + Anvil); observability skeleton (lineage, traces); Base **measurement tasks** (below) | CI green; a simulated-clock test replays identically |
-| **M1** | Base indexer | Canonical blocks via `newHeads` + `getLogs` (D77), reconciler, reorg handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
+| **M1** | Base indexer | Canonical blocks via `newHeads` + `getLogs` (D77), gap fill and reorg detection in the follower and core (no separate reconciler, D84), reorg handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
 | **M2** | Pricing + feeds | Display price, USD conversion, candle service, discovery and token WebSocket feeds, API contract v0 + **mock server for Jutin** | Thin UI shows live Base prices, candles and new pools |
 | **M3** | Router contract | Intents (Permit2 witness), submitter field, D59 terms, fee and gas caps; Foundry fuzz + invariants, Slither, Aderyn | Invariant suite green; router deployed on a Base fork |
 | **M4** | Routing + quotes | Single, 2-hop, split; cues; quote API; shadow check vs simulation | Quotes ≤ 10ms p99; shadow mismatch dashboard |
