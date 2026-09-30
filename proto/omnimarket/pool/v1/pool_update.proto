@@ -22,7 +22,27 @@ message PoolUpdate {
 message PoolState {
   oneof state {
     V2Reserves v2 = 1;
+    V3State v3 = 2;
   }
+}
+
+// A v3 pool's price and active liquidity, and the ticks this update touched (every initialized
+// tick when the pool was just discovered).
+message V3State {
+  // False until the pool is initialized; the price fields are then unset.
+  bool initialized = 1;
+  bytes sqrt_price_x96 = 2;
+  sint32 tick = 3;
+  bytes liquidity = 4;
+  repeated V3Tick ticks = 5;
+}
+
+// An absent tick has zero liquidity.
+message V3Tick {
+  sint32 tick = 1;
+  bytes liquidity_gross = 2;
+  // Signed: 16 bytes, two's complement, big-endian.
+  bytes liquidity_net = 3;
 }
 
 // Unsigned integers as big-endian bytes, without leading zeros.

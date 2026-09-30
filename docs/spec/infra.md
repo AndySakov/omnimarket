@@ -19,7 +19,7 @@
 |---|---|---|
 | Postgres 18 | 5432 | user, password and database `omnimarket` |
 | Kafka 4.3 (KRaft, single node) | 9092 | advertised as `localhost:9092` for clients on the host |
-| RustFS 1.0 (D75) | 9000 S3, 9001 console | access key `omnimarket`, secret `omnimarket-dev` |
+| RustFS 1.0 (D75) | 9000 S3, 9001 console | access key `omnimarket`, secret `omnimarket-dev`; `scripts/stack up` creates the `omnimarket-inputs` bucket (input-log archive). The engine reads the keys from `OMNIMARKET_S3_ACCESS_KEY` / `OMNIMARKET_S3_SECRET_KEY`, defaulting to these |
 | Tempo 3.0 | 3200 API, 4317 OTLP gRPC, 4318 OTLP HTTP | local storage |
 | Grafana 13 | 3000 | anonymous admin, Tempo provisioned as the default data source |
 | Anvil (Foundry 1.8) | 8545 | forks Base; set `BASE_RPC_URL` to use your own endpoint instead of the public one |
@@ -47,7 +47,11 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
-CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
+CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh` on every commit that isn't frontend-only, so such a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
+
+The hook runs `scripts/verify-fast.sh` (D86). A commit whose staged files are all under `web/terminal/` gets the frontend's fast checks (`npm run verify:fast`: typecheck, lint, unit tests). Every other commit runs `scripts/verify.sh`: any path outside `web/terminal/`, including `clippy.toml`, `.github/`, docs or a new top-level directory, gets the full checks. `verify.sh` doesn't touch the frontend, so a backend clone needs no Node or `node_modules`.
+
+CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
 
 Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
 
@@ -57,7 +61,7 @@ CI also runs a Kafka service container (the same `apache/kafka` image as the loc
 
 ## Production cloud (D51)
 
-Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: Start tier ($2k) at MVP → blockchain foundation grant (BNB Chain Builder Grant first) → Web3 program Scale tier, up to $200k over 2 years.
+Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: the Web3 program's Start tier ($2k) once there's a working MVP. No grant applications (D85).
 
 Tentative regions **(verify)**: central + Base `us-east4`; BNB `asia-northeast1` or `asia-southeast1`; MegaETH `us-east4` until its rotating sequencer is live.
 

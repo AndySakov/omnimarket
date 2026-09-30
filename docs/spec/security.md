@@ -17,7 +17,7 @@
 
 - **Signing:** the user's own Privy session signs intents when they're present (manual trades, creating/editing orders). Server signing only for absent flows (copy trades, auto-armed TP/SL, background approve/wrap), under Privy policy: router EIP-712 domain only, per-intent cap, per-user daily cap, minimum-output floor vs quote.
 - **Intents name their submitter** (D58): our executor set or the user. Leaked intents are useless to anyone else; users can always self-submit.
-- **Router:** Foundry fuzz + invariant tests, Slither, Aderyn, verified source, audit contest / bug bounty before real user funds. No owner, no pause.
+- **Router:** Foundry fuzz + invariant tests, Slither, Aderyn, verified source. No audit contest or bug bounty: there are no user funds (D85). No owner, no pause.
 - **Executors:** keys encrypted with Cloud KMS at rest, in memory at runtime; small gas float; capped auto top-up; rotation. Fees and refunds go straight to the treasury.
 - **Treasury:** Safe multisig per chain.
 - **Users:** Privy auth, MFA for withdrawals and key export, rate limits, D39 order limits.

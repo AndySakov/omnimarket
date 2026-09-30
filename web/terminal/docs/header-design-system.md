@@ -1,0 +1,114 @@
+# OmniMarket Global Header Design System
+
+**Status:** Phase 0 implementation slice. **Owner:** Jutin.
+
+This document defines the global terminal header before discovery and trading
+surfaces are added. The attached Axiom screenshot is the composition reference;
+OmniMarket owns the identity, colors, copy, and components.
+
+## Product job
+
+The header gives an active trader reliable context before any market decision:
+where they are, which chain is selected, whether the connection is live, how to
+search for a token, and where to manage funds.
+
+## Anatomy
+
+```text
+Primary bar (72px desktop)
+  Brand → Primary navigation → Search → Chain → Connection → Deposit → Favorites → Wallet
+
+Utility rail (38px desktop)
+  Terminal tools                                      Live · market tickers · gas
+```
+
+The primary bar is always one visual line on desktop. The utility rail is a
+secondary context surface: it must not compete with route navigation or the
+deposit action.
+
+## Tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `--omni-bg` | `#080a0f` | App and primary header background |
+| `--omni-surface` | `#0d1118` | Menus and mobile navigation |
+| `--omni-surface-raised` | `#111721` | Future overlays and focused surfaces |
+| `--omni-surface-hover` | `#161d28` | Hover and selected control background |
+| `--omni-border` | `#202632` | Standard separators |
+| `--omni-border-strong` | `#2c3544` | Input and control boundaries |
+| `--omni-text` | `#f4f6fb` | Primary labels and values |
+| `--omni-text-muted` | `#8d98aa` | Secondary labels and inactive routes |
+| `--omni-text-subtle` | `#667286` | Utility metadata |
+| `--omni-blue` | `#6d7cff` | Active route, focus, selected chain, primary action |
+| `--omni-green` | `#43d69a` | Connected/live/positive state |
+| `--omni-red` | `#ff6678` | Negative market movement or failure |
+| `--omni-amber` | `#f4bd5d` | Warning/provisional state |
+
+## Component contracts
+
+### Brand
+
+- Original OmniMarket mark and wordmark only.
+- Mark is a semantic navigation button back to Discover.
+- It is never used as a decorative logo inside data rows.
+
+### Primary navigation
+
+- Routes: Discover, Portfolio, Trackers, Wallets, Settings.
+- Active route uses blue text and a 2px bottom indicator.
+- Inactive routes use muted text and a quiet hover surface.
+- `aria-current="page"` identifies the active route.
+
+### Search control
+
+- Accepts a ticker or verified contract address.
+- Search is an input with a visible placeholder and keyboard shortcut hint.
+- On smaller screens it becomes a toggleable full-width control below the bar.
+- Search must preserve the surrounding layout while loading or showing results.
+
+### Chain context
+
+- Current mock chain is Base.
+- The chain indicator is a small outlined mark plus text, never color alone.
+- Future chain changes must retain the same control width to avoid header shift.
+
+### Connection and wallet
+
+- Connection status is text plus a semantic dot (`Connected`, `Reconnecting`,
+  `Unavailable`).
+- Wallet address and balance use tabular/monospace numerals.
+- Deposit is the primary action; wallet management is a separate control.
+
+### Utility rail
+
+- Utility buttons require accessible labels and visible focus.
+- Market tickers remain secondary and can disappear at tablet widths.
+- The rail is allowed to be absent in compact mobile mode.
+
+## State coverage
+
+| State | Header behavior |
+|---|---|
+| Connected | Green status and wallet menu enabled |
+| Reconnecting | Amber status, new trade actions pause elsewhere |
+| Unavailable | Red status with recovery message; wallet action disabled |
+| Search open | Search control expands without moving the primary route hierarchy |
+| Mobile menu open | Routes move into an explicit, keyboard-reachable menu |
+| Keyboard focus | 2px blue focus ring with 2px offset |
+| Reduced motion | Transitions collapse to near-zero duration |
+
+## Responsive contract
+
+- Desktop `>1024px`: one-line primary navigation and visible utility rail.
+- Tablet `640–1024px`: route navigation becomes a menu, search becomes a
+  toggleable control, and ticker context hides.
+- Mobile `<640px`: compact brand, chain mark, deposit, wallet avatar, menu, and
+  utility tools remain reachable; nonessential wallet detail is hidden rather
+  than squeezed.
+
+## Reference translation
+
+The screenshot informs hierarchy and proportions only. OmniMarket does not copy
+Axiom's logo, names, token assets, exact copy, or brand colors. The next slice
+will place the approved discovery workspace beneath this shell and reuse these
+tokens for filters, stream columns, and token rows.

@@ -5,8 +5,8 @@
 ## Principles
 
 1. **The trader comes first.** Every screen is judged by how fast and how safely it gets a trader from "I see a token" to "I'm in, with exits set".
-2. **Mirror the leaders where users have muscle memory.** Trojan, Axiom, Photon and GMGN have trained traders on layouts and flows; matching them lowers switching cost.
-3. **Do better where our backend lets us.** Some things they can't show us, we can (see "Where we can beat them").
+2. **Mirror the leaders where users have muscle memory.** Trojan, Axiom, Photon and GMGN have trained traders on layouts and flows; matching them means nothing new to learn.
+3. **Show what the backend makes possible** (see "What the backend adds").
 4. **One API for both UIs.** Nothing the full terminal needs is hidden from the thin UI, and vice versa.
 
 ## Screens to mirror
@@ -22,13 +22,13 @@
 | **Wallet tracker, analyzer, copy trading** | Trojan wallet tracker + analyzer | Follow wallets, see their trades and stats, copy with sizing rules and filters | D38 |
 | **Wallets** | Trojan wallet management | Up to 10 wallets per user, move funds between them, deposit, withdraw (MFA), export keys | D3, D4, D57 |
 | **Settings** | All leaders | Default slippage per situation, tip levels, exit guarantee default, notifications | D27, D33, D60 |
-| **Referrals and rewards** | Trojan Arena (later) | Referral links and tiers; gamified rewards are a later product call | D28 |
+| **Referrals and rewards** | Trojan Arena | Out of scope for the proof of concept | D85 |
 
-## Where we can beat them
+## What the backend adds
 
-Things our backend makes possible that traders don't get elsewhere:
+Things this backend's design makes cheap to show:
 
-| Idea | Why only we can | Backend |
+| Idea | What makes it possible | Backend |
 |---|---|---|
 | **"Why did this fire?"** on every order: the exact swap that moved the price, the price it crossed, the route chosen and why, the fill | Full lineage on every record | D53 |
 | **Verifiable trade receipts:** intent signed, route, transaction, fill vs signed minimum, fee and gas, each linkable to the chain | Signed intents + receipts | D52, D59 |

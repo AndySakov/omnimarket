@@ -173,7 +173,7 @@ fn tracks_genuine_pairs_and_ignores_forged_ones() {
     let seen: Vec<(Address, u64, Option<PoolState>, PoolState)> = run
         .updates
         .iter()
-        .map(|u| (u.pool, u.block_number, u.before, u.after))
+        .map(|u| (u.pool, u.block_number, u.before.clone(), u.after.clone()))
         .collect();
     assert_eq!(
         seen,

@@ -8,10 +8,22 @@ use prost::Message as _;
 use types::LineageId;
 use types::chain::{Address, B256};
 use venues::v2::Reserves;
+use venues::v3::{Price, TickLiquidity};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolState {
     V2(Reserves),
+    V3(V3State),
+}
+
+/// A v3 pool's price and active liquidity, and the ticks an update touched: every
+/// initialized tick when the pool was just discovered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct V3State {
+    /// `None` until the pool is initialized.
+    pub price: Option<Price>,
+    pub liquidity: u128,
+    pub ticks: Vec<(i32, TickLiquidity)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,18 +88,36 @@ impl PoolUpdate {
             block_number: self.block_number,
             block_hash: self.block_hash.to_vec(),
             log_index: self.log_index,
-            before: self.before.map(state_to_proto),
-            after: Some(state_to_proto(self.after)),
+            before: self.before.as_ref().map(state_to_proto),
+            after: Some(state_to_proto(&self.after)),
         }
     }
 }
 
-fn state_to_proto(state: PoolState) -> proto::pool::v1::PoolState {
+fn state_to_proto(state: &PoolState) -> proto::pool::v1::PoolState {
     use proto::pool::v1::pool_state::State;
     let state = match state {
         PoolState::V2(reserves) => State::V2(proto::pool::v1::V2Reserves {
             reserve0: big_endian(reserves.reserve0),
             reserve1: big_endian(reserves.reserve1),
+        }),
+        PoolState::V3(v3) => State::V3(proto::pool::v1::V3State {
+            initialized: v3.price.is_some(),
+            sqrt_price_x96: v3
+                .price
+                .map(|p| p.sqrt_price_x96.to_be_bytes_trimmed_vec())
+                .unwrap_or_default(),
+            tick: v3.price.map_or(0, |p| p.tick),
+            liquidity: big_endian(v3.liquidity),
+            ticks: v3
+                .ticks
+                .iter()
+                .map(|(tick, l)| proto::pool::v1::V3Tick {
+                    tick: *tick,
+                    liquidity_gross: big_endian(l.gross),
+                    liquidity_net: l.net.to_be_bytes().to_vec(),
+                })
+                .collect(),
         }),
     };
     proto::pool::v1::PoolState { state: Some(state) }
@@ -159,8 +189,8 @@ mod tests {
             reserve0: 1,
             reserve1: 2,
         });
-        let a = PoolUpdate::new(8453, Address::repeat_byte(9), event, None, after);
-        let b = PoolUpdate::new(8453, Address::repeat_byte(9), event, None, after);
+        let a = PoolUpdate::new(8453, Address::repeat_byte(9), event, None, after.clone());
+        let b = PoolUpdate::new(8453, Address::repeat_byte(9), event, None, after.clone());
         let other_pool = PoolUpdate::new(8453, Address::repeat_byte(8), event, None, after);
         assert_eq!((a.id, a.caused_by), (b.id, b.caused_by));
         assert_ne!(a.id, other_pool.id);
