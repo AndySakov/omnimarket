@@ -1,7 +1,8 @@
 //! The input log's archive in object storage (D54, D72): Kafka holds it 30 days, the archive a
 //! year. One core instance's log is a series of segment objects,
 //! `<prefix>/<core instance>/<first seq, 20 digits>.pb`, each a run of length-delimited
-//! `omnimarket.det.v1.InputRecord`s in log order.
+//! `omnimarket.det.v1.InputRecord`s in log order, then a `manifest` object holding the record
+//! count, written last so an archive without one is known to be unfinished.
 
 use std::fmt;
 use std::sync::Arc;
@@ -27,6 +28,13 @@ pub enum ArchiveError {
         expected: u64,
         found: u64,
     },
+    /// No manifest: the archive was never finished, or doesn't exist.
+    Unfinished,
+    /// Fewer records than the manifest says: trailing segments are missing.
+    Truncated {
+        expected: u64,
+        found: u64,
+    },
 }
 
 impl fmt::Display for ArchiveError {
@@ -41,6 +49,11 @@ impl fmt::Display for ArchiveError {
                     "archived input records have a gap: expected seq {expected}, found {found}"
                 )
             }
+            Self::Unfinished => write!(f, "the archive has no manifest: it was never finished"),
+            Self::Truncated { expected, found } => write!(
+                f,
+                "the archive is truncated: its manifest says {expected} records, found {found}"
+            ),
         }
     }
 }
@@ -118,11 +131,32 @@ impl InputArchive {
                 .await?;
             segments += 1;
         }
+        self.store
+            .put(
+                &self.manifest(core_instance),
+                PutPayload::from(format!("{}\n", records.len())),
+            )
+            .await?;
         Ok(segments)
+    }
+
+    fn manifest(&self, core_instance: &str) -> Path {
+        Path::from(format!("{}/{core_instance}/manifest", self.prefix))
     }
 
     /// Reads a core instance's records back, in log order.
     pub async fn read(&self, core_instance: &str) -> Result<Vec<InputRecord>, ArchiveError> {
+        let expected_len = match self.store.get(&self.manifest(core_instance)).await {
+            Ok(manifest) => {
+                let text = manifest.bytes().await?;
+                std::str::from_utf8(&text)
+                    .ok()
+                    .and_then(|t| t.trim().parse::<u64>().ok())
+                    .ok_or(ArchiveError::Unfinished)?
+            }
+            Err(object_store::Error::NotFound { .. }) => return Err(ArchiveError::Unfinished),
+            Err(e) => return Err(e.into()),
+        };
         let prefix = Path::from(format!("{}/{core_instance}", self.prefix));
         let mut paths: Vec<Path> = self
             .store
@@ -130,6 +164,7 @@ impl InputArchive {
             .map_ok(|meta| meta.location)
             .try_collect()
             .await?;
+        paths.retain(|path| path.extension() == Some("pb"));
         // Zero-padded sequence numbers sort in log order.
         paths.sort();
         let mut records = Vec::new();
@@ -149,6 +184,12 @@ impl InputArchive {
                 }
                 records.push(record);
             }
+        }
+        if records.len() as u64 != expected_len {
+            return Err(ArchiveError::Truncated {
+                expected: expected_len,
+                found: records.len() as u64,
+            });
         }
         Ok(records)
     }
@@ -196,6 +237,42 @@ mod tests {
         });
         assert_eq!(segments, 3);
         assert_eq!(back, log);
+    }
+
+    #[test]
+    fn a_missing_last_segment_is_truncation() {
+        let store = Arc::new(InMemory::new());
+        let archive = InputArchive::new(store.clone(), "inputs/base");
+        let result = block_on(async {
+            archive.write("base-1", &records(20_001)).await.unwrap();
+            store
+                .delete(&Path::from("inputs/base/base-1/00000000000000020000.pb"))
+                .await
+                .unwrap();
+            archive.read("base-1").await
+        });
+        assert!(matches!(
+            result,
+            Err(ArchiveError::Truncated {
+                expected: 20_001,
+                found: 20_000
+            })
+        ));
+    }
+
+    #[test]
+    fn an_archive_without_a_manifest_is_unfinished() {
+        let store = Arc::new(InMemory::new());
+        let archive = InputArchive::new(store.clone(), "inputs/base");
+        let result = block_on(async {
+            archive.write("base-1", &records(5)).await.unwrap();
+            store
+                .delete(&Path::from("inputs/base/base-1/manifest"))
+                .await
+                .unwrap();
+            archive.read("base-1").await
+        });
+        assert!(matches!(result, Err(ArchiveError::Unfinished)));
     }
 
     #[test]
