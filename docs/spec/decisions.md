@@ -1821,7 +1821,7 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D80 — On free RPC, Base is followed by polling, and pools are discovered as they appear or trade
 
-*(Amended by D81: `eth_call`s go to PublicNode's free endpoint.)*
+*(Amended by D82: `eth_call`s go to PublicNode's free endpoint.)*
 
 **Date:** 2026-09-30 · **Status:** Decided (from building M1, #37; dev and staging only, D17)
 
@@ -1841,7 +1841,29 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ---
 
-## D81 — On free RPC, the engine's eth_calls go to PublicNode
+## D81 — PRs merge only after a watchdog review
+
+**Date:** 2026-09-30 · **Status:** Decided (process; from auditing M0 and M1)
+
+**Decision:** A separate watchdog agent session reviews every PR before it merges. It checks the change against its issue, the D-entries and CLAUDE.md's update table, runs the tests, and posts a `watchdog/review` commit status on the PR's head commit (`pending`, then `success` or `failure`) with its findings as a PR comment. Branch protection on `main` requires `verify` and `watchdog/review`, and applies to admins. Each push needs a fresh review. The protocol is in CLAUDE.md.
+
+**Found while auditing:** PRs #32 to #44 had no reviews. The builder merged each one 1 to 8 minutes after opening it, so CI was the only gate. #44 landed without the D-entry and `pricing.md` update CLAUDE.md requires (#48), and a follower stall on reorged-out blocks went unnoticed (#46).
+
+**Rejected:**
+- *Required approving reviews.* Every agent acts as the one GitHub account, and GitHub doesn't let an account approve its own PR.
+- *A soft gate (the builder waits a while, then merges).* Relies on the builder following a rule it already skipped: CLAUDE.md asked for `/meta-review` before merging.
+- *Review after merge.* Defects reach `main` first.
+- *A paid CI review bot.* Free resources only for now.
+
+**Why:** The builder moves faster than anyone can read its PRs. A gate that blocks the merge is the only review that reliably happens.
+
+**Consequence:**
+- When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
+- GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**
+
+---
+
+## D82 — On free RPC, the engine's eth_calls go to PublicNode
 
 **Date:** 2026-09-30 · **Status:** Decided (from building v3 pools, #39; dev and staging only, D17; amends D80)
 

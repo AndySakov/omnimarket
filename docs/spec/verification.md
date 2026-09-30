@@ -77,7 +77,7 @@ The delay includes the poll interval and the round trip, so it is an upper bound
 
 No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at about 3 per 1,801 blocks (1 per ~20 minutes) at 95% confidence, so this shows reorgs are rare, not that they never happen: a longer run or a sequencer incident would tighten it. The public endpoint is load-balanced, so a single lagging backend could in principle report a stale hash; none did. D78's guard stays, as insurance against the rare case rather than a frequent one.
 
-**`eth_call` limits on free endpoints (D81)**, measured 2026-09-30 from Nairobi, Multicall3 `aggregate3` of `tickBitmap` reads at fixed rates for 30s:
+**`eth_call` limits on free endpoints (D82)**, measured 2026-09-30 from Nairobi, Multicall3 `aggregate3` of `tickBitmap` reads at fixed rates for 30s:
 
 | Endpoint | Calls per multicall | Rate | Rate-limited |
 |---|---|---|---|

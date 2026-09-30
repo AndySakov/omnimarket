@@ -33,7 +33,7 @@ enum Command {
         /// Where blocks and logs are read.
         #[arg(long, default_value = chain_io::BASE_PUBLIC_RPC)]
         rpc: String,
-        /// Where `eth_call`s go (D81).
+        /// Where `eth_call`s go (D82).
         #[arg(long, default_value = chain_io::BASE_PUBLICNODE_RPC)]
         call_rpc: String,
         #[arg(long, default_value_t = 10)]
