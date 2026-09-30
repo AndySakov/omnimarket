@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-OmniMarket is a multi-chain EVM trading terminal backend (Base first, then BNB Chain and MegaETH): live pricing, routing, fast execution and trigger orders. Read [CONTEXT.md](CONTEXT.md) for the vocabulary before anything else. Use its terms in code, commits and replies.
+OmniMarket is a proof of concept (D85) for a multi-chain EVM trading terminal backend (Base first, then BNB Chain and MegaETH): live pricing, routing, fast execution and trigger orders, modelled on Trojan's product. It isn't a commercial product or a competitor to one; keep docs and PRs framed that way. Read [CONTEXT.md](CONTEXT.md) for the vocabulary before anything else. Use its terms in code, commits and replies.
 
 ## Current mode
 
@@ -10,6 +10,7 @@ OmniMarket is a multi-chain EVM trading terminal backend (Base first, then BNB C
 
 | Need | Go to |
 |---|---|
+| Plain-language intro (outsiders, recruiters) | [README.md](README.md) |
 | What we decided and why | [docs/spec/decisions.md](docs/spec/decisions.md) |
 | Milestones, repo layout, build rules | [docs/build-plan.md](docs/build-plan.md) |
 | Subsystem specs | [docs/spec/README.md](docs/spec/README.md) index |

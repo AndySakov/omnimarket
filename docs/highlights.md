@@ -160,17 +160,17 @@ ClickHouse rows are keyed by (chain, block hash, log index) and carry a status a
 
 ## Product & UX
 
-### Familiar where it helps, better where we can (D62)
-The terminal mirrors what traders already know from Trojan and Axiom (discovery columns, trade presets, orders on the chart, global auto-sell), then adds what only our backend can show: "why did this fire?" on every order, verifiable trade receipts, step-by-step execution timing, safety checks with evidence, and trading with no gas balance.
+### Familiar where it helps, then what the backend adds (D62)
+The terminal mirrors what traders already know from Trojan and Axiom (discovery columns, trade presets, orders on the chart, global auto-sell), then adds what this backend can show: "why did this fire?" on every order, verifiable trade receipts, step-by-step execution timing, safety checks with evidence, and trading with no gas balance.
 
 ### Stops that actually get you out (D59, D60)
 Pre-signed orders stay safe and flexible: the executor may sell less or demand a better price than signed, never more or worse. If a crash gaps through a stop's signed floor, the exit guarantee re-signs at the current price so the stop still fires, unless the user chose a hard floor.
 
 ### Execution quality you can see (D65)
-Every trade shows quoted vs realised price and what our execution saved, and a public per-chain report covers sandwiches avoided, fill latency and stop-loss exit rates. No terminal publishes this.
+Every trade shows quoted vs realised price and what our execution saved, and a public per-chain report covers sandwiches avoided, fill latency and stop-loss exit rates, reproducible from on-chain data.
 
 ### A terminal that can't quietly track you (D66)
-Looking up which wallets belong to a user requires a stated reason written to the public, on-chain-anchored audit log. After the 2026 insider-tracking allegations elsewhere, that's a verifiable property, not a promise.
+Looking up which wallets belong to a user requires a stated reason written to the public, on-chain-anchored audit log. Privacy becomes a verifiable property, not a promise.
 - **Say it as:** "If anyone here looks at your wallets, the whole world can see that it happened."
 
 ## Observability, safeguards & security
@@ -201,8 +201,8 @@ Beyond named load scenarios, a fuzzer mixes every lever we control at random (tr
 ### Deterministic simulation of the hot path (D49)
 The engine and execution cores run deterministically given their inputs, with time, network and RPC injectable. That lets the same code run in a simulated world at thousands of hours per hour, where any failure replays exactly from its seed. It's the approach FoundationDB and TigerBeetle use, applied to a trading engine.
 
-### Free until it has to be paid, then paid by credits (D17, D50, D51)
-Dev runs locally, CI on GitHub Actions (free for a public repository), staging on Oracle's Always Free tier. Production goes to Google Cloud because its Web3 program counts a blockchain foundation grant as funding, turning a chain grant into up to $200k of cloud credits.
+### Free to run (D17, D50, D51)
+Dev runs locally, CI on GitHub Actions (free for a public repository), staging on Oracle's Always Free tier, and the free public RPC tiers double as fault injection. Production is planned for Google Cloud on startup credits.
 
 ### Shadow execution: load tests at mainnet realism with zero spend (D5)
 The full pipeline (quote → build → simulate against live state → sign) runs against real mainnet data and stops just before broadcast. Load tests (flash crowds, stop-loss cascades, copy-trade fan-out) hit real conditions without spending money.

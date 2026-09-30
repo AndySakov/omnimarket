@@ -2,7 +2,9 @@
 
 **Status:** Building, since 2026-09-29. Specs stay the source of truth: code that disagrees with a spec or D-entry changes both in the same commit.
 
-OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live pricing, best-route swaps, fast execution, and automated orders across MegaETH, Base, and BNB Chain. It's modelled on what an on-chain trading terminal like Trojan needs as it expands into EVM.
+OmniMarket is a proof of concept (D85) for a multi-chain EVM trading terminal backend: token discovery, live pricing, best-route swaps, fast execution, and automated orders across Base, BNB Chain and MegaETH. It's modelled on what an on-chain trading terminal like Trojan needs as it expands into EVM.
+
+**New here?** Start at the root [README](../../README.md), then [highlights](../highlights.md) and [product](product.md).
 
 ## Documents
 
@@ -20,7 +22,7 @@ OmniMarket is a multi-chain EVM trading terminal backend: token discovery, live 
 | [slas.md](slas.md) | Latency targets and per-step budgets | Draft |
 | [loadtest.md](loadtest.md) | Named load scenarios and chaos fuzzing | Draft |
 | [infra.md](infra.md) | Environments, production layout, tooling, CI | Draft |
-| [frontend.md](frontend.md) | Screens to mirror, where we beat the leaders, API contract | Draft |
+| [frontend.md](frontend.md) | Screens to mirror, what the backend adds, API contract | Draft |
 | [observability.md](observability.md) | Lineage, replay, independent watcher, brakes | Draft |
 | [security.md](security.md) | Assets, controls, signing model, incident response | Draft |
 | [verification.md](verification.md) | Results of checking every (verify) marker, with sources | Living |
@@ -31,7 +33,7 @@ Talking points: [../highlights.md](../highlights.md), the design choices worth e
 
 Build plan (approved, D63): [../build-plan.md](../build-plan.md).
 
-Market research and positioning: [../market.md](../market.md).
+Research on where EVM trading happens and what goes wrong there: [../market.md](../market.md).
 
 Background primers (not spec) live in [../primers/](../primers/): [indexing](../primers/indexing.md), [case study: iTRY](../primers/case-study-itry.md).
 

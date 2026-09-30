@@ -20,7 +20,7 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D2 — Chains: MegaETH, Base, BNB Chain
 
-*(Amended by D64 and D69: BNB is the launch beachhead; MegaETH is deprioritised until it has real volume.)*
+*(Amended by D64 and D69: BNB is the second chain, ahead of Base depth; MegaETH is deprioritised until it has real volume.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -603,7 +603,7 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 
 ## D28 — Fees: Trojan's 1%, taken in the native/quote asset
 
-*(Amended by D68: referral tiers and cashback from launch.)*
+*(Amended by D68, then D85: the per-trade fee stays; referral tiers and cashback are out of scope.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1247,6 +1247,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D51 — Production cloud: Google Cloud, funded by credits via the Web3 startup program
 
+*(Amended by D85: no grant applications. Production on Google Cloud stays the plan, on the Start tier only.)*
+
 *(Amended by D75: RustFS replaces MinIO in dev and staging.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
@@ -1400,6 +1402,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D57 — Security model: shrink every key's power, user-session signing when present
 
+*(Amended by D85: no audit contest or bug bounty for the router; there are no user funds.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D42, D46)
 
 **Decision:**
@@ -1519,7 +1523,7 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
 
-*(Amended by D70: M0 scope trimmed.)*
+*(Amended by D70: M0 scope trimmed. Amended by D85: the last milestone is production readiness, not launch.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1534,6 +1538,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ---
 
 ## D64 — Build on Base, launch on BNB
+
+*(Amended by D85: nothing launches. BNB keeps its place in the build order as the chain where EVM memecoin trading and sandwiching happen.)*
 
 **Date:** 2026-09-29 · **Status:** Decided (from [market.md](../market.md); amends D2, D63)
 
@@ -1564,7 +1570,7 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Decision:** No internal tool shows which wallets belong to which user by default. Any lookup of an identity ↔ wallet mapping requires a stated reason and is written to the public, on-chain-anchored audit log (D55), with the user's pseudonymous ID and the reason (never the wallets themselves). Aggregate analytics never expose per-user wallet sets.
 
 **Rejected:**
-- *Internal access controls without public logging.* Exactly what failed at Axiom (Feb 2026 allegations).
+- *Internal access controls without public logging.* The control at issue in the Feb 2026 insider-tracking allegations against a major terminal ([market.md](../market.md)).
 
 **Why:** Makes "we can't quietly track your wallets" a verifiable property, not a promise.
 
@@ -1583,6 +1589,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ---
 
 ## D68 — Fees: 1% headline with referral tiers and cashback
+
+*(Superseded by D85: referral tiers and cashback are out of scope. D28's per-trade fee stays.)*
 
 **Date:** 2026-09-29 · **Status:** Decided (amends D28)
 
@@ -1929,6 +1937,30 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Why:** D10 split tip following into a fast provisional loop and a canonical reconciler. With D77 the fast loop is canonical on Base, so the split collapses into one loop.
 
 **Consequence:** The build plan's M1 scope and `indexer.md` drop the Base reconciler. The history job (D15) reuses the head follower's per-block `getLogs` loop on these chains instead of a reconciler's. A shadow-check mismatch on a live run is the trigger to revisit.
+
+---
+
+## D85 — OmniMarket is a proof of concept, not a commercial launch
+
+**Date:** 2026-09-30 · **Status:** Decided (amends D28, D51, D63, D64; supersedes D68)
+
+**Decision:** OmniMarket is a proof of concept: it shows how the backend of a Solana-first terminal like Trojan could run on EVM chains. It uses Trojan's product (order types, fee model, wallet stack) as its reference spec. It has no users, no token, no fundraising and no launch.
+- **M13 becomes production readiness:** GCP production layout, SLOs and alerts, runbooks. The audit contest, bug bounty, public launch and fee and referral tiers are dropped.
+- **Fees:** the router still takes D28's per-trade fee, because the reference product charges one and the contract design has to carry it. Referral tiers and cashback (D68) are out of scope.
+- **No grant applications** (D51). Anything beyond free tiers is Temi's call when it comes up.
+- **Real-funds demos stay** (D5): about $50 per chain, recorded, to prove the path end to end.
+- `docs/market.md` is kept as research into where EVM trading happens and what goes wrong there, not as positioning.
+
+**Rejected:**
+- *Keep the launch plan.* A launch needs distribution, legal and support work that proves nothing about the engineering, and it would compete with the product the project is modelled on.
+- *Drop the fee from the router.* The fee is part of what a production router has to get right (taken in the same transaction, in the native or quote asset), so leaving it out would make the proof weaker.
+
+**Why:** The project's job is to show how its author designs and builds trading infrastructure. Scope that only matters for a commercial product costs time and says nothing about that.
+
+**Consequence:** build-plan.md's M13 and relative-effort table, highlights.md, frontend.md, infra.md, market.md, routing.md (no referral rate), security.md and D57 (no audit contest or bug bounty) are updated to match.
+
+---
+
 ## D86 — The commit gate splits by path, and fails closed
 
 **Date:** 2026-09-30 · **Status:** Decided (process; from the terminal foundation, #56)
