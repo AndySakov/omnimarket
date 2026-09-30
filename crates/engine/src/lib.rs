@@ -6,11 +6,12 @@ mod core;
 mod outbox;
 mod state;
 mod v2;
+mod v3;
 
 use types::chain::B256;
 
 pub use crate::core::Engine;
-pub use crate::outbox::{InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate};
+pub use crate::outbox::{InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate, V3State};
 pub use crate::state::{EngineConfig, EngineError, Stats, Summary};
 
 /// Base's input log (D72): one partition, keyed by core instance.
@@ -20,7 +21,7 @@ pub const INPUT_TOPIC: &str = "inputs.base";
 pub const POOL_UPDATES_TOPIC: &str = "pool-updates.base";
 
 /// First topics of the logs M1 follows: Uniswap v2 and v3 pool events.
-pub const M1_TOPICS: [B256; 6] = [
+pub const M1_TOPICS: [B256; 7] = [
     // PairCreated(address,address,address,uint256)
     B256::new(hex(
         "0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9",
@@ -32,6 +33,10 @@ pub const M1_TOPICS: [B256; 6] = [
     // PoolCreated(address,address,uint24,int24,address)
     B256::new(hex(
         "783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118",
+    )),
+    // Initialize(uint160,int24)
+    B256::new(hex(
+        "98636036cb66a9c19a37435efc1e90142190214e8abeb821bdba3f2990dd4c95",
     )),
     // Swap(address,address,int256,int256,uint160,uint128,int24)
     B256::new(hex(
@@ -80,6 +85,7 @@ mod tests {
             "PairCreated(address,address,address,uint256)",
             "Sync(uint112,uint112)",
             "PoolCreated(address,address,uint24,int24,address)",
+            "Initialize(uint160,int24)",
             "Swap(address,address,int256,int256,uint160,uint128,int24)",
             "Mint(address,address,int24,int24,uint128,uint256,uint256)",
             "Burn(address,int24,int24,uint128,uint256,uint256)",
