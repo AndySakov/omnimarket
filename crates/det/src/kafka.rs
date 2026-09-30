@@ -1,5 +1,6 @@
-//! The input log on Kafka (D54, D72): a recording sink that writes a core's inputs to
-//! `inputs.<chain>`, and a reader that loads one core instance's records back for replay.
+//! Kafka for cores (D41, D54, D72): a publisher for their output topics, a recording sink that
+//! writes a core's inputs to `inputs.<chain>`, and a reader that loads one core instance's
+//! records back for replay.
 
 use std::fmt;
 use std::rc::Rc;
@@ -75,19 +76,20 @@ pub fn ensure_topic(brokers: &str, topic: &str) -> Result<(), InputLogError> {
     Ok(())
 }
 
-/// Writes a core's input records to the input log, keyed by core instance.
+/// Publishes keyed messages to one topic, in the order they're published, without making the
+/// caller handle errors at each call.
 ///
-/// `write` can't fail (the recording wrappers have nowhere to send an error), so delivery
-/// failures are kept and reported by `flush`. Clones share one producer.
+/// A publish can't fail at the call site (a core has nowhere to send the error), so delivery
+/// failures are kept and reported by `flush`. A full local queue slows the caller down rather
+/// than dropping a message. Clones share one producer.
 #[derive(Clone)]
-pub struct KafkaSink {
-    inner: Rc<KafkaSinkInner>,
+pub struct KafkaPublisher {
+    inner: Rc<PublisherInner>,
 }
 
-struct KafkaSinkInner {
+struct PublisherInner {
     producer: BaseProducer<DeliveryErrors>,
     topic: String,
-    core_instance: String,
 }
 
 /// Keeps the first delivery error. librdkafka reports deliveries through this context from
@@ -120,45 +122,27 @@ impl ProducerContext for DeliveryErrors {
     }
 }
 
-impl KafkaSink {
-    pub fn new(brokers: &str, topic: &str, core_instance: &str) -> Result<Self, InputLogError> {
+impl KafkaPublisher {
+    pub fn new(brokers: &str, topic: &str) -> Result<Self, InputLogError> {
         let producer = ClientConfig::new()
             .set("bootstrap.servers", brokers)
-            // Retries can't reorder or duplicate records, so the log keeps the core's order.
+            // Retries can't reorder or duplicate messages, so each key keeps its order.
             .set("enable.idempotence", "true")
             .create_with_context(DeliveryErrors::default())?;
         Ok(Self {
-            inner: Rc::new(KafkaSinkInner {
+            inner: Rc::new(PublisherInner {
                 producer,
                 topic: topic.to_string(),
-                core_instance: core_instance.to_string(),
             }),
         })
     }
 
-    /// Waits until every record written so far is acknowledged, then reports the first
-    /// record that wasn't.
-    pub fn flush(&self, timeout: Duration) -> Result<(), InputLogError> {
-        self.inner.producer.flush(timeout)?;
-        match self.inner.producer.context().take() {
-            Some(error) => Err(InputLogError::Delivery(error)),
-            None => Ok(()),
-        }
-    }
-}
-
-impl RecordingSink for KafkaSink {
-    fn write(&self, record: InputRecord) {
+    pub fn publish(&self, key: &[u8], payload: &[u8]) {
         let inner = &self.inner;
-        let payload = record.to_proto().encode_to_vec();
-        let mut message = BaseRecord::to(&inner.topic)
-            .key(&inner.core_instance)
-            .payload(&payload);
+        let mut message = BaseRecord::to(&inner.topic).key(key).payload(payload);
         loop {
             match inner.producer.send(message) {
                 Ok(()) => break,
-                // The local queue is full: serve deliveries to make room, then retry. This
-                // slows the core down rather than dropping an input.
                 Err((KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull), back)) => {
                     inner.producer.poll(Duration::from_millis(10));
                     message = back;
@@ -170,6 +154,46 @@ impl RecordingSink for KafkaSink {
             }
         }
         inner.producer.poll(Duration::ZERO);
+    }
+
+    /// Waits until every message published so far is acknowledged, then reports the first
+    /// one that wasn't.
+    pub fn flush(&self, timeout: Duration) -> Result<(), InputLogError> {
+        self.inner.producer.flush(timeout)?;
+        match self.inner.producer.context().take() {
+            Some(error) => Err(InputLogError::Delivery(error)),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Writes a core's input records to the input log, keyed by core instance.
+#[derive(Clone)]
+pub struct KafkaSink {
+    publisher: KafkaPublisher,
+    core_instance: String,
+}
+
+impl KafkaSink {
+    pub fn new(brokers: &str, topic: &str, core_instance: &str) -> Result<Self, InputLogError> {
+        Ok(Self {
+            publisher: KafkaPublisher::new(brokers, topic)?,
+            core_instance: core_instance.to_string(),
+        })
+    }
+
+    /// Waits until every record written so far is acknowledged, then reports the first
+    /// record that wasn't.
+    pub fn flush(&self, timeout: Duration) -> Result<(), InputLogError> {
+        self.publisher.flush(timeout)
+    }
+}
+
+impl RecordingSink for KafkaSink {
+    fn write(&self, record: InputRecord) {
+        let payload = record.to_proto().encode_to_vec();
+        self.publisher
+            .publish(self.core_instance.as_bytes(), &payload);
     }
 }
 

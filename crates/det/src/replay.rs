@@ -45,6 +45,12 @@ impl Replay {
         }
     }
 
+    /// The configuration recorded at the start of the log, if any. Take it before running the
+    /// core: it is the first record.
+    pub fn config(&self) -> Option<Vec<u8>> {
+        self.take(|r| (r.source == Source::Config).then(|| r.payload.clone()))
+    }
+
     pub fn clock(&self) -> ReplayClock {
         ReplayClock {
             replay: self.clone(),
@@ -222,6 +228,21 @@ mod tests {
             arrived: Timestamp::from_unix_nanos(0),
             payload,
         }
+    }
+
+    #[test]
+    fn hands_back_the_recorded_config_first() {
+        let replay = Replay::new(vec![
+            record(0, Source::Config, vec![1, 2]),
+            record(1, Source::Clock, encode_u64(7)),
+        ]);
+        assert_eq!(replay.config(), Some(vec![1, 2]));
+        assert_eq!(replay.config(), None);
+        let clock = replay.clock();
+        assert_eq!(
+            replay.run(async move { clock.now() }),
+            Timestamp::from_unix_nanos(7)
+        );
     }
 
     #[test]

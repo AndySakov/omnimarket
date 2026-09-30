@@ -25,7 +25,7 @@ pub use record::{
 };
 pub use replay::{Replay, ReplayClock, ReplayEvents, ReplayRng, ReplayRpc};
 pub use rng::{Rng, SeededRng, random_lineage_id};
-pub use rpc::{Rpc, SimRpc};
+pub use rpc::{ChannelRpc, Rpc, SimRpc};
 
 /// Runs `future` to completion as one task on a current-thread runtime with tokio's clock
 /// paused: time moves only when every task is waiting, straight to the next timer (D74).

@@ -69,7 +69,7 @@ pub async fn follow_head(
     }
 }
 
-async fn retry<'a, T>(
+pub(crate) async fn retry<'a, T>(
     what: &str,
     mut call: impl FnMut() -> futures::future::LocalBoxFuture<'a, Result<T, ChainError>>,
 ) -> T {

@@ -1836,14 +1836,19 @@ name = "engine"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
  "blake3",
  "chain-io",
  "clap",
  "det",
+ "futures",
+ "prost",
+ "proto",
  "telemetry",
  "tokio",
  "tracing",
  "types",
+ "venues",
 ]
 
 [[package]]
@@ -4887,6 +4892,15 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "venues"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "types",
+]
 
 [[package]]
 name = "version_check"

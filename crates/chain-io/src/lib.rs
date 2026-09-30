@@ -1,12 +1,14 @@
 //! The engine's I/O boundary with chains (D10, D16, D77): reads canonical blocks and the
 //! logs the engine follows, and hands them to the core in order.
 
+mod calls;
 mod follower;
 mod http;
 
 use futures::future::LocalBoxFuture;
 use types::chain::{B256, Log};
 
+pub use calls::{CallRequest, spawn_call_worker};
 pub use follower::{FollowerConfig, Start, follow_head, spawn_head_follower};
 pub use http::HttpChain;
 

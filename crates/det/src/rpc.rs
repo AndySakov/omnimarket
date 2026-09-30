@@ -43,12 +43,54 @@ impl<Req, Resp: 'static> Rpc for SimRpc<Req, Resp> {
     }
 }
 
+/// The production `Rpc`: sends each request to an I/O worker over a channel and waits for its
+/// answer, so the network never runs on the core's thread (rule 6).
+pub struct ChannelRpc<Req, Resp> {
+    requests: tokio::sync::mpsc::UnboundedSender<(Req, tokio::sync::oneshot::Sender<Resp>)>,
+}
+
+impl<Req, Resp> ChannelRpc<Req, Resp> {
+    pub fn new(
+        requests: tokio::sync::mpsc::UnboundedSender<(Req, tokio::sync::oneshot::Sender<Resp>)>,
+    ) -> Self {
+        Self { requests }
+    }
+}
+
+impl<Req, Resp: 'static> Rpc for ChannelRpc<Req, Resp> {
+    type Request = Req;
+    type Response = Resp;
+
+    fn call(&self, request: Req) -> LocalBoxFuture<'static, Resp> {
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        // A worker that has gone can't answer; the await below reports it.
+        let _ = self.requests.send((request, reply));
+        Box::pin(async move {
+            answer
+                .await
+                .expect("the RPC worker answers every call it receives")
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tokio::time::Instant;
 
     use super::*;
     use crate::run_simulated;
+
+    #[test]
+    fn a_channel_rpc_waits_for_its_worker() {
+        run_simulated(async {
+            let (requests, mut worker) = tokio::sync::mpsc::unbounded_channel();
+            let rpc = ChannelRpc::new(requests);
+            let answer = rpc.call(21u32);
+            let (request, reply) = worker.recv().await.unwrap();
+            reply.send(request * 2).unwrap();
+            assert_eq!(answer.await, 42);
+        });
+    }
 
     #[test]
     fn answers_after_its_latency() {

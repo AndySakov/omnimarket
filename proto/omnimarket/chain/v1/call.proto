@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package omnimarket.chain.v1;
+
+// The outcome of an eth_call, as the core receives it. Transport failures are retried below
+// the core and never reach it.
+message CallResult {
+  oneof outcome {
+    // The call's return data.
+    bytes returned = 1;
+    // The node answered with an error, such as a revert.
+    string failed = 2;
+  }
+}

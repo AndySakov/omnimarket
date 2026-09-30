@@ -13,6 +13,18 @@ pub mod chain {
     }
 }
 
+pub mod pool {
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.pool.v1.rs"));
+    }
+}
+
+pub mod engine {
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.engine.v1.rs"));
+    }
+}
+
 pub mod det {
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.det.v1.rs"));

@@ -9,6 +9,8 @@ enum InputSource {
   INPUT_SOURCE_RNG = 2;
   INPUT_SOURCE_EVENT = 3;
   INPUT_SOURCE_RPC = 4;
+  // The core's configuration, first in the log, so a replay rebuilds the same core.
+  INPUT_SOURCE_CONFIG = 5;
 }
 
 // One input a core received, as written to the input log `inputs.<chain>` (D54, D72).
