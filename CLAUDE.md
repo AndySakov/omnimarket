@@ -82,7 +82,7 @@ Run the real thing before claiming done, and say what you could not verify.
 | `contracts/` | `docs/spec/routing.md`; `docs/spec/security.md` |
 | `crates/api/` | `docs/spec/frontend.md` (API contract) |
 | `crates/candles/`, `crates/history/` | `docs/spec/data.md` |
-| `crates/watcher/`, lineage or brakes | `docs/spec/observability.md` |
+| `crates/watcher/`, `crates/telemetry/`, lineage or brakes | `docs/spec/observability.md` |
 | `deploy/`, CI | `docs/spec/infra.md` |
 | A latency budget | `docs/spec/slas.md` |
 | A new domain term | `CONTEXT.md` |

@@ -12,6 +12,7 @@ use det::{
 use futures::future::LocalBoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 use prost::Message;
+use tracing::Instrument;
 use types::{LineageId, Timestamp};
 
 /// Where every simulated run starts: 2026-01-01T00:00:00Z.
@@ -94,6 +95,23 @@ pub struct Decision {
 }
 
 impl Decision {
+    /// Emits the decision record as a wide event (D53): a span carrying its lineage and every
+    /// field, under the run's span. Only reads the decision, so it can't change a replay.
+    fn trace(&self) {
+        let caused_by = self.caused_by.map(|id| id.to_string()).join(",");
+        let _span = tracing::info_span!(
+            "toy_core.decision",
+            lineage.id = %self.id,
+            lineage.caused_by = %caused_by,
+            sim.at_unix_nanos = self.at.unix_nanos,
+            event_id = self.event,
+            quote = self.quote,
+            roll = self.roll,
+            fire = self.fire,
+        )
+        .entered();
+    }
+
     pub fn to_proto(&self) -> proto::sim::v1::ToyDecision {
         proto::sim::v1::ToyDecision {
             lineage: Some(proto::lineage::v1::Lineage {
@@ -157,7 +175,7 @@ impl ToyCore {
                     // The quote has no natural key, so its ID comes from the Rng (D71).
                     let quote_id = det::random_lineage_id(rng.as_mut());
                     let roll = (rng.next_u64() % 100) as u8;
-                    decisions.push(Decision {
+                    let decision = Decision {
                         id: LineageId::from_natural_key("sim.toy_decision", &event.id.to_le_bytes()),
                         caused_by: [event.lineage_id(), quote_id],
                         at: clock.now(),
@@ -165,7 +183,9 @@ impl ToyCore {
                         quote: quote.price,
                         roll,
                         fire: quote.price < event.price && roll < 90,
-                    });
+                    };
+                    decision.trace();
+                    decisions.push(decision);
                 }
                 next = events.next(), if !events_ended => match next {
                     Some(event) if event.price >= 900 => {
@@ -257,7 +277,9 @@ pub fn run_recorded(seed: u64, sink: Box<dyn RecordingSink>) -> Vec<Decision> {
             )),
             Box::new(RecordingRpc::new(Box::new(world_rpc(seed)), recorder)),
         );
-        core.run().await
+        core.run()
+            .instrument(tracing::info_span!("toy_core.run", seed))
+            .await
     })
 }
 

@@ -56,6 +56,16 @@ impl LineageId {
     }
 }
 
+/// Lowercase hex, as it appears in traces and logs.
+impl std::fmt::Display for LineageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +97,12 @@ mod tests {
             LineageId::from_natural_key("ab", b"c"),
             LineageId::from_natural_key("a", b"bc")
         );
+    }
+
+    #[test]
+    fn displays_as_hex() {
+        let id = LineageId::from_draws(0x0102, 0xff);
+        assert_eq!(id.to_string(), "000000000000010200000000000000ff");
     }
 
     #[test]
