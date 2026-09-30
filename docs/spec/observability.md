@@ -24,6 +24,8 @@ Stored as edges in ClickHouse; walk backwards for root cause, forwards for blast
 
 **Sampling:** money paths 100%; everything else keeps slow/failed traces + 1%.
 
+**Skeleton (built, D70):** the `telemetry` crate sends `tracing` spans over OTLP/HTTP to Tempo, read in Grafana. Export runs on the batch processor's own thread and uses the wall clock only for span timing, so a traced core makes the same decisions (a test checks the replay digest and recording are unchanged with tracing on). Each decision record is a span carrying `lineage.id`, `lineage.caused_by` and every field, under its run's span. Exporter warnings go to stderr. `cargo run -p sim --bin toy-run -- <seed>` traces one toy core run to the local stack (`scripts/stack up`, Grafana on :3000). Prometheus, Loki and Pyroscope wait until there's a service to watch. Span export is best effort: the input log, not the trace, is the record replay relies on.
+
 | Stage | Recorded | Replayable via |
 |---|---|---|
 | Ingestion | Raw provider messages + arrival time | Input log (D54) |
