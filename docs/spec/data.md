@@ -9,7 +9,7 @@
 | Postgres | Users, wallets, follows, orders + firings, nonce ledger, positions, token metadata, trailing highs | No: engine/execution cache in memory, write in background |
 | ClickHouse | Swaps, pool events, candles, backfill, routing logs, execution outcomes | No |
 | Kafka | All engine and execution output | No (publish is async) |
-| Object storage | Engine snapshots; archived input log (D54); write-once audit log copy (D55) | No |
+| Object storage | Engine snapshots; archived input log (D54): `inputs/<chain>/<core instance>/<first seq>.pb` segments of length-delimited `InputRecord`s, bucket `omnimarket-inputs` in dev; write-once audit log copy (D55) | No |
 
 ## ClickHouse and reorgs
 
@@ -21,7 +21,7 @@
 
 | Topic | Key | Retention |
 |---|---|---|
-| `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12) | pool | ≥ 24h |
+| `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery | pool | ≥ 24h |
 | `swaps.<chain>` | pool | 7 days |
 | `prices.<chain>` | token | 24h |
 | `corrections.<chain>` | block | 7 days |

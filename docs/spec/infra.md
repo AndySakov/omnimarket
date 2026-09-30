@@ -19,7 +19,7 @@
 |---|---|---|
 | Postgres 18 | 5432 | user, password and database `omnimarket` |
 | Kafka 4.3 (KRaft, single node) | 9092 | advertised as `localhost:9092` for clients on the host |
-| RustFS 1.0 (D75) | 9000 S3, 9001 console | access key `omnimarket`, secret `omnimarket-dev` |
+| RustFS 1.0 (D75) | 9000 S3, 9001 console | access key `omnimarket`, secret `omnimarket-dev`; `scripts/stack up` creates the `omnimarket-inputs` bucket (input-log archive). The engine reads the keys from `OMNIMARKET_S3_ACCESS_KEY` / `OMNIMARKET_S3_SECRET_KEY`, defaulting to these |
 | Tempo 3.0 | 3200 API, 4317 OTLP gRPC, 4318 OTLP HTTP | local storage |
 | Grafana 13 | 3000 | anonymous admin, Tempo provisioned as the default data source |
 | Anvil (Foundry 1.8) | 8545 | forks Base; set `BASE_RPC_URL` to use your own endpoint instead of the public one |
@@ -52,6 +52,8 @@ CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the l
 Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
 
 CI also runs a Kafka service container (the same `apache/kafka` image as the local stack) for the input-log integration test, `cargo test -p sim --test kafka -- --ignored`. Locally it runs against `scripts/stack up`.
+
+**Review gate (D81).** Branch protection on `main` requires two status checks on a PR's head commit, for admins too: `verify` (the CI job) and `watchdog/review`. A separate watchdog agent session posts `watchdog/review` as a commit status (`pending` while it reviews, then `success` or `failure`) with its findings as a PR comment. A new push needs a new review. The protocol agents follow is in `CLAUDE.md`.
 
 ## Production cloud (D51)
 

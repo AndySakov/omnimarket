@@ -77,6 +77,18 @@ The delay includes the poll interval and the round trip, so it is an upper bound
 
 No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at about 3 per 1,801 blocks (1 per ~20 minutes) at 95% confidence, so this shows reorgs are rare, not that they never happen: a longer run or a sequencer incident would tighten it. The public endpoint is load-balanced, so a single lagging backend could in principle report a stale hash; none did. D78's guard stays, as insurance against the rare case rather than a frequent one.
 
+**`eth_call` limits on free endpoints (D82)**, measured 2026-09-30 from Nairobi, Multicall3 `aggregate3` of `tickBitmap` reads at fixed rates for 30s:
+
+| Endpoint | Calls per multicall | Rate | Rate-limited |
+|---|---|---|---|
+| `mainnet.base.org` | 500 | 1/s | 11 of 30 (20 through) |
+| `mainnet.base.org` | 500 | 2/s | 40 of 60 (20 through) |
+| `mainnet.base.org` | 20 | 5/s | 130 of 150 (20 through) |
+| `base-rpc.publicnode.com` | 500 | 5/s | 0 of 150 |
+| `base-rpc.publicnode.com` | 2,000 | 2/s | 0 of 60 |
+
+`eth_blockNumber` on `mainnet.base.org` at 10/s for 40s: none limited. PublicNode serves `eth_call` state 90 blocks back and refuses 100 back (HTTP 403, "archive requests require a personal token").
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

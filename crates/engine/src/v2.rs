@@ -14,6 +14,17 @@ use crate::state::{Effects, Pending, Stats};
 /// Pairs per verification call: two view calls each, well inside a node's call limits.
 const VERIFY_BATCH: usize = 100;
 
+/// A v2 call the engine is waiting on.
+pub(crate) enum Call {
+    /// token0() and token1() of each pair, to prove it by its CREATE2 address.
+    Verify { pairs: Vec<Address> },
+    /// getReserves() of each pair at `block`, against the reserves the engine held then.
+    Check {
+        block: u64,
+        expected: Vec<(Address, Reserves)>,
+    },
+}
+
 /// A `Sync` seen for a pair still waiting for its proof.
 struct Seen {
     event: (u64, B256, u64),
@@ -70,9 +81,9 @@ impl V2Pools {
                 .collect();
             stats.verify_calls += 1;
             effects.calls.push((
-                Pending::Verify {
+                Pending::V2(Call::Verify {
                     pairs: batch.to_vec(),
-                },
+                }),
                 EthCall {
                     to: multicall::ADDRESS,
                     data: Bytes::from(multicall::encode(&calls)),
@@ -135,7 +146,21 @@ impl V2Pools {
         seen.push(Seen { event, reserves });
     }
 
-    pub fn on_verified(
+    pub fn on_answer(
+        &mut self,
+        chain_id: u64,
+        call: Call,
+        result: CallResult,
+        stats: &mut Stats,
+        effects: &mut Effects,
+    ) {
+        match call {
+            Call::Verify { pairs } => self.on_verified(chain_id, pairs, result, stats, effects),
+            Call::Check { block, expected } => self.on_checked(block, expected, result, stats),
+        }
+    }
+
+    fn on_verified(
         &mut self,
         chain_id: u64,
         pairs: Vec<Address>,
@@ -169,15 +194,18 @@ impl V2Pools {
                 continue;
             };
             // Each `Sync` carries the full reserves, so the buffered ones replay in order.
-            let mut before = None;
+            let mut before: Option<Reserves> = None;
             for Seen { event, reserves } in seen {
-                let after = PoolState::V2(reserves);
-                effects
-                    .updates
-                    .push(PoolUpdate::new(chain_id, address, event, before, after));
-                before = Some(after);
+                effects.updates.push(PoolUpdate::new(
+                    chain_id,
+                    address,
+                    event,
+                    before.map(PoolState::V2),
+                    PoolState::V2(reserves),
+                ));
+                before = Some(reserves);
             }
-            if let Some(PoolState::V2(reserves)) = before {
+            if let Some(reserves) = before {
                 self.pairs.insert(
                     address,
                     Pair {
@@ -213,7 +241,7 @@ impl V2Pools {
             .map(|(address, _)| (*address, v2::get_reserves_call()))
             .collect();
         effects.calls.push((
-            Pending::Check { block, expected },
+            Pending::V2(Call::Check { block, expected }),
             EthCall {
                 to: multicall::ADDRESS,
                 data: Bytes::from(multicall::encode(&calls)),
@@ -222,7 +250,7 @@ impl V2Pools {
         ));
     }
 
-    pub fn on_checked(
+    fn on_checked(
         &mut self,
         block: u64,
         expected: Vec<(Address, Reserves)>,
