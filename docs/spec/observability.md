@@ -50,6 +50,7 @@ Stored as edges in ClickHouse; walk backwards for root cause, forwards for blast
 ## Replay anything (D54)
 
 - **Input log:** every core input (provider messages, RPC responses, API requests, clock reads, seeds) → Kafka → Cloud Storage.
+- **Archive (built):** `engine archive` copies one core instance's recording from Kafka to object storage (RustFS in dev and staging, D75; Cloud Storage in production) through `det::archive`. Layout: `<bucket>/inputs/<chain>/<core instance>/<first seq, 20 digits>.pb`, each segment 10,000 length-delimited `omnimarket.det.v1.InputRecord`s in log order. Writing the same recording again writes the same objects, so an interrupted archive can rerun. `engine replay --from-archive` reads the segments back in order and rejects a gap in `seq`, giving the same run as a replay from Kafka. For now archiving is a command run after a recording; a continuous copy (a Kafka sink to Cloud Storage) comes with production deploys.
 - **Exact replay:** snapshot + recorded inputs reproduce every decision (deterministic cores, D49).
 - **det runtime (built):** four traits, each with a real, a simulated, a recording and a replay implementation (D72, D74).
   - `Clock` (wall clock, or tokio's paused clock in simulation, which jumps to the next timer whenever the core waits) and `Rng` (ChaCha8 from a 64-bit seed; production draws the seed from the OS once). Neither waits, so both are plain methods.

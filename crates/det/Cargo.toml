@@ -8,6 +8,8 @@ publish.workspace = true
 [dependencies]
 types.workspace = true
 futures.workspace = true
+# The input-log archive: S3 in dev and staging (RustFS, D75), Cloud Storage in production.
+object_store = { workspace = true, features = ["aws"] }
 prost.workspace = true
 proto.workspace = true
 rdkafka.workspace = true
