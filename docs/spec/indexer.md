@@ -40,9 +40,11 @@ The reconciler:
 
 ## Bootstrap (D9)
 
-1. Discover pools and bonding curves from factory / launchpad create events (D11, D36).
-2. Pick a block N. Read each pool's state at N (`getReserves`, `slot0`, liquidity, tick data), batched via multicall or a lens contract (D13).
-3. Buffer live events from subscription start; apply everything after N in order.
+1. Discover pools and bonding curves from factory / launchpad create events, or from their first followed event (D11, D36, D80).
+2. Read state at the block N a pool is first seen in, batched via Multicall3 or a lens contract (D13), only where events can't rebuild it:
+   - **v2:** no state read. `Sync` carries the full reserves, so the first `Sync` is the state; the batched read is `token0()`/`token1()` for the CREATE2 proof.
+   - **v3:** `slot0`, liquidity and the tick table, because `Mint` and `Burn` are deltas (the read is described with v3 tracking, #39).
+3. Buffer the pool's events from blocks after N; apply them in order once the read completes. Events in block N itself are already in the read.
 4. Mark the engine ready. Only then serve quotes and evaluate triggers.
 
 ## Pool coverage (D11)
