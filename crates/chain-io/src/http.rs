@@ -37,11 +37,20 @@ impl HttpChain {
         {
             Ok(returned) => Ok(CallResult::Returned(returned)),
             Err(error) => match error.as_error_resp() {
-                Some(payload) => Ok(CallResult::Failed(payload.message.to_string())),
-                None => Err(rpc_error(error)),
+                Some(payload) if !is_rate_limit(payload.code, &payload.message) => {
+                    Ok(CallResult::Failed(payload.message.to_string()))
+                }
+                _ => Err(rpc_error(error)),
             },
         }
     }
+}
+
+/// A node refusing for load, not answering the call. The free Base endpoint sends HTTP 429 with
+/// a JSON-RPC error body (`-32016 over rate limit`), which reads like an answer; retrying it is
+/// right, recording it as the call's result is not.
+fn is_rate_limit(code: i64, message: &str) -> bool {
+    matches!(code, -32016 | -32005 | 429) || message.to_lowercase().contains("rate limit")
 }
 
 fn rpc_error(e: impl std::fmt::Display) -> ChainError {
@@ -94,5 +103,18 @@ impl ChainReader for HttpChain {
                 })
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_limits_are_retried_and_reverts_are_answers() {
+        assert!(is_rate_limit(-32016, "over rate limit"));
+        assert!(is_rate_limit(-32000, "Rate limit exceeded"));
+        assert!(!is_rate_limit(3, "execution reverted"));
+        assert!(!is_rate_limit(-32000, "header not found"));
     }
 }

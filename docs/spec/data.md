@@ -21,7 +21,7 @@
 
 | Topic | Key | Retention |
 |---|---|---|
-| `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12) | pool | ≥ 24h |
+| `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery | pool | ≥ 24h |
 | `swaps.<chain>` | pool | 7 days |
 | `prices.<chain>` | token | 24h |
 | `corrections.<chain>` | block | 7 days |

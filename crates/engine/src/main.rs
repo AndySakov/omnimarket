@@ -30,8 +30,12 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Follow {
+        /// Where blocks and logs are read.
         #[arg(long, default_value = chain_io::BASE_PUBLIC_RPC)]
         rpc: String,
+        /// Where `eth_call`s go (D81).
+        #[arg(long, default_value = chain_io::BASE_PUBLICNODE_RPC)]
+        call_rpc: String,
         #[arg(long, default_value_t = 10)]
         minutes: u64,
         /// Record inputs to Kafka's `inputs.base` at these brokers.
@@ -43,6 +47,9 @@ enum Command {
         /// Compare a sample of pools with the chain every this many blocks.
         #[arg(long)]
         check_every: Option<u64>,
+        /// Most `eth_call`s started per second.
+        #[arg(long, default_value_t = 5)]
+        calls_per_second: u32,
     },
     Replay {
         #[arg(long)]
@@ -56,16 +63,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Cli::parse().command {
         Command::Follow {
             rpc,
+            call_rpc,
             minutes,
             kafka,
             otlp,
             check_every,
+            calls_per_second,
         } => {
             let config = EngineConfig {
                 check_every,
                 ..EngineConfig::base()
             };
-            follow(rpc, minutes, kafka, otlp, config)
+            follow(
+                rpc,
+                call_rpc,
+                minutes,
+                kafka,
+                otlp,
+                config,
+                calls_per_second,
+            )
         }
         Command::Replay {
             kafka,
@@ -95,17 +112,19 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 
 fn follow(
     rpc: String,
+    call_rpc: String,
     minutes: u64,
     kafka: Option<String>,
     otlp: Option<String>,
     config: EngineConfig,
+    calls_per_second: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let _telemetry = otlp
         .map(|endpoint| telemetry::init("omnimarket-engine-base", &endpoint))
         .transpose()?;
 
     let (sender, receiver) = tokio::sync::mpsc::channel(1024);
-    let (calls, call_worker) = chain_io::spawn_call_worker(rpc.clone());
+    let (calls, call_worker) = chain_io::spawn_call_worker(call_rpc, calls_per_second);
     let follower = chain_io::spawn_head_follower(
         rpc,
         chain_io::FollowerConfig {
@@ -188,13 +207,16 @@ fn print_summary(summary: &Summary) {
         s.blocks, s.logs, s.reorgs_detected, summary.digest
     );
     println!(
-        "v2: {} pairs tracked, {} rejected, {} verification calls ({} failed), {} updates, digest {}",
-        s.pairs_tracked,
-        s.pairs_rejected,
-        s.verify_calls,
-        s.verify_failures,
-        s.updates,
-        summary.updates_digest
+        "v2: {} pairs tracked, {} rejected, {} verification calls ({} failed)",
+        s.pairs_tracked, s.pairs_rejected, s.verify_calls, s.verify_failures
+    );
+    println!(
+        "v3: {} pools tracked, {} rejected, {} bootstrap calls ({} bootstraps failed)",
+        s.pools_tracked, s.pools_rejected, s.bootstrap_calls, s.bootstrap_failures
+    );
+    println!(
+        "{} pool updates, digest {}",
+        s.updates, summary.updates_digest
     );
     println!(
         "shadow checks: {} passed, {} failed",
