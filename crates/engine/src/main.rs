@@ -7,9 +7,10 @@
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`; otherwise both stay in
-//! memory. It stops with an error naming `--call-rpc` if that endpoint can't answer
-//! `eth_call`s, whether before the run starts or during it (D86). `replay` runs the core again from a recording, publishing nothing. `archive` copies
-//! a recording from Kafka to the object-storage archive (D54, D72).
+//! memory. If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
+//! stops with an error naming that flag (D86). `replay` runs the core again from a recording,
+//! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
+//! (D54, D72).
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -36,7 +37,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Follow {
-        /// Where blocks and logs are read.
+        /// Where blocks and logs are read. Checked before the run starts (D86).
         #[arg(long, default_value = chain_io::BASE_PUBLIC_RPC)]
         rpc: String,
         /// Where `eth_call`s go (D82). Checked before the run starts (D86).
@@ -216,17 +217,17 @@ fn follow(
         .map(|endpoint| telemetry::init("omnimarket-engine-base", &endpoint))
         .transpose()?;
 
-    // Checks the call endpoint before the follower, Kafka or the core start, so a dead one
-    // stops the run in seconds instead of failing every call the core makes (D86).
+    // Both spawns check their endpoint before Kafka or the core start, so a dead one stops the
+    // run in seconds instead of failing every read the core depends on (D86).
     let chain_io::CallWorker {
         requests: calls,
         gave_up: calls_gave_up,
         thread: call_worker,
     } = chain_io::spawn_call_worker(&call_rpc, calls_per_second)
-        .map_err(|error| unusable_call_endpoint(&call_rpc, &error))?;
+        .map_err(|error| unusable_endpoint("call", "--call-rpc", &call_rpc, &error))?;
     let (sender, receiver) = tokio::sync::mpsc::channel(1024);
     let follower = chain_io::spawn_head_follower(
-        rpc,
+        &rpc,
         chain_io::FollowerConfig {
             poll: Duration::from_millis(500),
             topics: M1_TOPICS.to_vec(),
@@ -234,7 +235,8 @@ fn follow(
             run_for: Some(Duration::from_secs(minutes * 60)),
         },
         sender,
-    );
+    )
+    .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?;
 
     let core_instance = format!("base-{:016x}", SeededRng::from_os().seed());
     let in_memory = InMemorySink::default();
@@ -275,19 +277,24 @@ fn follow(
 
     // The core is one task on a current-thread runtime (D74); the follower and the call worker
     // have their own threads. If the call worker gives up on its endpoint mid-run, the core is
-    // dropped here, unfinished, and the run stops with the worker's error (D86).
+    // dropped here, unfinished, and the run stops with the worker's error. If the follower gives
+    // up on its endpoint, the core's blocks end and it finishes what's in flight; the run then
+    // stops with the follower's error below (D86).
     let runtime = tokio::runtime::Builder::new_current_thread().build()?;
     let outcome: Result<Summary, Box<dyn std::error::Error>> = runtime.block_on(async {
         tokio::select! {
             biased;
-            Ok(error) = calls_gave_up => Err(unusable_call_endpoint(&call_rpc, &error).into()),
+            Ok(error) = calls_gave_up => {
+                Err(unusable_endpoint("call", "--call-rpc", &call_rpc, &error).into())
+            }
             summary = engine.run() => summary.map_err(Into::into),
         }
     });
     let summary = outcome?;
     follower
         .join()
-        .expect("the follower thread doesn't panic")?;
+        .expect("the follower thread doesn't panic")
+        .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?;
     // The engine is gone, so the call worker's channel is closed and it stops.
     call_worker
         .join()
@@ -306,10 +313,10 @@ fn follow(
     Ok(())
 }
 
-/// What `follow` stops with when `--call-rpc` can't answer `eth_call`s (D86).
-fn unusable_call_endpoint(url: &str, error: &chain_io::ChainError) -> String {
+/// What `follow` stops with when the endpoint `flag` names can't answer (D86).
+fn unusable_endpoint(what: &str, flag: &str, url: &str, error: &chain_io::ChainError) -> String {
     format!(
-        "the call endpoint {url} is unusable: {error}\nPass --call-rpc with another Base RPC URL."
+        "the {what} endpoint {url} is unusable: {error}\nPass {flag} with another Base RPC URL."
     )
 }
 

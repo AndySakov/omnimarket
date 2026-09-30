@@ -98,6 +98,13 @@ No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at abo
 | A local stand-in answering every `eth_call` with PublicNode's `-32701` | Exit 1 after 8s, at the check before the run |
 | The stand-in forwarding to PublicNode, then answering `-32701` from about 15s into the run | Exit 1 after 78s: 63s after the first refused call |
 
+The same for the block endpoint, `--rpc`, with the default `--call-rpc`:
+
+| `--rpc` | Outcome |
+|---|---|
+| `http://127.0.0.1:1` (nothing listening), `--minutes 1` | Before D86: still running when killed at 90s, having printed nothing. After: exit 1 after 8s, at the check before the run |
+| The stand-in forwarding to PublicNode, then answering every request `-32701` from about 17s into the run, `--minutes 3` | Exit 1 after 80s: the follower's `eth_blockNumber` went unanswered for 63s |
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

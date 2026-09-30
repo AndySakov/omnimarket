@@ -4,6 +4,7 @@
 mod calls;
 mod follower;
 mod http;
+mod retry;
 
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use types::chain::{B256, Log};
 pub use calls::{
     CallEndpoint, CallRequest, CallWorker, answer_calls, check_call_endpoint, spawn_call_worker,
 };
-pub use follower::{FollowerConfig, Start, follow_head, spawn_head_follower};
+pub use follower::{FollowerConfig, Start, check_block_endpoint, follow_head, spawn_head_follower};
 pub use http::HttpChain;
 
 /// Base's free public RPC (D17): HTTP only, `eth_getLogs` limited to 2,000 blocks a call, and
