@@ -86,7 +86,7 @@ The full pipeline (quote, build, simulate against live state, sign locally) that
 A recorded end-to-end run with a small funded wallet per chain (D5).
 
 **det runtime**:
-The `det` crate's traits (Clock, Rng, EventSource, Rpc, Signer, Broadcaster, Store). Each has a real, a recorded and a simulated implementation, so core logic is deterministic (D49, D54).
+The `det` crate's traits (Clock, Rng, EventSource, Rpc, Signer, Broadcaster, Store). Each has a real, a simulated, a recording and a replay implementation, so core logic is deterministic and replays exactly (D49, D54, D74).
 
 **Flight recorder**:
 The log of every input to the engine and execution cores, so any moment can be replayed exactly (D54).

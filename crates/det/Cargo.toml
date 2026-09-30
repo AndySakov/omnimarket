@@ -7,9 +7,12 @@ publish.workspace = true
 
 [dependencies]
 types.workspace = true
+futures.workspace = true
 getrandom.workspace = true
 rand_chacha.workspace = true
 rand_core.workspace = true
+# test-util is what lets simulation pause tokio's clock (D74).
+tokio = { workspace = true, features = ["rt", "time", "test-util"] }
 
 [lints]
 workspace = true
