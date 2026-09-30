@@ -24,8 +24,8 @@ pub struct FollowerConfig {
 }
 
 /// After a failed call, wait this long before retrying, doubling up to `MAX_BACKOFF`.
-const FIRST_BACKOFF: Duration = Duration::from_millis(250);
-const MAX_BACKOFF: Duration = Duration::from_secs(8);
+pub(crate) const FIRST_BACKOFF: Duration = Duration::from_millis(250);
+pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(8);
 
 /// Delivers every canonical block from the start, in order, with its logs, until `run_for`
 /// ends or the receiver is dropped. A block the poll skipped is fetched by number, so the core

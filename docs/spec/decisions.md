@@ -1869,6 +1869,8 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D82 — On free RPC, the engine's eth_calls go to PublicNode
 
+*(Amended by D86: an outage such as PublicNode's `-32701` is retried rather than taken as the call's answer, and a call endpoint that can't answer stops `engine follow` with an error naming `--call-rpc`.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (from building v3 pools, #39; dev and staging only, D17; amends D80)
 
 **Decision:** In dev and staging, the engine reads blocks and logs from Base's public endpoint (D80) but sends its `eth_call`s (pool proofs, bootstrap reads, shadow checks) to PublicNode's free Base endpoint, `base-rpc.publicnode.com`, which needs no signup. The call worker also starts at most 5 calls a second, keeps at most 8 in flight, and retries rate-limit errors instead of passing them to the core as answers.
@@ -1906,3 +1908,32 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - Every binary that records a core records its config first; `engine replay` refuses a recording that doesn't start with one.
 - Changing a config schema needs the same compatibility care as any recorded payload (`buf breaking` covers it).
+
+---
+
+## D86 — A call endpoint that can't answer stops the run with an error naming `--call-rpc`
+
+**Date:** 2026-09-30 · **Status:** Decided (from running the M1 demo; dev and staging, D17; amends D82)
+
+**Decision:**
+- **Check before the run.** Before anything else starts, `engine follow` asks its call endpoint for the latest block number, then makes one plain `eth_call` at that block (to the zero address, no data), which any node answers with empty bytes. A failure that isn't the node's answer is retried with the usual backoff for up to 5s. If nothing has answered by then, or the node answers the call with an error, the binary exits non-zero with an error that names `--call-rpc` and gives the endpoint's last error.
+- **An outage is not an answer.** PublicNode's `-32701 no available nodes found for platform base-rpc` joins rate limits and lagging nodes (#47) on the call worker's retry list, so it never reaches the core, or the input log, as a failed call.
+- **A limit during the run.** A call still unanswered 60s after its first attempt makes the call worker give up on the endpoint: it stops calling and reports the error, and the binary drops the core and exits non-zero with the same message. Until the core is gone the worker holds every call it hasn't answered, because `ChannelRpc` takes a dropped reply for a dead worker and panics.
+
+**Found while running the demo:** On 2026-09-30 PublicNode answered every `eth_call` with `-32701`. The call worker handed that error to the core as the call's answer, as it does a revert, so `engine follow --minutes 1 --check-every 5` ran its full minute and printed 25 failed verification calls, 1,081 failed bootstraps and no pools tracked. The summary read as a broken engine. Pointing `--call-rpc` at Base's endpoint instead ran for more than 7 minutes on its rate limit (D82).
+
+**Rejected:**
+- *Exit non-zero when every call in a run failed.* It reports only after the whole run. It still records the outage as the chain's answers. And it can't tell an outage from real failed answers, such as reverts, or PublicNode's archive refusals after a stall.
+- *The check alone.* An endpoint that fails mid-run would still turn into failed calls, or, with its errors retried, hang the end of the run: the core finishes only once every call it made is answered.
+- *Retrying outages without a limit.* The same hang, with no end.
+- *A short limit, about 10s, in place of the check.* It would give up mid-run on a single rate-limit window (Base's is 30s, D82) or a brief outage. The check stops a dead endpoint sooner, before anything starts.
+- *Telling the core the endpoint is down (a third `CallResult`).* Which endpoint works is the I/O layer's business. The core can't act on it, and the input log would hold an outage as if the chain had said it.
+
+**Why:** Whoever runs the demo learns within seconds that the endpoint is at fault, not the engine, and the input log only ever holds what the chain answered.
+
+**Consequence:**
+- A dead call endpoint stops `engine follow` in about 8s; one that dies mid-run stops it about a minute after its first unanswered call. Either way the error ends "Pass --call-rpc with another Base RPC URL." and the exit code is 1.
+- Base's own endpoint passes the check but can't keep up with a run's calls: with `--call-rpc https://mainnet.base.org`, a call went 64s without getting past the rate limit (`-32016`) and the run stopped after 152s with that error, where before it ran for over 7 minutes (verification.md). So it now fails the same clear way as a dead endpoint.
+- A run stopped mid-way prints no summary, and its recording ends with calls unanswered, like a crashed run's: replaying it reports the core waiting for an input.
+- The limit applies wherever the call worker runs. In production, failover to the second provider (D16) should replace giving up; until it's built, the engine stops.
+- The head follower still retries its own endpoint (`--rpc`) without limit, so a dead block endpoint still hangs the run silently. **(Follow-up.)**

@@ -1,14 +1,17 @@
 //! The Base Chain Engine binary.
 //!
-//!   engine follow [--rpc URL] [--minutes N] [--kafka BROKERS] [--otlp URL] [--check-every N]
+//!   engine follow [--rpc URL] [--call-rpc URL] [--minutes N] [--kafka BROKERS] [--otlp URL]
+//!                 [--check-every N]
 //!   engine replay --core-instance ID (--kafka BROKERS | --from-archive)
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`; otherwise both stay in
-//! memory. `replay` runs the core again from a recording, publishing nothing. `archive` copies
+//! memory. It stops with an error naming `--call-rpc` if that endpoint can't answer
+//! `eth_call`s, whether before the run starts or during it (D86). `replay` runs the core again from a recording, publishing nothing. `archive` copies
 //! a recording from Kafka to the object-storage archive (D54, D72).
 
+use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
@@ -36,7 +39,7 @@ enum Command {
         /// Where blocks and logs are read.
         #[arg(long, default_value = chain_io::BASE_PUBLIC_RPC)]
         rpc: String,
-        /// Where `eth_call`s go (D82).
+        /// Where `eth_call`s go (D82). Checked before the run starts (D86).
         #[arg(long, default_value = chain_io::BASE_PUBLICNODE_RPC)]
         call_rpc: String,
         #[arg(long, default_value_t = 10)]
@@ -115,8 +118,19 @@ fn io_runtime() -> std::io::Result<tokio::runtime::Runtime> {
         .build()
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    match Cli::parse().command {
+fn main() -> ExitCode {
+    match run(Cli::parse().command) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            // Its message, not the `Debug` form that returning it from `main` would print.
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
         Command::Follow {
             rpc,
             call_rpc,
@@ -202,8 +216,15 @@ fn follow(
         .map(|endpoint| telemetry::init("omnimarket-engine-base", &endpoint))
         .transpose()?;
 
+    // Checks the call endpoint before the follower, Kafka or the core start, so a dead one
+    // stops the run in seconds instead of failing every call the core makes (D86).
+    let chain_io::CallWorker {
+        requests: calls,
+        gave_up: calls_gave_up,
+        thread: call_worker,
+    } = chain_io::spawn_call_worker(&call_rpc, calls_per_second)
+        .map_err(|error| unusable_call_endpoint(&call_rpc, &error))?;
     let (sender, receiver) = tokio::sync::mpsc::channel(1024);
-    let (calls, call_worker) = chain_io::spawn_call_worker(call_rpc, calls_per_second);
     let follower = chain_io::spawn_head_follower(
         rpc,
         chain_io::FollowerConfig {
@@ -252,16 +273,25 @@ fn follow(
         outbox,
     );
 
-    // The core is one task on a current-thread runtime (D74); the follower has its own thread.
+    // The core is one task on a current-thread runtime (D74); the follower and the call worker
+    // have their own threads. If the call worker gives up on its endpoint mid-run, the core is
+    // dropped here, unfinished, and the run stops with the worker's error (D86).
     let runtime = tokio::runtime::Builder::new_current_thread().build()?;
-    let summary = runtime.block_on(engine.run())?;
+    let outcome: Result<Summary, Box<dyn std::error::Error>> = runtime.block_on(async {
+        tokio::select! {
+            biased;
+            Ok(error) = calls_gave_up => Err(unusable_call_endpoint(&call_rpc, &error).into()),
+            summary = engine.run() => summary.map_err(Into::into),
+        }
+    });
+    let summary = outcome?;
     follower
         .join()
         .expect("the follower thread doesn't panic")?;
     // The engine is gone, so the call worker's channel is closed and it stops.
     call_worker
         .join()
-        .expect("the call worker thread doesn't panic")?;
+        .expect("the call worker thread doesn't panic");
 
     println!("core instance {core_instance}");
     match kafka_sink {
@@ -274,6 +304,13 @@ fn follow(
     }
     print_summary(&summary);
     Ok(())
+}
+
+/// What `follow` stops with when `--call-rpc` can't answer `eth_call`s (D86).
+fn unusable_call_endpoint(url: &str, error: &chain_io::ChainError) -> String {
+    format!(
+        "the call endpoint {url} is unusable: {error}\nPass --call-rpc with another Base RPC URL."
+    )
 }
 
 fn print_summary(summary: &Summary) {
