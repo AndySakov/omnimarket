@@ -86,7 +86,10 @@ async fn block_at(
         match reader.logs(header.hash, topics).await {
             Ok(logs) => return Some((header, logs)),
             Err(error) if is_unknown_block(&error) => {
-                tracing::warn!(number, hash = %header.hash, "block unknown when reading its logs; reading the height again");
+                tracing::warn!(number, hash = %header.hash, ?backoff, "block unknown when reading its logs; reading the height again");
+                // A lagging node answers this until it catches up: back off like any failure.
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(MAX_BACKOFF);
                 header = retry("block header", || reader.header(number)).await?;
             }
             Err(error) => {
@@ -227,6 +230,8 @@ mod tests {
         /// Hashes whose logs fail this many more times.
         unknown: RefCell<std::collections::BTreeMap<B256, u32>>,
         head: u64,
+        /// When each logs call was made.
+        logs_at: RefCell<Vec<Instant>>,
     }
 
     impl ChainReader for ReorgingChain {
@@ -258,6 +263,7 @@ mod tests {
             _topics: &'a [B256],
         ) -> LocalBoxFuture<'a, Result<Vec<Log>, ChainError>> {
             Box::pin(async move {
+                self.logs_at.borrow_mut().push(Instant::now());
                 let mut unknown = self.unknown.borrow_mut();
                 match unknown.get_mut(&block_hash) {
                     Some(0) | None => Ok(Vec::new()),
@@ -314,6 +320,7 @@ mod tests {
             // 11a was reorged out after its header was read: its logs never come.
             unknown: RefCell::new([(a11, u32::MAX)].into()),
             head: 12,
+            logs_at: RefCell::default(),
         };
         assert_eq!(
             follow_to_end(&chain),
@@ -335,11 +342,28 @@ mod tests {
             // This node doesn't have 11 yet the first two times it's asked.
             unknown: RefCell::new([(hash(11), 2)].into()),
             head: 12,
+            logs_at: RefCell::default(),
         };
         assert_eq!(
             follow_to_end(&chain),
             [(10, hash(10)), (11, hash(11)), (12, hash(12))]
         );
+    }
+
+    // A lagging node answers "block not found" until it catches up; the follower must not
+    // hammer a rate-limited endpoint meanwhile.
+    #[test]
+    fn a_lagging_node_is_asked_again_with_backoff() {
+        let chain = ReorgingChain {
+            headers: RefCell::new([(10, vec![hash(10)])].into()),
+            unknown: RefCell::new([(hash(10), 4)].into()),
+            head: 10,
+            logs_at: RefCell::default(),
+        };
+        follow_to_end(&chain);
+        let at = chain.logs_at.borrow();
+        let gaps: Vec<u128> = at.windows(2).map(|w| (w[1] - w[0]).as_millis()).collect();
+        assert_eq!(gaps, [250, 500, 1_000, 2_000]);
     }
 
     #[test]

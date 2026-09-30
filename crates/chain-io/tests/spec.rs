@@ -199,7 +199,6 @@ fn a_failed_call_backs_off_from_250ms_doubling_to_8s() {
 // move on to the new canonical 11 rather than retry a dead hash forever: stalled, it never
 // delivers the block that would show the core the reorg.
 #[test]
-#[ignore = "spec gap: the follower retries logs of a reorged-out hash forever"]
 fn a_block_reorged_out_between_header_and_logs_does_not_stall_the_follower() {
     let chain = ScriptedChain::with(fork(b'a', b'a', 10..=11), vec![10, 12]);
     chain
