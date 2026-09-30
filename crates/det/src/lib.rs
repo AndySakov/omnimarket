@@ -8,6 +8,7 @@
 
 mod clock;
 mod events;
+pub mod kafka;
 mod record;
 mod replay;
 mod rng;

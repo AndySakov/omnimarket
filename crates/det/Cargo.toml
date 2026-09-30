@@ -8,7 +8,9 @@ publish.workspace = true
 [dependencies]
 types.workspace = true
 futures.workspace = true
+prost.workspace = true
 proto.workspace = true
+rdkafka.workspace = true
 getrandom.workspace = true
 rand_chacha.workspace = true
 rand_core.workspace = true

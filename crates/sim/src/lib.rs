@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use det::{
     Clock, EventSource, InMemorySink, InputRecord, Recordable, Recorder, RecordingClock,
-    RecordingEventSource, RecordingRng, RecordingRpc, Replay, Rng, Rpc, SeededRng, SimClock,
-    SimEventSource, SimRpc,
+    RecordingEventSource, RecordingRng, RecordingRpc, RecordingSink, Replay, Rng, Rpc, SeededRng,
+    SimClock, SimEventSource, SimRpc,
 };
 use futures::future::LocalBoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -16,6 +16,9 @@ use types::{LineageId, Timestamp};
 
 /// Where every simulated run starts: 2026-01-01T00:00:00Z.
 pub const SIM_START: Timestamp = Timestamp::from_unix_nanos(1_767_225_600_000_000_000);
+
+/// The simulator's input log (D72): one partition, keyed by core instance.
+pub const INPUT_TOPIC: &str = "inputs.sim";
 
 /// Events per run, one every `EVENT_EVERY`.
 pub const EVENTS: u64 = 1_000;
@@ -229,9 +232,19 @@ pub struct Run {
 /// Runs the toy core for one seed on simulated time, recording every input it receives.
 pub fn run(seed: u64) -> Run {
     let sink = InMemorySink::default();
-    let decisions = det::run_simulated(async {
+    let decisions = run_recorded(seed, Box::new(sink.clone()));
+    Run {
+        digest: digest(&decisions),
+        decisions,
+        recording: sink.records(),
+    }
+}
+
+/// Runs the toy core for one seed, writing every input it receives to `sink`.
+pub fn run_recorded(seed: u64, sink: Box<dyn RecordingSink>) -> Vec<Decision> {
+    det::run_simulated(async {
         let clock = SimClock::starting_at(SIM_START);
-        let recorder = Recorder::new(Box::new(sink.clone()), Box::new(clock.clone()));
+        let recorder = Recorder::new(sink, Box::new(clock.clone()));
         let core = ToyCore::new(
             Box::new(RecordingClock::new(Box::new(clock), recorder.clone())),
             Box::new(RecordingRng::new(
@@ -245,12 +258,7 @@ pub fn run(seed: u64) -> Run {
             Box::new(RecordingRpc::new(Box::new(world_rpc(seed)), recorder)),
         );
         core.run().await
-    });
-    Run {
-        digest: digest(&decisions),
-        decisions,
-        recording: sink.records(),
-    }
+    })
 }
 
 /// Replays a recording through the toy core and returns its decisions. Panics with "replay
