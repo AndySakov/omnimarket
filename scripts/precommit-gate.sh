@@ -25,7 +25,8 @@ fi
 
 [[ $(git config core.hooksPath) == .githooks ]] && exit 0
 
-log=$(mktemp -t omnimarket-verify)
+# An explicit template: GNU mktemp (Linux) rejects `-t prefix` without X's, which denied every commit.
+log=$(mktemp "${TMPDIR:-/tmp}/omnimarket-verify.XXXXXX") || deny "precommit-gate: mktemp failed, commit blocked."
 ./scripts/verify.sh >"$log" 2>&1 || deny "scripts/verify.sh failed, commit blocked.
 
 $(tail -40 "$log")"
