@@ -20,8 +20,11 @@ if [[ -z $(perl -0777 -ne "$find_unbiased_selects" $fixture/unbiased_select.rs.t
 fi
 
 out=$(cargo clippy -q --manifest-path $fixture/Cargo.toml --target-dir target/determinism-fixture -- -D warnings 2>&1 || true)
-for banned in SystemTime::now Instant::now thread::spawn HashMap HashSet; do
-  if ! grep -q "use of a disallowed .*$banned" <<<"$out"; then
+for banned in std::time::SystemTime::now std::time::Instant::now std::thread::spawn \
+  tokio::spawn tokio::time::sleep tokio::time::sleep_until tokio::time::interval \
+  tokio::time::timeout tokio::time::Instant::now rand::random rand::rng getrandom::fill \
+  getrandom::u64 std::collections::HashMap std::collections::HashSet std::hash::RandomState; do
+  if ! grep -q "use of a disallowed [a-z]* \`$banned\`" <<<"$out"; then
     printf 'determinism: clippy no longer rejects %s\n%s\n' "$banned" "$out" >&2
     exit 1
   fi

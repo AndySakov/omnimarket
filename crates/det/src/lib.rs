@@ -6,6 +6,7 @@
 //! never know which. `Clock` and `Rng` never wait, so they are plain methods; `EventSource`
 //! and `Rpc` wait, so they return futures and the core runs as one task (D74).
 
+pub mod archive;
 mod chain;
 mod clock;
 mod events;

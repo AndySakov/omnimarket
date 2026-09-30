@@ -12,8 +12,13 @@ pub use calls::{CallRequest, spawn_call_worker};
 pub use follower::{FollowerConfig, Start, follow_head, spawn_head_follower};
 pub use http::HttpChain;
 
-/// Base's free public RPC (D17): HTTP only, `eth_getLogs` limited to 2,000 blocks a call.
+/// Base's free public RPC (D17): HTTP only, `eth_getLogs` limited to 2,000 blocks a call, and
+/// about 20 `eth_call`s per 30 seconds (D82).
 pub const BASE_PUBLIC_RPC: &str = "https://mainnet.base.org";
+
+/// PublicNode's free Base RPC, no signup (D82): takes several large `eth_call`s a second, but
+/// holds only about 90 blocks of state.
+pub const BASE_PUBLICNODE_RPC: &str = "https://base-rpc.publicnode.com";
 
 /// The block header fields the engine needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
