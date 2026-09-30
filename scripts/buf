@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Runs a pinned buf, downloaded once into .tools/ and checked against its release checksum,
+# so local runs and CI use the same version without a global install.
+set -euo pipefail
+version=1.73.0
+root="$(cd "$(dirname "$0")/.." && pwd)"
+bin="$root/.tools/buf-$version"
+
+if [[ ! -x $bin ]]; then
+  asset="buf-$(uname -s)-$(uname -m)"
+  case $asset in
+    buf-Darwin-arm64) sum=6e6df0fef4522e4e43dfe7c341873c3f2c29ceb45a9dfa5e0bad5580b8b2022f ;;
+    buf-Darwin-x86_64) sum=ff78d0ebf34180ebfa81d370275851ec630fcb088bf33e213fd723d0fd7444a6 ;;
+    buf-Linux-aarch64) sum=902b75267db7f4391e99b7fa0756050e5354234cc0437ef50eee9c788950c7a3 ;;
+    buf-Linux-x86_64) sum=8f2986298ad08f0cc1bf999b9797b7c383adf32d7edf0f73d6f1e1a701baeac1 ;;
+    *) echo "buf: no pinned checksum for $asset" >&2; exit 1 ;;
+  esac
+  mkdir -p "$root/.tools"
+  tmp=$(mktemp "$root/.tools/buf.XXXXXX")
+  curl -fsSL -o "$tmp" "https://github.com/bufbuild/buf/releases/download/v$version/$asset"
+  if [[ $(shasum -a 256 "$tmp" | cut -d' ' -f1) != "$sum" ]]; then
+    rm -f "$tmp"
+    echo "buf: checksum mismatch for $asset $version" >&2
+    exit 1
+  fi
+  chmod +x "$tmp"
+  mv "$tmp" "$bin"
+fi
+
+exec "$bin" "$@"

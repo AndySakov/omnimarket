@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package omnimarket.sim.v1;
+
+import "omnimarket/lineage/v1/lineage.proto";
+
+// A swap the toy core receives. Natural key: id.
+message ToyEvent {
+  uint64 id = 1;
+  uint32 pool = 2;
+  uint32 price = 3;
+}
+
+// The quote endpoint's answer. No natural key: its lineage ID comes from the core's Rng.
+message Quote {
+  uint32 price = 1;
+}
+
+// The toy core's decision record: one per quoted swap. Natural key: event_id.
+message ToyDecision {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 at_unix_nanos = 2;
+  uint64 event_id = 3;
+  uint32 quote = 4;
+  uint32 roll = 5;
+  bool fire = 6;
+}

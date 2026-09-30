@@ -1,7 +1,8 @@
 //! The M0 demo: a simulated run is reproducible from its seed, and replays exactly from its
 //! recording.
 
-use det::Source;
+use det::{Recordable, Source};
+use sim::Quote;
 
 #[test]
 fn same_seed_gives_the_same_digest() {
@@ -14,8 +15,22 @@ fn same_seed_gives_the_same_digest() {
 fn a_recorded_run_replays_to_the_same_digest() {
     for seed in 0..100 {
         let run = sim::run(seed);
-        assert_eq!(sim::replay(run.recording), run.digest, "seed {seed}");
+        let replayed = sim::replay(run.recording);
+        assert_eq!(replayed, run.decisions, "seed {seed}");
+        assert_eq!(sim::digest(&replayed), run.digest, "seed {seed}");
     }
+}
+
+#[test]
+fn lineage_ids_survive_replay() {
+    let run = sim::run(5);
+    let ids: Vec<_> = run.decisions.iter().map(|d| (d.id, d.caused_by)).collect();
+    let replayed: Vec<_> = sim::replay(run.recording)
+        .iter()
+        .map(|d| (d.id, d.caused_by))
+        .collect();
+    assert_eq!(replayed, ids);
+    assert_eq!(sim::run(5).decisions, run.decisions);
 }
 
 #[test]
@@ -31,9 +46,13 @@ fn a_changed_input_changes_the_digest() {
         .iter_mut()
         .find(|r| r.source == Source::Rpc)
         .unwrap();
-    // An RPC payload is the call number (8 bytes), then the quote.
-    quote.payload[8] ^= 1;
-    assert_ne!(sim::replay(recording), run.digest);
+    // An RPC payload is the call number (8 bytes), then the response.
+    let changed = Quote {
+        price: Quote::decode(&quote.payload[8..]).unwrap().price + 1,
+    };
+    quote.payload.truncate(8);
+    quote.payload.extend(changed.encode());
+    assert_ne!(sim::digest(&sim::replay(recording)), run.digest);
 }
 
 #[test]
@@ -54,6 +73,6 @@ fn reordered_inputs_are_caught() {
 fn seed_42_digest_is_pinned() {
     assert_eq!(
         sim::run(42).digest.to_hex().as_str(),
-        "8a85778f3f7b7a89811c296bec38722f0dead54c63978d1f4b68fc558f85d5d4"
+        "3550395bd07fcd9e979262298831ee5e7cf4bb9095a4a1013a772dad9361f6e2"
     );
 }

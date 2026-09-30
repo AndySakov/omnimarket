@@ -29,6 +29,49 @@ pub struct InputRecord {
     pub payload: Vec<u8>,
 }
 
+/// Why an input-log record can't be read back.
+#[derive(Debug, PartialEq, Eq)]
+pub enum InvalidInputRecord {
+    UnknownSource(i32),
+}
+
+impl InputRecord {
+    pub fn to_proto(&self) -> proto::det::v1::InputRecord {
+        use proto::det::v1::InputSource;
+        let source = match self.source {
+            Source::Clock => InputSource::Clock,
+            Source::Rng => InputSource::Rng,
+            Source::Event => InputSource::Event,
+            Source::Rpc => InputSource::Rpc,
+        };
+        proto::det::v1::InputRecord {
+            seq: self.seq,
+            source: source.into(),
+            arrived_unix_nanos: self.arrived.unix_nanos,
+            payload: self.payload.clone(),
+        }
+    }
+
+    pub fn from_proto(record: proto::det::v1::InputRecord) -> Result<Self, InvalidInputRecord> {
+        use proto::det::v1::InputSource;
+        let source = match InputSource::try_from(record.source) {
+            Ok(InputSource::Clock) => Source::Clock,
+            Ok(InputSource::Rng) => Source::Rng,
+            Ok(InputSource::Event) => Source::Event,
+            Ok(InputSource::Rpc) => Source::Rpc,
+            Ok(InputSource::Unspecified) | Err(_) => {
+                return Err(InvalidInputRecord::UnknownSource(record.source));
+            }
+        };
+        Ok(Self {
+            seq: record.seq,
+            source,
+            arrived: Timestamp::from_unix_nanos(record.arrived_unix_nanos),
+            payload: record.payload,
+        })
+    }
+}
+
 /// How an event or an RPC response becomes record bytes and back.
 pub trait Recordable: Sized {
     fn encode(&self) -> Vec<u8>;
@@ -318,6 +361,31 @@ mod tests {
             assert_eq!(events.next().await, Some('a'));
             assert_eq!(sink.records().len(), 1);
         });
+    }
+
+    #[test]
+    fn input_records_round_trip_through_proto() {
+        for source in [Source::Clock, Source::Rng, Source::Event, Source::Rpc] {
+            let record = InputRecord {
+                seq: 3,
+                source,
+                arrived: at(5),
+                payload: vec![1, 2],
+            };
+            assert_eq!(InputRecord::from_proto(record.to_proto()), Ok(record));
+        }
+    }
+
+    #[test]
+    fn an_unspecified_source_is_rejected() {
+        let record = proto::det::v1::InputRecord {
+            source: 0,
+            ..Default::default()
+        };
+        assert_eq!(
+            InputRecord::from_proto(record),
+            Err(InvalidInputRecord::UnknownSource(0))
+        );
     }
 
     #[test]

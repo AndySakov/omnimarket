@@ -18,11 +18,11 @@ use std::future::Future;
 pub use clock::{Clock, SimClock, SystemClock};
 pub use events::{EventSource, SimEventSource};
 pub use record::{
-    InMemorySink, InputRecord, Recordable, Recorder, RecordingClock, RecordingEventSource,
-    RecordingRng, RecordingRpc, RecordingSink, Source,
+    InMemorySink, InputRecord, InvalidInputRecord, Recordable, Recorder, RecordingClock,
+    RecordingEventSource, RecordingRng, RecordingRpc, RecordingSink, Source,
 };
 pub use replay::{Replay, ReplayClock, ReplayEvents, ReplayRng, ReplayRpc};
-pub use rng::{Rng, SeededRng};
+pub use rng::{Rng, SeededRng, random_lineage_id};
 pub use rpc::{Rpc, SimRpc};
 
 /// Runs `future` to completion as one task on a current-thread runtime with tokio's clock
