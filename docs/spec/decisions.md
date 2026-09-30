@@ -1400,6 +1400,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D57 — Security model: shrink every key's power, user-session signing when present
 
+*(Amended by D85: no audit contest or bug bounty for the router; there are no user funds.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D42, D46)
 
 **Decision:**
@@ -1932,4 +1934,4 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 **Why:** The project's job is to show how its author designs and builds trading infrastructure. Scope that only matters for a commercial product costs time and says nothing about that.
 
-**Consequence:** build-plan.md's M13 and relative-effort table, highlights.md, frontend.md, infra.md and market.md are updated to match.
+**Consequence:** build-plan.md's M13 and relative-effort table, highlights.md, frontend.md, infra.md, market.md, routing.md (no referral rate), security.md and D57 (no audit contest or bug bounty) are updated to match.

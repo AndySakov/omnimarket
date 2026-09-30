@@ -53,7 +53,7 @@ Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay or
 
 ## Fees (D28)
 
-1% per successful trade (0.9% with referral), taken by the router in the native/quote asset: from the input on buys, from the proceeds on sells. Quotes and `minOut` are net of fee.
+1% per successful trade (no referral discount: D85), taken by the router in the native/quote asset: from the input on buys, from the proceeds on sells. Quotes and `minOut` are net of fee.
 
 ## Token safety (D29)
 

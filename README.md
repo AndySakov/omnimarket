@@ -16,7 +16,7 @@ OmniMarket isn't a commercial product. There are no users, no token, no fundrais
 |---|---|
 | **What it is** | The engine behind a trading terminal: it watches new tokens appear on chain, prices them live, finds the best route for a trade, sends it fast and safely, and runs stop-losses and take-profits while the trader is offline. |
 | **Chains** | Base (being built now), then BNB Chain, then MegaETH. |
-| **What works today** | It follows Base live, block by block, and keeps live state in memory for the Uniswap v2 and v3 pools that trade. It checks itself against the chain as it runs, and it records every input so any run can be replayed exactly. A 15-minute live run tracked 576 pools across 450 blocks, matched the chain on all 3,445 spot checks, and replayed with identical output ([#52](https://github.com/AndySakov/omnimarket/pull/52)). |
+| **What works today** | It follows Base live, block by block, and keeps live state in memory for the Uniswap v2 and v3 pools that trade. It can check itself against the chain as it runs (`--check-every`), and it records every input so any run can be replayed exactly. A 15-minute live run tracked 576 pools across 450 blocks, matched the chain on all 3,445 spot checks, and replayed with identical output ([#52](https://github.com/AndySakov/omnimarket/pull/52)). |
 | **What's designed** | The rest of the terminal: pricing, routing, trade execution, trigger orders, token safety checks, and copy trading. Each piece has a written spec and a milestone. |
 | **Tech** | Rust, Kafka, Protobuf, OpenTelemetry, and object storage in use. Postgres, ClickHouse, Foundry (Solidity), and Google Cloud come in later milestones. |
 | **Started** | 2026-09-28 (design), 2026-09-29 (build). |
@@ -33,7 +33,7 @@ Each row starts from something Trojan traders already use, then works out how it
 | **New pairs and launches** ("Trenches") | New pools seen the moment they're created. On BNB, four.meme bonding curves are priced directly, so "buy on migration" works | Base pool discovery built |
 | **Limit orders, TP/SL, trailing stops, and auto-sell** | The full order set, with each firing guaranteed to happen exactly once, even across a crash or failover | Designed (M6) |
 | **Copy trading** | Copies land one block behind the leader, spotted from data the engine already reads, never front-running | Designed (M10) |
-| **MEV protection** | On BNB, trades go privately to several block builders at once, so they can't be sandwiched | Designed (M8) |
+| **MEV protection** | On BNB, trades go privately to several block builders at once, so they never touch the public mempool, where sandwich bots watch | Designed (M8) |
 | **Wallets on Privy** | Same provider. Users sign each trade's terms (amount, minimum price, and deadline), and the contract that moves funds enforces them. It has no owner and holds no balance | Designed (M3, M5) |
 | **1% fee** | Taken in the same transaction, always in ETH, BNB, or a stablecoin, never in the memecoin | Designed (M3) |
 | **Safety badges** | Every token is test-sold in a simulation before anyone can buy it. Honeypots and hidden taxes show up with evidence | Designed (M7) |
@@ -57,7 +57,7 @@ Each row starts from something Trojan traders already use, then works out how it
 | **M2 to M5:** live prices, router contract, quotes, execution, and the first real-funds trade on Base | Planned |
 | **M6 to M13:** triggers, safety, BNB, copy trading, MegaETH, hardening, and production readiness | Planned |
 
-The test suite has 75 tests, all passing.
+Every change passes fmt, clippy and the full test suite in CI before it merges.
 
 Full milestone table with demos: [docs/build-plan.md](docs/build-plan.md). Live progress: [issues](https://github.com/AndySakov/omnimarket/issues) and [pull requests](https://github.com/AndySakov/omnimarket/pulls?q=is%3Apr).
 
