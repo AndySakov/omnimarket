@@ -4,6 +4,7 @@
   scripts/measure-base.py rates   [--blocks 300]   logs per block, sampled across the last 24h
   scripts/measure-base.py latest  [--minutes 5]    canonical block interval and delivery delay
   scripts/measure-base.py pending [--minutes 3]    how often pending (Flashblocks) state changes
+  scripts/measure-base.py reorgs  [--minutes 60]   how often canonical blocks are replaced, and how deep
 
 Results go in docs/spec/verification.md. Polling bounds the timing resolution to the poll
 interval, and the public endpoint rate-limits, so treat delays as upper bounds.
@@ -30,11 +31,12 @@ TOPICS = {
 }
 
 rate_limited = 0
+dropped = 0
 round_trips_ms = []
 
 
 def rpc(method, params):
-    global rate_limited
+    global rate_limited, dropped
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
     for attempt in range(8):
         req = urllib.request.Request(RPC, body, {"Content-Type": "application/json", "User-Agent": "omnimarket-measure/0.1"})
@@ -48,11 +50,17 @@ def rpc(method, params):
                 raise RuntimeError(out["error"])
             return out["result"], len(raw)
         except urllib.error.HTTPError as e:
-            if e.code != 429:
+            if e.code != 429 and e.code < 500:
                 raise
-            rate_limited += 1
+            if e.code == 429:
+                rate_limited += 1
+            else:
+                dropped += 1
             time.sleep(0.5 * 2**attempt)
-    raise RuntimeError("rate-limited too many times")
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            dropped += 1
+            time.sleep(0.5 * 2**attempt)
+    raise RuntimeError("rate-limited or disconnected too many times")
 
 
 def pct(xs, p):
@@ -133,13 +141,63 @@ def pending(minutes, poll):
         summary("changes per block", full)
 
 
+def block_hash(number):
+    block, _ = rpc("eth_getBlockByNumber", [hex(number), False])
+    return block["hash"] if block else None
+
+
+def reorgs(minutes, poll, rechecks):
+    """Keeps every canonical hash it sees. A reorg shows up two ways: a new block whose parent
+    isn't the hash we hold (walk back to find the depth), or a height whose hash has changed
+    when re-read some blocks later."""
+    hashes, due, changed, depths = {}, [], {}, []
+    head = None
+    end = time.time() + minutes * 60
+    while time.time() < end:
+        block, _ = rpc("eth_getBlockByNumber", ["latest", False])
+        number = int(block["number"], 16)
+        if head is not None and number > head + 1:
+            for n in range(head + 1, number):
+                hashes[n] = block_hash(n)
+                due += [(n + r, n) for r in rechecks]
+        if head is None or number > head:
+            parent = hashes.get(number - 1)
+            if parent is not None and parent != block["parentHash"]:
+                depth, n = 0, number - 1
+                while n in hashes and hashes[n] != block_hash(n):
+                    changed.setdefault(n, "on arrival")
+                    hashes[n] = block_hash(n)
+                    depth, n = depth + 1, n - 1
+                depths.append(depth)
+                print(f"  reorg at {number}: depth {depth}")
+            hashes[number] = block["hash"]
+            due += [(number + r, number) for r in rechecks]
+            head = number
+        for at, n in [d for d in due if d[0] <= head]:
+            due.remove((at, n))
+            now = block_hash(n)
+            if now != hashes[n]:
+                changed.setdefault(n, f"re-read {at - n} blocks later")
+                print(f"  height {n} changed when re-read {at - n} blocks later")
+                hashes[n] = now
+        time.sleep(poll)
+    print(f"reorgs: latest polled every {poll * 1000:.0f}ms for {minutes} min: {len(hashes)} blocks, "
+          f"re-read {', '.join(str(r) for r in rechecks)} blocks later")
+    print(f"  reorgs seen on arrival: {len(depths)}" + (f", max depth {max(depths)}" if depths else ""))
+    print(f"  heights whose hash changed: {len(changed)}")
+    for n, how in sorted(changed.items()):
+        print(f"    {n}: {how}")
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("what", choices=["rates", "latest", "pending"])
+    p.add_argument("what", choices=["rates", "latest", "pending", "reorgs"])
     p.add_argument("--blocks", type=int, default=300)
     p.add_argument("--minutes", type=float, default=5)
     p.add_argument("--poll", type=float, default=0.1)
+    p.add_argument("--recheck", type=int, nargs="+", default=[10, 300], help="reorgs: re-read each height this many blocks later")
     a = p.parse_args()
-    {"rates": lambda: rates(a.blocks), "latest": lambda: latest(a.minutes, a.poll), "pending": lambda: pending(a.minutes, a.poll)}[a.what]()
+    {"rates": lambda: rates(a.blocks), "latest": lambda: latest(a.minutes, a.poll), "pending": lambda: pending(a.minutes, a.poll),
+     "reorgs": lambda: reorgs(a.minutes, a.poll, a.recheck)}[a.what]()
     summary("request round trip", round_trips_ms, "ms")
-    print(f"  (HTTP 429 responses retried: {rate_limited})")
+    print(f"  (retried: {rate_limited} HTTP 429, {dropped} dropped connections or 5xx)")
