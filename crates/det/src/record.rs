@@ -12,6 +12,8 @@ use crate::{Clock, EventSource, Rng, Rpc};
 /// Which det trait an input came through.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
+    /// The core's configuration, recorded before anything else (D54).
+    Config,
     Clock,
     Rng,
     Event,
@@ -43,6 +45,7 @@ impl InputRecord {
             Source::Rng => InputSource::Rng,
             Source::Event => InputSource::Event,
             Source::Rpc => InputSource::Rpc,
+            Source::Config => InputSource::Config,
         };
         proto::det::v1::InputRecord {
             seq: self.seq,
@@ -59,6 +62,7 @@ impl InputRecord {
             Ok(InputSource::Rng) => Source::Rng,
             Ok(InputSource::Event) => Source::Event,
             Ok(InputSource::Rpc) => Source::Rpc,
+            Ok(InputSource::Config) => Source::Config,
             Ok(InputSource::Unspecified) | Err(_) => {
                 return Err(InvalidInputRecord::UnknownSource(record.source));
             }
@@ -127,6 +131,12 @@ impl Recorder {
                 next_seq: Cell::new(0),
             }),
         }
+    }
+
+    /// Records the core's configuration. Call it once, before the core runs, so a replay can
+    /// rebuild the same core from the log alone.
+    pub fn record_config(&self, config: Vec<u8>) {
+        self.write(Source::Config, config);
     }
 
     fn write(&self, source: Source, payload: Vec<u8>) {
@@ -365,7 +375,13 @@ mod tests {
 
     #[test]
     fn input_records_round_trip_through_proto() {
-        for source in [Source::Clock, Source::Rng, Source::Event, Source::Rpc] {
+        for source in [
+            Source::Config,
+            Source::Clock,
+            Source::Rng,
+            Source::Event,
+            Source::Rpc,
+        ] {
             let record = InputRecord {
                 seq: 3,
                 source,

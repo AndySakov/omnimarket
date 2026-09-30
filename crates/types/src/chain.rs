@@ -24,3 +24,19 @@ pub struct Log {
     pub log_index: u64,
     pub transaction_hash: B256,
 }
+
+/// A read-only call at a block: `eth_call`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EthCall {
+    pub to: Address,
+    pub data: Bytes,
+    pub block: u64,
+}
+
+/// What an `eth_call` gives the core. Transport failures are retried below the core.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CallResult {
+    Returned(Bytes),
+    /// The node answered with an error, such as a revert.
+    Failed(String),
+}

@@ -1,8 +1,8 @@
-use alloy::eips::BlockNumberOrTag;
+use alloy::eips::{BlockId, BlockNumberOrTag};
 use alloy::providers::{Provider, ProviderBuilder, RootProvider};
-use alloy::rpc::types::Filter;
+use alloy::rpc::types::{Filter, TransactionRequest};
 use futures::future::LocalBoxFuture;
-use types::chain::{B256, Log};
+use types::chain::{B256, CallResult, EthCall, Log};
 
 use crate::{ChainError, ChainReader, Header};
 
@@ -19,6 +19,28 @@ impl HttpChain {
         Ok(Self {
             provider: ProviderBuilder::default().connect_http(url),
         })
+    }
+}
+
+impl HttpChain {
+    /// `eth_call` at the call's block. An error the node answers with (a revert, a bad
+    /// argument) is the call's result; anything else is a transport failure to retry.
+    pub async fn call(&self, call: &EthCall) -> Result<CallResult, ChainError> {
+        let request = TransactionRequest::default()
+            .to(call.to)
+            .input(call.data.clone().into());
+        match self
+            .provider
+            .call(request)
+            .block(BlockId::number(call.block))
+            .await
+        {
+            Ok(returned) => Ok(CallResult::Returned(returned)),
+            Err(error) => match error.as_error_resp() {
+                Some(payload) => Ok(CallResult::Failed(payload.message.to_string())),
+                None => Err(rpc_error(error)),
+            },
+        }
     }
 }
 

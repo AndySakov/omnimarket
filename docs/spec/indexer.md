@@ -28,6 +28,10 @@ Streams are one message per block wherever the chain allows, because providers b
 
 **Engine core (built, `engine`).** One task on a current-thread runtime (D74) reads blocks through a channel `EventSource` and the clock through `det`, both recorded to `inputs.base`. It keeps the last 128 block hashes. A block whose number isn't the next one is a follower bug and stops the core; a block whose parent isn't the held head is a reorg (undo arrives with D12's tiers). `engine follow` runs it live; `engine replay` reruns a recording from Kafka.
 
+**Uniswap v2 (built, `venues::v2`, engine).** `Sync` carries a pair's full reserves after every change, so it alone sets the state: no reserve read is needed at discovery. A pair is known from its factory's `PairCreated`, or from its first `Sync` (D80). A pair first seen trading is held unproven, with its `Sync`s buffered in order. Its `token0()` and `token1()` are read in one Multicall3 `aggregate3` call per 100 new pairs, at the block it was seen. It is tracked only if its address is the factory's CREATE2 address for those tokens; otherwise it is rejected for good (a fork or a fake). A verification call that fails as a whole forgets its pairs, and each is proven again the next time it trades. Every change publishes a `PoolUpdate` with before and after to `pool-updates.base`. The Base deployment's factory and init code hash are checked against the live WETH/USDC pair in a test.
+
+**Shadow state check.** With `--check-every N`, every N blocks the engine takes the next 20 tracked pairs in address order, wrapping round, and reads their `getReserves()` at the block it just applied, in one Multicall3 call. The engine compares the answer with the reserves it held after that block and counts matches and mismatches, logging each mismatch as an error.
+
 The reconciler:
 - confirms fast-loop events (provisional → confirmed)
 - detects reorgs (parent hash mismatch) and dropped preconfirmations (event seen in fast loop, absent from canonical block)

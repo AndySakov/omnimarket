@@ -1,7 +1,7 @@
 //! Recording encoding for chain blocks, the engine's main input.
 
 use prost::Message as _;
-use types::chain::{Address, B256, Block, Bytes, Log};
+use types::chain::{Address, B256, Block, Bytes, CallResult, Log};
 
 use crate::Recordable;
 
@@ -56,6 +56,28 @@ impl Recordable for Block {
     }
 }
 
+impl Recordable for CallResult {
+    fn encode(&self) -> Vec<u8> {
+        use proto::chain::v1::call_result::Outcome;
+        let outcome = match self {
+            CallResult::Returned(data) => Outcome::Returned(data.to_vec()),
+            CallResult::Failed(error) => Outcome::Failed(error.clone()),
+        };
+        proto::chain::v1::CallResult {
+            outcome: Some(outcome),
+        }
+        .encode_to_vec()
+    }
+
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        use proto::chain::v1::call_result::Outcome;
+        match proto::chain::v1::CallResult::decode(bytes).ok()?.outcome? {
+            Outcome::Returned(data) => Some(CallResult::Returned(Bytes::from(data))),
+            Outcome::Failed(error) => Some(CallResult::Failed(error)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,6 +98,16 @@ mod tests {
             }],
         };
         assert_eq!(Block::decode(&block.encode()), Some(block));
+    }
+
+    #[test]
+    fn call_results_round_trip() {
+        for result in [
+            CallResult::Returned(Bytes::from(vec![1, 2, 3])),
+            CallResult::Failed("execution reverted".into()),
+        ] {
+            assert_eq!(CallResult::decode(&result.encode()), Some(result));
+        }
     }
 
     #[test]
