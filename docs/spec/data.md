@@ -9,7 +9,7 @@
 | Postgres | Users, wallets, follows, orders + firings, nonce ledger, positions, token metadata, trailing highs | No: engine/execution cache in memory, write in background |
 | ClickHouse | Swaps, pool events, candles, backfill, routing logs, execution outcomes | No |
 | Kafka | All engine and execution output | No (publish is async) |
-| Object storage | Engine snapshots; archived input log (D54); write-once audit log copy (D55) | No |
+| Object storage | Engine snapshots; archived input log (D54): `inputs/<chain>/<core instance>/<first seq>.pb` segments of length-delimited `InputRecord`s, bucket `omnimarket-inputs` in dev; write-once audit log copy (D55) | No |
 
 ## ClickHouse and reorgs
 
