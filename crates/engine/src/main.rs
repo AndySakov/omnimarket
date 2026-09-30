@@ -83,11 +83,18 @@ struct S3Args {
     s3_endpoint: String,
     #[arg(long, default_value = "omnimarket-inputs")]
     s3_bucket: String,
-    #[arg(long, env = "OMNIMARKET_S3_ACCESS_KEY", default_value = "omnimarket")]
+    // hide_env_values: clap would otherwise print the keys' current values in --help.
+    #[arg(
+        long,
+        env = "OMNIMARKET_S3_ACCESS_KEY",
+        hide_env_values = true,
+        default_value = "omnimarket"
+    )]
     s3_access_key: String,
     #[arg(
         long,
         env = "OMNIMARKET_S3_SECRET_KEY",
+        hide_env_values = true,
         default_value = "omnimarket-dev"
     )]
     s3_secret_key: String,
