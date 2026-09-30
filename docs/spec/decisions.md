@@ -1906,3 +1906,23 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - Every binary that records a core records its config first; `engine replay` refuses a recording that doesn't start with one.
 - Changing a config schema needs the same compatibility care as any recorded payload (`buf breaking` covers it).
+
+---
+
+## D84 — Backend verification and frontend checks are separate; the fast hook fails closed
+
+**Date:** 2026-09-30 · **Status:** Decided (amends D76 and D81 tooling scope)
+
+**Decision:**
+- `scripts/verify.sh` is the backend/shared verification lane: Rust, contracts, protobuf, and determinism checks. It does not require Node or frontend dependencies.
+- Frontend checks run in the dedicated CI `frontend` job and in the staged `scripts/verify-fast.sh` path only when every staged path is under `web/terminal/`.
+- `scripts/verify-fast.sh` fails closed: any staged path outside `web/terminal/` runs `scripts/verify.sh`; an empty staging area exits with an explicit no-staged-files message.
+- CI's `verify` job does not install Node; the dedicated `frontend` job owns Node/npm setup and frontend verification.
+
+**Rejected:**
+- *Install Node in every `verify` run.* Backend worktrees do not have frontend dependencies, and CI would duplicate the dedicated frontend job.
+- *Route by a fixed backend allowlist.* New shared, configuration, documentation, or infrastructure paths could silently skip verification.
+
+**Why:** Backend commits remain independent of frontend tooling, while shared and gate changes must never silently bypass verification.
+
+**Consequence:** Mixed or shared commits run the full backend/shared lane; frontend-only staged commits need Node/npm and `web/terminal/node_modules`; frontend remains independently visible in CI.

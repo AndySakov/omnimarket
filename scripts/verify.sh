@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The definition of done in CLAUDE.md, as one command. CI and the commit gate both run this.
+# Backend/shared definition of done from CLAUDE.md. CI's verify job and the
+# non-frontend path of the commit gate run this command.
 # Each check runs once the part of the repo it covers exists.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,17 +25,6 @@ fi
 
 if [[ -f proto/buf.yaml ]]; then
   scripts/proto-check.sh
-  ran=1
-fi
-
-if [[ -f web/terminal/package.json ]]; then
-  need node
-  need npm
-  if [[ ! -d web/terminal/node_modules ]]; then
-    echo "verify: web/terminal/node_modules is missing; run npm ci in web/terminal" >&2
-    exit 1
-  fi
-  (cd web/terminal && npm run verify)
   ran=1
 fi
 

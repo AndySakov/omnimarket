@@ -16,31 +16,15 @@ if [[ -z "$changed_files" ]]; then
   exit 0
 fi
 
-frontend_changed=0
-backend_changed=0
-
-if printf '%s\n' "$changed_files" | grep -q '^web/terminal/'; then
-  frontend_changed=1
-fi
-
-if printf '%s\n' "$changed_files" | grep -Eq '^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|crates/|src/|contracts/|proto/|scripts/|deploy/)'; then
-  backend_changed=1
-fi
-
-if [[ $backend_changed == 1 ]]; then
+if printf '%s\n' "$changed_files" | grep -qv '^web/terminal/'; then
   scripts/verify.sh
   exit 0
 fi
 
-if [[ $frontend_changed == 1 ]]; then
-  need node
-  need npm
-  if [[ ! -d web/terminal/node_modules ]]; then
-    echo "verify-fast: web/terminal/node_modules is missing; run npm ci in web/terminal" >&2
-    exit 1
-  fi
-  (cd web/terminal && npm run verify:fast)
-  exit 0
+need node
+need npm
+if [[ ! -d web/terminal/node_modules ]]; then
+  echo "verify-fast: web/terminal/node_modules is missing; run npm ci in web/terminal" >&2
+  exit 1
 fi
-
-echo "verify-fast: no frontend or backend files changed"
+(cd web/terminal && npm run verify:fast)

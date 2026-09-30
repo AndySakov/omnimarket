@@ -47,7 +47,7 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
-CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
+CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76, D84). The `verify` job is the backend/shared lane and runs `scripts/verify.sh` without requiring Node or frontend dependencies. The dedicated `frontend` job owns Node/npm setup and runs the frontend verification and browser checks. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit: `scripts/verify-fast.sh` runs the frontend fast path only when every staged path is under `web/terminal/`; any shared, backend, configuration, documentation, or mixed commit runs the full backend/shared lane. A Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
 Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
 
