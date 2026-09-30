@@ -1800,3 +1800,19 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 - The router contract needs a price check per trigger swap → `routing.md`, `security.md` when `contracts/` is built.
 - Relative triggers (% from entry, trailing) pass the absolute level computed at firing.
 - Base replaced no canonical block in an hour of measurement (1,801 blocks), so reorg phantoms are rare, not impossible → [verification.md](verification.md).
+
+---
+
+## D79 — Kafka client: rdkafka
+
+**Date:** 2026-09-30 · **Status:** Decided (from building the input log, #20)
+
+**Decision:** Rust services talk to Kafka through `rdkafka`, the Rust wrapper over librdkafka, built from its bundled source. The input-log producer is idempotent (`enable.idempotence`), so retries can't reorder or duplicate records.
+
+**Rejected:**
+- *rskafka* (pure Rust, no C build). Lighter to compile, but a much smaller user base and no idempotent producer, which the input log's ordering relies on.
+- *kafka* (the `kafka` crate). Unmaintained.
+
+**Why:** librdkafka is the client most Kafka deployments run, with idempotence, transactions and consumer groups we'll need past M0. Boring Rust (D45) favours the well-known crate.
+
+**Consequence:** Building `det` compiles librdkafka (C), about a minute and a half on a clean build; CI caches it. A C toolchain is needed locally, which macOS and the CI image already have.
