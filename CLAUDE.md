@@ -8,12 +8,12 @@ OmniMarket is a multi-chain EVM trading terminal backend (Base first, then BNB C
 
 Take your next issue in this order. The first rule that yields an issue wins:
 
-1. **Your own open PRs.** Red CI, a merge conflict or a failed `watchdog/review` on a PR you opened comes before new work (see Review gate).
+1. **Stalled open PRs, whoever opened them.** Any open PR from this account with red CI, a merge conflict or a failed `watchdog/review`, oldest first, comes before new work (see Review gate). Skip one that another session claimed, or pushed to, in the last 2 hours. Sessions restart and share one GitHub account, so "your own PRs" can't be known.
 2. **`critical`, in any milestone.** Red CI on `main`; a bug that stops or corrupts the live read path (following, pool state, recording or replay); or a security problem. Oldest milestone first.
 3. **The demo sprint.** Open issues labelled `demo` and `backend`, lowest demo stage first (each issue's first line names its stage), then lowest number. If the one you'd take is blocked by M1 issues, follow that chain of blockers to the first M1 issue that is unblocked and untaken, and take it.
 4. **M1**, only when no demo issue is left to take.
 
-At every step, skip issues that are assigned (the `frontend` ones are Jutin's), claimed by an open PR, or blocked by an open issue. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. The queries and the claim step are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue).
+At every step, skip issues that are assigned (the `frontend` ones are Jutin's), claimed by an open PR, or blocked by an open issue. An issue whose closing PR is stalled is picked up through that PR, at rule 1. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. The queries and the claim step are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue).
 
 A bug that meets rule 2's bar gets the `critical` label, and a comment saying which part of the bar it meets. Temi can remove the label.
 

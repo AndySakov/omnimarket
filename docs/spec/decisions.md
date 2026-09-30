@@ -1956,7 +1956,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
 
 **Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
-1. Their own open PRs.
+1. Stalled open PRs (red CI, a conflict or a failed `watchdog/review`), whoever opened them, oldest first. A claim on one lapses after 2 hours without a push.
 2. Issues labelled `critical`, in any milestone.
 3. Backend issues in the demo sprint (#62), lowest demo stage first. M1 issues in the blocking chain of the next demo issue count as demo work.
 4. The rest of M1, only when no demo issue is left to take.
@@ -1966,9 +1966,9 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Rejected:**
 - *The demo sprint only, until it ships.* A stalled follower or a red `main` would wait behind features that depend on them. The demo shows the M0 and M1 engine, so a critical bug there breaks the demo too.
 - *A fixed share of sessions per track (e.g. one in three on M1).* Sessions don't see what the others picked, so nothing could enforce the share.
-- *Milestone order: finish M1, then M2.* It delays anything showable by weeks, and M1's open issues (#40, #41) don't affect the demo.
+- *Milestone order: finish M1, then M2.* It delays anything showable by weeks, and M1's open issues (#40, #41) don't affect the demo until replay mode (#88).
 
-**Why:** The demo is the priority, and the engine it runs on must stay correct. A written order lets every session choose the same way.
+**Why:** The demo is the priority, and the engine it runs on must stay correct. A written order lets every session choose the same way. Rule 1 covers every stalled PR, not only a session's own: sessions restart and share one GitHub account, so none can know which PRs it opened. Scoping it to "your own" left #57, the fix for the one critical bug (#46), unattended while #46 counted as taken.
 
 **Consequence:**
 - Non-critical M1 work waits until the demo sprint has no backend issue left to take. When the sprint reaches replay mode (#88), its chain pulls #42 forward, and through #42, #40 and #41. #46 is `critical`, since the follower stalls forever.

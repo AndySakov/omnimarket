@@ -17,7 +17,13 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 The order is CLAUDE.md's "Current mode" (D87). These are the queries behind each rule. Several sessions run at once under the one GitHub account, so an issue counts as taken once it has an assignee or an open PR that closes it.
 
-1. **Your own open PRs** are the ones this session opened; you know them. Red CI, a conflict or a failed `watchdog/review` comes first.
+1. **Stalled open PRs.** Any open PR from this account, not only ones this session remembers opening: sessions restart and share the account. List them oldest first, with their checks:
+   ```bash
+   gh pr list --state open --author AndySakov --json number,title,createdAt,mergeable,statusCheckRollup,updatedAt \
+     --jq 'sort_by(.createdAt) | .[] | {number, title, mergeable,
+            failing: [.statusCheckRollup[] | select((.conclusion // .state) == "FAILURE") | (.name // .context)]}'
+   ```
+   A PR is stalled if a check is failing (including `watchdog/review`) or `mergeable` is `CONFLICTING`. Skip it if another session claimed it (a "Taking this" comment) or pushed to it in the last 2 hours. After that, the claim has lapsed. Claim it the same way as an issue, with a comment on the PR, then fix it on its own branch.
 2. **Critical:**
    ```bash
    gh issue list --state open --label critical --json number,title,milestone,assignees
@@ -27,7 +33,7 @@ The order is CLAUDE.md's "Current mode" (D87). These are the queries behind each
    gh issue list --state open --label demo --label backend --limit 100 \
      --json number,title,assignees,body \
      --jq '[.[] | select(.assignees | length == 0)
-            | {number, title, stage: (.body | capture("Demo stage (?<s>[0-9])").s)}]
+            | {number, title, stage: ((.body | capture("Demo stage (?<s>[0-9])")?) // {s: "9"} | .s)}]
            | sort_by(.stage, .number)'
    ```
 4. **M1:**
@@ -43,6 +49,7 @@ For each candidate, in order:
   gh pr list --state open --search "<n> in:body" --json number,title,body
   ```
   Read the matches: only a `Closes #<n>` (or `Fixes`) line counts.
+  An issue whose closing PR is stalled isn't picked here: rule 1 picks up the PR.
 - **Claim it** before your first commit, in this order:
   ```bash
   gh issue edit <n> --add-assignee @me
