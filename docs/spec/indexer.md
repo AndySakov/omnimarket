@@ -14,11 +14,11 @@
 
 ## Tip following (D10, streams amended by D16)
 
-| Chain | Fast loop (provisional) | Reconciler loop (canonical) |
+| Chain | Fast loop | Reconciler loop (canonical) |
 |---|---|---|
-| MegaETH | Realtime API filtered `logs` subscription, per ~10ms mini-block | `getLogs` per ~1s EVM block |
-| Base | `newHeads` + one `getLogs` per 2s block (canonical, D77) | `getLogs` per block, trailing |
-| BNB | `newHeads` + one `getLogs` per 0.45s block | `getLogs` per block, trailing |
+| MegaETH | Realtime API filtered `logs` subscription, per ~10ms mini-block (provisional) | `getLogs` per ~1s EVM block |
+| Base | Canonical blocks: `newHeads` (production) or polling (D80) + one `getLogs` by block hash per 2s block (D77) | None: the fast loop is already canonical (D84) |
+| BNB | `newHeads` + one `getLogs` per 0.45s block (canonical) | None, as for Base (D84) |
 
 Streams are one message per block wherever the chain allows, because providers bill every pushed event (D16). In production, Base's fast loop reads blocks from our own Base node (D44), with providers as fallback.
 
@@ -32,11 +32,13 @@ Streams are one message per block wherever the chain allows, because providers b
 
 **Shadow state check.** With `--check-every N`, every N blocks the engine takes the next 20 tracked pairs in address order, wrapping round, and reads their `getReserves()` at the block it just applied, in one Multicall3 call. The engine compares the answer with the reserves it held after that block and counts matches and mismatches, logging each mismatch as an error.
 
-The reconciler:
+The reconciler, on chains whose fast loop is provisional (MegaETH):
 - confirms fast-loop events (provisional → confirmed)
 - detects reorgs (parent hash mismatch) and dropped preconfirmations (event seen in fast loop, absent from canonical block)
 - fills gaps when a subscription drops (block-number continuity check)
 - emits corrections to Kafka so downstream consumers can undo
+
+On chains followed by canonical blocks (Base, BNB), there is no separate reconciler (D84). Its jobs are already done: nothing is provisional to confirm or drop; the head follower fills gaps by number; the core detects reorgs by parent hash, and tiered undo walks back and emits corrections (D12). A node silently leaving logs out of a `getLogs` answer is the one failure a trailing re-read would catch, and the shadow state check catches its effect on tracked pools.
 
 ## Bootstrap (D9)
 

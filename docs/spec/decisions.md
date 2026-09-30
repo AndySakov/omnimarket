@@ -162,6 +162,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 
 ## D10 — Tip following: fastest stream per chain + canonical block reconciler
 
+*(Amended by D84: chains followed by canonical blocks (Base, BNB) have no separate reconciler loop.)*
+
 *(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
 *(Amended by D77: Base follows canonical blocks only, like BNB. No Flashblocks feed.)*
@@ -1858,3 +1860,24 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
 - GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**
+
+---
+
+## D84 — No separate reconciler on chains followed by canonical blocks
+
+**Date:** 2026-09-30 · **Status:** Decided (amends D10; answers #50)
+
+**Decision:** Base, and BNB when it lands, have no reconciler loop. Their one follower delivers canonical blocks, and the reconciler's jobs are done where they already happen:
+- **Confirming provisional events, catching dropped preconfirmations:** nothing is provisional (D77).
+- **Filling gaps:** the head follower fetches every skipped block by number, in order, and retries failures without skipping (D80).
+- **Detecting reorgs:** the core compares each block's parent hash with the head it holds; tiered undo walks back, undoes and emits corrections (D12).
+
+MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional.
+
+**Rejected:**
+- *A trailing `getLogs` re-read per block anyway.* It would catch a node that silently leaves logs out of an answer, but doubles the log requests for a failure not yet seen. The shadow state check (`--check-every`) already catches its effect on tracked pools; if it ever fires, a trailing re-read is the fix to add.
+- *Keep the reconciler in the M1 scope as written.* It would be a loop with nothing to do.
+
+**Why:** D10 split tip following into a fast provisional loop and a canonical reconciler. With D77 the fast loop is canonical on Base, so the split collapses into one loop.
+
+**Consequence:** The build plan's M1 scope and `indexer.md` drop the Base reconciler. A shadow-check mismatch on a live run is the trigger to revisit.
