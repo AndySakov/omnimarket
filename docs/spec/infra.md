@@ -57,7 +57,7 @@ CI also runs a Kafka service container (the same `apache/kafka` image as the loc
 
 ## Production cloud (D51)
 
-Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: Start tier ($2k) at MVP → blockchain foundation grant (BNB Chain Builder Grant first) → Web3 program Scale tier, up to $200k over 2 years.
+Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: the Web3 program's Start tier ($2k) once there's a working MVP. No grant applications (D85).
 
 Tentative regions **(verify)**: central + Base `us-east4`; BNB `asia-northeast1` or `asia-southeast1`; MegaETH `us-east4` until its rotating sequencer is live.
 
