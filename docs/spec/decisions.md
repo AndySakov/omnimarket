@@ -162,6 +162,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 
 ## D10 — Tip following: fastest stream per chain + canonical block reconciler
 
+*(Amended by D84: chains followed by canonical blocks (Base, BNB) have no separate reconciler loop.)*
+
 *(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
 *(Amended by D77: Base follows canonical blocks only, like BNB. No Flashblocks feed.)*
@@ -1917,6 +1919,27 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ---
 
+## D84 — No separate reconciler on chains followed by canonical blocks
+
+**Date:** 2026-09-30 · **Status:** Decided by Temi (amends D10; answers #50)
+
+**Decision:** Base, and BNB when it lands, have no reconciler loop. Their one follower delivers canonical blocks, and the reconciler's jobs are done where they already happen:
+- **Confirming provisional events, catching dropped preconfirmations:** nothing is provisional (D77).
+- **Filling gaps:** the head follower fetches every skipped block by number, in order, and retries failures without skipping (D80).
+- **Detecting reorgs:** the core compares each block's parent hash with the head it holds; tiered undo walks back, undoes and emits corrections (D12).
+
+MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional.
+
+**Rejected:**
+- *A trailing `getLogs` re-read per block anyway.* It would catch a node that silently leaves logs out of an answer, but doubles the log requests for a failure not yet seen. The shadow state check (`--check-every`) already catches its effect on tracked pools; if it ever fires, a trailing re-read is the fix to add.
+- *Keep the reconciler in the M1 scope as written.* It would be a loop with nothing to do.
+
+**Why:** D10 split tip following into a fast provisional loop and a canonical reconciler. With D77 the fast loop is canonical on Base, so the split collapses into one loop.
+
+**Consequence:** The build plan's M1 scope and `indexer.md` drop the Base reconciler. The history job (D15) reuses the head follower's per-block `getLogs` loop on these chains instead of a reconciler's. A shadow-check mismatch on a live run is the trigger to revisit.
+
+---
+
 ## D85 — OmniMarket is a proof of concept, not a commercial launch
 
 **Date:** 2026-09-30 · **Status:** Decided (amends D28, D51, D63, D64; supersedes D68)
@@ -1935,3 +1958,25 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Why:** The project's job is to show how its author designs and builds trading infrastructure. Scope that only matters for a commercial product costs time and says nothing about that.
 
 **Consequence:** build-plan.md's M13 and relative-effort table, highlights.md, frontend.md, infra.md, market.md, routing.md (no referral rate), security.md and D57 (no audit contest or bug bounty) are updated to match.
+
+---
+
+## D86 — The commit gate splits by path, and fails closed
+
+**Date:** 2026-09-30 · **Status:** Decided (process; from the terminal foundation, #56)
+
+**Decision:** The git pre-commit hook runs `scripts/verify-fast.sh`. A commit whose staged files are all under `web/terminal/` runs the frontend's fast checks (`npm run verify:fast`: typecheck, lint, unit tests). Every other commit, an empty one included, runs `scripts/verify.sh` as before. `verify.sh` stays backend-only (Rust, contracts, proto) and needs no Node. CI runs the frontend's full checks (`npm run verify:pr`) in its own `frontend` job, beside `verify`.
+
+**Found while reviewing:** #56's first version added the frontend to `verify.sh`, so every backend commit and CI's `verify` job needed Node and `web/terminal/node_modules`. Its fast hook ran the backend checks only when a staged path matched a fixed list, so a commit touching only `clippy.toml` (D73) or `.github/` ran nothing and passed.
+
+**Rejected:**
+- *The frontend inside `verify.sh`.* Every backend clone needs `npm ci` before it can commit, and CI installs Node for `verify` as well as for `frontend`.
+- *Backend checks only for a list of backend paths.* Fails open: a path nobody listed skips the gate.
+- *Full `verify.sh` on every commit, frontend commits included.* Minutes of cargo on each frontend commit, for checks that can't see the frontend.
+
+**Why:** Each side's gate needs only its own toolchain, and anything not provably frontend-only gets the full backend checks, so the local gate fails closed.
+
+**Consequence:**
+- A commit that mixes frontend and other files runs only `verify.sh` locally; CI's `frontend` job checks its frontend half.
+- `frontend` isn't a required check on `main` yet, so a red `frontend` job doesn't block a merge. **(Follow-up: Temi adds it to branch protection.)**
+- The Claude Code hook still runs the full `verify.sh` when the git hook isn't installed: it runs before the files are necessarily staged.

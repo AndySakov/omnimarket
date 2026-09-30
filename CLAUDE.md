@@ -65,7 +65,7 @@ M0 creates the workspace and the commands. Until then there is nothing to run. O
 - `forge test` passes for anything under `contracts/`
 - any spec or D-entry the change touches is updated in the same commit
 
-`scripts/verify.sh` runs these checks. CI runs it, and the tracked git pre-commit hook runs it on every commit (run `scripts/setup.sh` once per clone). A Claude Code hook refuses `--no-verify` and, if the git hook isn't installed, runs verify itself. Fix the failure, never bypass it.
+`scripts/verify.sh` runs the full repository checks. CI runs it, and the tracked git pre-commit hook runs the scoped fast checks in `scripts/verify-fast.sh` (run `scripts/setup.sh` once per clone). A Claude Code hook refuses `--no-verify` and, if the git hook isn't installed, runs verify itself. Fix the failure, never bypass it.
 
 Run the real thing before claiming done, and say what you could not verify.
 
