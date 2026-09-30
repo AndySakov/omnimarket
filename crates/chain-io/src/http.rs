@@ -37,11 +37,29 @@ impl HttpChain {
         {
             Ok(returned) => Ok(CallResult::Returned(returned)),
             Err(error) => match error.as_error_resp() {
-                Some(payload) => Ok(CallResult::Failed(payload.message.to_string())),
-                None => Err(rpc_error(error)),
+                Some(payload) if !is_retryable(payload.code, &payload.message) => {
+                    Ok(CallResult::Failed(payload.message.to_string()))
+                }
+                _ => Err(rpc_error(error)),
             },
         }
     }
+}
+
+/// An error that isn't the node's answer to the call, so it's retried below the core instead of
+/// recorded as the call's result:
+/// - a rate limit: the free Base endpoint sends HTTP 429 with a JSON-RPC error body
+///   (`-32016 over rate limit`), which reads like an answer;
+/// - a block the node doesn't have yet: a load-balanced node that lags answers a call at a
+///   recent block with `-32001 block not found` or `header not found`.
+///
+/// Everything else (a revert, a bad argument, state older than the node keeps) is the answer.
+fn is_retryable(code: i64, message: &str) -> bool {
+    let message = message.to_lowercase();
+    matches!(code, -32016 | -32005 | 429)
+        || message.contains("rate limit")
+        || message.contains("block not found")
+        || message.contains("header not found")
 }
 
 fn rpc_error(e: impl std::fmt::Display) -> ChainError {
@@ -94,5 +112,24 @@ impl ChainReader for HttpChain {
                 })
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_and_lag_are_retried_and_node_answers_are_results() {
+        assert!(is_retryable(-32016, "over rate limit"));
+        assert!(is_retryable(-32000, "Rate limit exceeded"));
+        assert!(is_retryable(-32001, "block not found"));
+        assert!(is_retryable(-32000, "header not found"));
+        assert!(!is_retryable(3, "execution reverted"));
+        assert!(!is_retryable(-32602, "invalid argument 0"));
+        assert!(!is_retryable(
+            -32602,
+            "Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode"
+        ));
     }
 }

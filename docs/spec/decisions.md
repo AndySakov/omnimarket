@@ -1825,6 +1825,8 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D80 — On free RPC, Base is followed by polling, and pools are discovered as they appear or trade
 
+*(Amended by D82: `eth_call`s go to PublicNode's free endpoint.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (from building M1, #37; dev and staging only, D17)
 
 **Decision:**
@@ -1862,6 +1864,27 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
 - GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**
+
+---
+
+## D82 — On free RPC, the engine's eth_calls go to PublicNode
+
+**Date:** 2026-09-30 · **Status:** Decided (from building v3 pools, #39; dev and staging only, D17; amends D80)
+
+**Decision:** In dev and staging, the engine reads blocks and logs from Base's public endpoint (D80) but sends its `eth_call`s (pool proofs, bootstrap reads, shadow checks) to PublicNode's free Base endpoint, `base-rpc.publicnode.com`, which needs no signup. The call worker also starts at most 5 calls a second, keeps at most 8 in flight, and retries rate-limit errors instead of passing them to the core as answers.
+
+**Found while building:** Base's endpoint allows about 20 `eth_call`s per 30 seconds per client, whatever the call's size: a 20-call and a 500-call multicall each got exactly 20 through per window. Plain requests aren't limited at 10 a second. A live run bootstrapping v3 pools spent more time waiting out rate limits than reading. It answers a rate limit with HTTP 429 and a JSON-RPC error body, which a client reads as the call's answer unless it checks.
+
+**Rejected:**
+- *Stay on Base's endpoint with bigger batches and a 0.6/s pace.* Bootstraps would lag minutes behind the chain on a busy stretch.
+- *Read bootstrap state at whatever block a merged call runs at, to merge more.* Workable, but a bigger change to the core to work around one endpoint.
+- *A keyed free tier.* Needs a signup (free-only rule: ask first); unnecessary while PublicNode works.
+
+**Why:** PublicNode took 500-call and 2,000-call multicalls at 2 to 5 a second without one rate limit (measured 2026-09-30, verification.md). The engine reads state seconds after its block, well inside the ~90 blocks of state PublicNode keeps.
+
+**Consequence:**
+- PublicNode refuses reads more than ~90 blocks back ("archive requests require a personal token"). The core sees that as a failed call and rediscovers the pool on its next event, so a long stall costs re-reads, not correctness.
+- Production uses our own node and the paid provider (D16, D44); `--rpc` and `--call-rpc` point anywhere.
 
 ---
 

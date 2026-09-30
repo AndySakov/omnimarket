@@ -43,6 +43,8 @@ In-memory math per pool type, exact to the contract's rounding; simulation only 
 | Algebra-based | MegaETH | Algebra concentrated liquidity, dynamic fees |
 | PancakeSwap Infinity (CL + bin pools, hooks) | BNB | CL: v4-like · bin pools: own math **(to spec)** |
 
+**Pool state (built, `venues`, M1):** v2 reserves from `Sync`; v3 price, tick, active liquidity and the initialized ticks' gross and net liquidity from `Initialize`, `Swap`, `Mint` and `Burn`, applied as the pool contract does (active liquidity changes only when `tickLower <= tick < tickUpper`). Quoting math on top of this state lands with routing (M4).
+
 ## Recompute cadence (D22)
 
 | Work | When |
