@@ -24,15 +24,25 @@ type EventKey = (u64, B256, u64);
 
 /// A v3 call the engine is waiting on.
 pub(crate) enum Call {
-    /// token0, token1, fee, tickSpacing, slot0 and liquidity of each pool, at `block`.
-    Identify { block: u64, pools: Vec<Address> },
+    /// token0, token1, fee, tickSpacing, slot0 and liquidity of each pool, at `block`. Each
+    /// pool comes with its bootstrap attempt.
+    Identify { block: u64, pools: Vec<Attempt> },
     /// A pool's bitmap words, at its bootstrap block.
-    Words { pool: Address, words: Vec<i16> },
+    Words { attempt: Attempt, words: Vec<i16> },
     /// A pool's initialized ticks in some non-empty words, through TickLens.
-    Ticks { pool: Address },
-    /// Each pool's slot0, liquidity and one initialized tick at `block`, against what the
-    /// engine held then.
+    Ticks { attempt: Attempt },
+    /// Each pool's slot0, liquidity and one of its initialized ticks at `block`, against what
+    /// the engine held then.
     Check { block: u64, expected: Vec<Expected> },
+}
+
+/// One bootstrap read of one pool. Its number tells this read's answers from those of an
+/// earlier, abandoned read of the same pool, which can still be in flight and arrive in any
+/// order.
+#[derive(Clone, Copy)]
+pub(crate) struct Attempt {
+    pool: Address,
+    number: u64,
 }
 
 pub(crate) struct Expected {
@@ -60,6 +70,7 @@ enum Stage {
 /// A pool first seen mid-life (D80): its state is read at `block`, the block it was first
 /// seen in, which already includes every event of that block.
 struct Bootstrap {
+    attempt: u64,
     block: u64,
     /// The event that made the engine read the pool; the discovery update carries its key.
     first: EventKey,
@@ -75,6 +86,9 @@ pub(crate) struct V3Pools {
     /// Addresses that emitted a v3 event but aren't this deployment's pools: forks or fakes.
     rejected: BTreeSet<Address>,
     check_cursor: Option<Address>,
+    next_attempt: u64,
+    /// Counts shadow checks, so each check reads a different tick of a pool than the last.
+    checks: usize,
 }
 
 impl V3Pools {
@@ -85,6 +99,8 @@ impl V3Pools {
             bootstrapping: BTreeMap::new(),
             rejected: BTreeSet::new(),
             check_cursor: None,
+            next_attempt: 0,
+            checks: 0,
         }
     }
 
@@ -124,23 +140,29 @@ impl V3Pools {
                 // Same block as the read: the read already includes it.
                 Some(_) => {}
                 None => {
+                    let attempt = self.next_attempt;
+                    self.next_attempt += 1;
                     self.bootstrapping.insert(
                         address,
                         Bootstrap {
+                            attempt,
                             block: block.number,
                             first: key,
                             stage: Stage::Identifying,
                             later: Vec::new(),
                         },
                     );
-                    newly_seen.push(address);
+                    newly_seen.push(Attempt {
+                        pool: address,
+                        number: attempt,
+                    });
                 }
             }
         }
         for batch in newly_seen.chunks(IDENTIFY_BATCH) {
             let calls: Vec<(Address, Vec<u8>)> = batch
                 .iter()
-                .flat_map(|&pool| {
+                .flat_map(|&Attempt { pool, .. }| {
                     [
                         (pool, v3::token0_call()),
                         (pool, v3::token1_call()),
@@ -187,10 +209,10 @@ impl V3Pools {
             Call::Identify { block, pools } => {
                 self.on_identified(block, pools, result, stats, effects)
             }
-            Call::Words { pool, words } => {
-                self.on_words(chain_id, pool, words, result, stats, effects)
+            Call::Words { attempt, words } => {
+                self.on_words(chain_id, attempt, words, result, stats, effects)
             }
-            Call::Ticks { pool } => self.on_ticks(chain_id, pool, result, stats, effects),
+            Call::Ticks { attempt } => self.on_ticks(chain_id, attempt, result, stats, effects),
             Call::Check { block, expected } => self.on_checked(block, expected, result, stats),
         }
     }
@@ -198,18 +220,22 @@ impl V3Pools {
     fn on_identified(
         &mut self,
         block: u64,
-        pools: Vec<Address>,
+        pools: Vec<Attempt>,
         result: CallResult,
         stats: &mut Stats,
         effects: &mut Effects,
     ) {
         let Some(answers) = answers(&result, pools.len() * 6) else {
-            for pool in pools {
-                self.fail(pool, stats);
+            for attempt in pools {
+                self.fail(attempt, stats);
             }
             return;
         };
-        for (i, address) in pools.into_iter().enumerate() {
+        for (i, attempt) in pools.into_iter().enumerate() {
+            let address = attempt.pool;
+            if self.current(attempt).is_none() {
+                continue;
+            }
             let a = &answers[6 * i..6 * i + 6];
             let identity = (|| {
                 Some((
@@ -244,13 +270,13 @@ impl V3Pools {
                 stats.bootstrap_calls += 1;
                 effects.calls.push((
                     Pending::V3(Call::Words {
-                        pool: address,
+                        attempt,
                         words: chunk.to_vec(),
                     }),
                     multicall_at(block, &calls),
                 ));
             }
-            if let Some(bootstrap) = self.bootstrapping.get_mut(&address) {
+            if let Some(bootstrap) = self.current(attempt) {
                 bootstrap.stage = Stage::Words {
                     pool,
                     calls_left: chunks.len(),
@@ -263,7 +289,7 @@ impl V3Pools {
     fn on_words(
         &mut self,
         chain_id: u64,
-        address: Address,
+        attempt: Attempt,
         words: Vec<i16>,
         result: CallResult,
         stats: &mut Stats,
@@ -275,10 +301,12 @@ impl V3Pools {
                 .collect()
         });
         let Some(bitmaps) = bitmaps else {
-            self.fail(address, stats);
+            self.fail(attempt, stats);
             return;
         };
-        let Some(bootstrap) = self.bootstrapping.get_mut(&address) else {
+        let address = attempt.pool;
+        let tick_lens = self.deployment.tick_lens;
+        let Some(bootstrap) = self.current(attempt) else {
             return;
         };
         let Stage::Words {
@@ -319,16 +347,11 @@ impl V3Pools {
         for chunk in &chunks {
             let calls: Vec<(Address, Vec<u8>)> = chunk
                 .iter()
-                .map(|&word| {
-                    (
-                        self.deployment.tick_lens,
-                        v3::populated_ticks_call(address, word),
-                    )
-                })
+                .map(|&word| (tick_lens, v3::populated_ticks_call(address, word)))
                 .collect();
             stats.bootstrap_calls += 1;
             effects.calls.push((
-                Pending::V3(Call::Ticks { pool: address }),
+                Pending::V3(Call::Ticks { attempt }),
                 multicall_at(block, &calls),
             ));
         }
@@ -341,7 +364,7 @@ impl V3Pools {
     fn on_ticks(
         &mut self,
         chain_id: u64,
-        address: Address,
+        attempt: Attempt,
         result: CallResult,
         stats: &mut Stats,
         effects: &mut Effects,
@@ -352,10 +375,11 @@ impl V3Pools {
                 .collect()
         });
         let Some(populated) = populated else {
-            self.fail(address, stats);
+            self.fail(attempt, stats);
             return;
         };
-        let Some(bootstrap) = self.bootstrapping.get_mut(&address) else {
+        let address = attempt.pool;
+        let Some(bootstrap) = self.current(attempt) else {
             return;
         };
         let Stage::Ticks { pool, calls_left } = &mut bootstrap.stage else {
@@ -396,16 +420,29 @@ impl V3Pools {
         self.pools.insert(address, pool);
     }
 
-    /// Gives up on a pool's bootstrap. It starts again the next time it's seen.
-    fn fail(&mut self, address: Address, stats: &mut Stats) {
-        if self.bootstrapping.remove(&address).is_some() {
+    /// The pool's bootstrap, if `attempt` is the one in progress. Answers to an abandoned
+    /// attempt are ignored.
+    fn current(&mut self, attempt: Attempt) -> Option<&mut Bootstrap> {
+        self.bootstrapping
+            .get_mut(&attempt.pool)
+            .filter(|b| b.attempt == attempt.number)
+    }
+
+    /// Gives up on attempt `attempt` of a pool's bootstrap. It starts again the next time the
+    /// pool is seen. A failure from an earlier attempt leaves the current one alone.
+    fn fail(&mut self, attempt: Attempt, stats: &mut Stats) {
+        if self.current(attempt).is_some() {
+            self.bootstrapping.remove(&attempt.pool);
             stats.bootstrap_failures += 1;
         }
     }
 
     /// Asks the chain for the next `sample` initialized pools' slot0, liquidity and one
-    /// initialized tick at `block`, the block just applied.
+    /// initialized tick at `block`, the block just applied. The tick rotates through the
+    /// pool's table from one check to the next, so a missing or wrong tick is found in time.
     pub fn check(&mut self, block: u64, sample: usize, effects: &mut Effects) {
+        let round = self.checks;
+        self.checks += 1;
         let after_cursor: Box<dyn Iterator<Item = (&Address, &Pool)>> = match self.check_cursor {
             Some(cursor) => Box::new(self.pools.range((Excluded(cursor), Unbounded))),
             None => Box::new(self.pools.iter()),
@@ -416,11 +453,9 @@ impl V3Pools {
             .take(self.pools.len())
             .filter_map(|(address, pool)| {
                 let price = pool.price?;
-                let tick = pool
-                    .ticks
-                    .range(price.tick..)
-                    .next()
-                    .or_else(|| pool.ticks.iter().next_back())
+                let tick = (!pool.ticks.is_empty())
+                    .then(|| pool.ticks.iter().nth(round % pool.ticks.len()))
+                    .flatten()
                     .map(|(t, l)| (*t, *l));
                 Some(Expected {
                     pool: *address,

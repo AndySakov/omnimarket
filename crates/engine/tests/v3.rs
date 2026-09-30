@@ -267,13 +267,24 @@ struct Run {
 }
 
 fn run(config: EngineConfig, blocks: Vec<(Duration, Block)>, node: Node) -> Run {
+    run_with(config, blocks, move |call: EthCall| {
+        (Duration::from_millis(50), node.answer(&call))
+    })
+}
+
+/// Like `run`, with each call's latency and answer decided by `answer`.
+fn run_with(
+    config: EngineConfig,
+    blocks: Vec<(Duration, Block)>,
+    answer: impl FnMut(EthCall) -> (Duration, CallResult) + 'static,
+) -> Run {
     let sink = InMemorySink::default();
     let outbox = InMemoryOutbox::default();
     let summary = det::run_simulated(async {
         let clock = SimClock::starting_at(START);
         let recorder = Recorder::new(Box::new(sink.clone()), Box::new(clock.clone()));
         recorder.record_config(config.encode());
-        let rpc = SimRpc::new(move |call: EthCall| (Duration::from_millis(50), node.answer(&call)));
+        let rpc = SimRpc::new(answer);
         let engine = Engine::new(
             config,
             Box::new(RecordingClock::new(Box::new(clock), recorder.clone())),
@@ -457,5 +468,69 @@ fn a_one_tick_spacing_pool_reads_its_words_in_batches() {
     let run = run(EngineConfig::base(), blocks, node);
     // One identity call, then 6,932 words at 500 per call; no ticks to read.
     assert_eq!(calls.get(), 1 + 14);
+    assert_eq!(run.summary.stats.pools_tracked, 1);
+}
+
+// A read that fails part-way is abandoned, and the pool is read again on its next event. The
+// abandoned read's other answers are still in flight; one that lands during the new read must
+// not count towards it.
+#[test]
+fn a_late_answer_from_an_abandoned_read_is_ignored() {
+    let spaced = BASE.pool_address(TOKEN_B, TOKEN_C, 100);
+    let mut pool = Pool::new(spaced, TOKEN_B, TOKEN_C, 100, 1);
+    pool.apply(v3::Event::Initialize(price(0)));
+    // One position in each of the 14 chunks of bitmap words, so a chunk read twice or missed
+    // shows in the tick table.
+    let first_word = *v3::words(1).start() as i32;
+    for chunk in 0..14 {
+        let lower = (first_word + 500 * chunk + 1) * 256;
+        pool.apply(v3::Event::Mint {
+            lower,
+            upper: lower + 1,
+            amount: 10 + chunk as u128,
+        });
+    }
+    let (mut blocks, mut node) = world(vec![vec![], vec![], vec![], vec![]], None);
+    for truth in node.truth.values_mut() {
+        truth.insert(spaced, pool.clone());
+    }
+    let touch = swap(0, pool.liquidity);
+    blocks[0].1.logs.push(event_log(spaced, touch, 0));
+    blocks[1].1.logs.push(event_log(spaced, touch, 0));
+
+    let chunk_of = move |call: &EthCall| {
+        let (_, data) = multicall::decode_calls(&call.data)?.into_iter().next()?;
+        (data[..4] == v3::tick_bitmap_call(0)[..4]).then(|| {
+            let word = i16::abi_decode(&data[4..]).unwrap() as i32;
+            (word - first_word) / 500
+        })
+    };
+    let run = run_with(EngineConfig::base(), blocks, move |call: EthCall| {
+        let answer = node.answer(&call);
+        match (call.block, chunk_of(&call)) {
+            // The first read, at block 100: one chunk is refused, which abandons the read...
+            (100, Some(0)) => (
+                Duration::from_millis(50),
+                CallResult::Failed("Archive requests require a personal token".into()),
+            ),
+            // ...and another answers after the second read, at block 101, has started.
+            (100, Some(1)) => (Duration::from_millis(2_100), answer),
+            (101, Some(_)) => (Duration::from_millis(500), answer),
+            _ => (Duration::from_millis(50), answer),
+        }
+    });
+
+    let discovered = run
+        .updates
+        .iter()
+        .find(|u| u.pool == spaced && u.before.is_none())
+        .expect("the pool is discovered");
+    let PoolState::V3(state) = &discovered.after else {
+        panic!("v3 pool")
+    };
+    let chain: Vec<_> = pool.ticks.iter().map(|(t, l)| (*t, *l)).collect();
+    assert_eq!(state.ticks, chain);
+    assert_eq!(discovered.block_number, 101);
+    assert_eq!(run.summary.stats.bootstrap_failures, 1);
     assert_eq!(run.summary.stats.pools_tracked, 1);
 }
