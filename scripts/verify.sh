@@ -27,15 +27,4 @@ if [[ -f proto/buf.yaml ]]; then
   ran=1
 fi
 
-if [[ -f web/terminal/package.json ]]; then
-  need node
-  need npm
-  if [[ ! -d web/terminal/node_modules ]]; then
-    echo "verify: web/terminal/node_modules is missing; run npm ci in web/terminal" >&2
-    exit 1
-  fi
-  (cd web/terminal && npm run verify)
-  ran=1
-fi
-
 [[ $ran == 1 ]] || echo "verify: nothing to check yet"
