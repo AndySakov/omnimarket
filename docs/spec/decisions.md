@@ -237,6 +237,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 ## D13 — Bootstrap reads are batched
 
+*(Note from M1: v2 pairs need no state read at all, since `Sync` carries full reserves; their batched read is `token0`/`token1` for the CREATE2 proof (D80). See `indexer.md`.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (implementation deferred)
 
 **Decision:** Pool bootstrap and promotion read state in batches (multicall, or a lens contract that returns many ticks per call), never one RPC call per pool or per tick.
@@ -1649,6 +1651,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D72 — det runtime in M0: four traits, lint-enforced, recorded to Kafka
 
+*(Amended by D83: every input log starts with the core's configuration.)*
+
 **Date:** 2026-09-29 · **Status:** Decided, except sync vs async (from the M0 grilling session; builds on D49, D54, D70)
 
 **Decision:**
@@ -1858,3 +1862,24 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
 - GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**
+
+---
+
+## D83 — Every input log starts with the core's configuration
+
+**Date:** 2026-09-30 · **Status:** Decided (amends D72; from building v2 pools, #38, recorded after review in #48)
+
+**Decision:** The first record of every input log is the core's configuration, as its own source (`Source::Config`, `INPUT_SOURCE_CONFIG`), in the core's proto config schema (the engine's is `omnimarket.engine.v1.EngineConfig`). Recording wrappers never write it; the binary does, once, before the core runs (`Recorder::record_config`). Replay takes it first (`Replay::config`) and builds the core from it, so a recording replays from the log alone.
+
+**Found while building:** a live run with shadow checks on (`--check-every 5`) replayed under the default config diverged at the first recorded check answer: a core with different config issues different calls. D54 already asks for the config version on every decision record; the input log needs the config itself, since replay rebuilds the core.
+
+**Rejected:**
+- *Config passed on the replay command line.* A replay then depends on someone remembering the flags of a run days old, and a wrong flag looks like a determinism bug.
+- *A config version or hash only.* Enough to detect a mismatch, not to rebuild the core; it needs a config store keyed by version, which doesn't exist yet.
+- *Config as an event from the `EventSource`.* It isn't something the core waits for, and it must be there before the core starts.
+
+**Why:** Replay has to reproduce the core exactly, and config is one of its inputs.
+
+**Consequence:**
+- Every binary that records a core records its config first; `engine replay` refuses a recording that doesn't start with one.
+- Changing a config schema needs the same compatibility care as any recorded payload (`buf breaking` covers it).
