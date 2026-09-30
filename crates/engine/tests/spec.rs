@@ -156,7 +156,7 @@ fn v2(reserve0: u128, reserve1: u128) -> PoolState {
 fn history(updates: &[PoolUpdate]) -> Vec<(Address, u64, Option<PoolState>, PoolState)> {
     updates
         .iter()
-        .map(|u| (u.pool, u.block_number, u.before, u.after))
+        .map(|u| (u.pool, u.block_number, u.before.clone(), u.after.clone()))
         .collect()
 }
 
