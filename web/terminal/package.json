@@ -5,9 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings 0",
-    "preview": "vite preview"
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test tests/e2e",
+    "test:visual": "playwright test tests/visual",
+    "test:a11y": "playwright test tests/a11y",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "verify:fast": "npm run typecheck && npm run lint && npm run test:unit",
+    "verify": "npm run verify:fast && npm run build",
+    "verify:pr": "npm run verify && npm run build-storybook && npm run test:e2e && npm run test:visual && npm run test:a11y"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -36,6 +46,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/node": "^26.6.3",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",

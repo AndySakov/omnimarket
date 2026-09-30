@@ -1,6 +1,8 @@
 # Frontend Implementation Plan
 
-**Status:** Frontend working plan. Owner: Jutin.
+**Status:** Frontend working plan. Owner: Jutin. Phase 0 foundation is
+implemented and verified on `codex/terminal-foundation`; the next slice is the
+Phase 1 Token Workspace.
 
 This is the implementation plan for the full OmniMarket terminal. It uses the
 repository product contract in `docs/spec/frontend.md` as upstream context. A
@@ -122,20 +124,34 @@ copying branding, assets, code or copy.
 
 ### Phase 0 — frontend foundation
 
-- Create `web/terminal` and the development, linting, testing and Storybook setup.
-- Establish generated API types, REST/WebSocket boundaries, design tokens and
-  foundational components.
+- Create `web/terminal` and the development, linting, testing and Storybook setup. **Complete.**
+- Establish the frontend verification lane, design tokens, terminal shell and
+  foundational components. **Complete.**
 - Complete the reference audit and wireframes for discovery, token detail and
   trade flows. The approved result is in
   [frontend-reference-layout-brief.md](frontend-reference-layout-brief.md).
 - Build a mocked terminal shell using realistic data and failure states.
+  **Complete for the global header and Discover surface.**
+
+The remaining Phase 0 handoff is operational rather than a new UI feature:
+commit the verified foundation, push `codex/terminal-foundation` to the personal
+fork, and open the collaborator review PR. Do not start live API or wallet
+integration from this branch.
 
 ### Phase 1 — M2: discovery and token detail
 
-- Discovery feed, token page, candle/price display, recent trades and basic
-  safety panel.
+- Discovery feed and responsive token table. **Complete as a deterministic
+  mocked surface.**
+- Token Workspace: token header/summary, candle/price display, recent trades,
+  basic safety panel and the persistent mocked trade-panel shell.
 - Connection status and WebSocket reconnection behaviour.
 - Build against the backend mock server.
+
+The next implementation branch is `codex/token-workspace`. Its design gate must
+lock the token-page desktop/mobile layout, chart and context-rail proportions,
+tab state matrix, trade-panel fixture shape and the API assumptions that need
+the backend collaborator's review. Live generated API types, mock-server
+integration and WebSocket behaviour begin when the backend reaches M2.
 
 ### Phase 2 — M4/M5: trading
 
@@ -165,3 +181,17 @@ A frontend feature is complete when its primary trader action is obvious,
 financial values are exact, interactions are keyboard accessible, all material
 data states are represented, desktop and mobile behaviour is intentional, and
 the typed API contract, tests and relevant specs are updated.
+
+## Current checkpoint
+
+The foundation currently includes the global navigation shell, OmniMarket
+identity assets, the Discover market table, deterministic token fixtures,
+responsive table-owned scrolling, loading/empty/error states, accessibility
+coverage and visual baselines. Typecheck, lint, unit tests, production build,
+Playwright flows, visual checks and the Discover accessibility audit have passed.
+
+The checkpoint is **Verified** locally and becomes **PR-ready** after the
+foundation commit is pushed and the collaborator has the review PR. The next
+reviewable product outcome is a mocked Token Workspace; quote signing, live
+market data and backend integration remain explicitly out of scope for that
+slice.

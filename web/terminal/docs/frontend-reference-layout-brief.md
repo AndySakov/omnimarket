@@ -229,9 +229,14 @@ TerminalApp
 
 ## Acceptance criteria and next task
 
-The foundation is ready when the desktop/mobile layouts, reference patterns,
-component names, essential data, failure states and mock-contract needs are
-agreed. The next implementation task is to create `web/terminal` with the
-approved stack, Storybook, design tokens, primitives and deterministic fixtures.
-Do not build a live discovery feed until generated API types and the mock
-contract exist.
+The reference and layout foundation is approved and implemented for the global
+shell and Discover surface. The current checkpoint has deterministic fixtures,
+the approved dark terminal tokens, responsive table-owned scrolling, required
+loading/empty/error states, accessibility coverage and visual baselines.
+
+The immediate handoff is to commit this verified foundation and open the
+collaborator review PR. After review, the next implementation task is the
+`codex/token-workspace` Phase 1 slice: a mocked token detail workspace with a
+chart, context rail, detail tabs, safety evidence and a persistent mocked trade
+panel. Do not add live discovery data, wallet signing or real execution until
+the generated API/mock-server contract is agreed at M2.

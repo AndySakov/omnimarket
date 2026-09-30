@@ -7,7 +7,6 @@ import {
   Menu,
   Search,
   Settings,
-  ShieldCheck,
   Star,
   X,
 } from 'lucide-react'
@@ -34,7 +33,7 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
         <div className="global-header__identity">
           <button className="brand" type="button" onClick={() => handleNavigate('Discover')}>
             <span className="brand__mark" aria-hidden="true">
-              <ShieldCheck size={20} strokeWidth={2.25} />
+              <img src="/assets/omnimarket-logo.png" alt="" />
             </span>
             <span className="brand__name">OmniMarket</span>
           </button>
@@ -125,7 +124,7 @@ function SearchControl({ mobileOpen }: { mobileOpen: boolean }) {
 function ChainSelector() {
   return (
     <button className="context-control" type="button" aria-label="Select chain">
-      <span className="chain-mark" aria-hidden="true" />
+      <img className="chain-mark" src="/assets/chains/base.svg" alt="" />
       <span>Base</span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>

@@ -42,7 +42,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
   border: 0;
 }
 
-.terminal-app { min-height: 100dvh; background: var(--omni-bg); }
+.terminal-app { display: flex; height: 100dvh; flex-direction: column; overflow: hidden; background: var(--omni-bg); }
 
 .global-header {
   position: sticky;
@@ -50,6 +50,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
   z-index: 20;
   background: var(--omni-bg);
   border-top: 3px solid #151922;
+  flex: 0 0 auto;
 }
 
 .global-header__primary {
@@ -83,12 +84,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
   height: 31px;
   place-items: center;
   color: var(--omni-blue);
-  border: 1px solid rgba(109, 124, 255, 0.78);
-  border-radius: 9px;
-  transform: rotate(-12deg);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
-
-.brand__mark svg { transform: rotate(12deg); }
+.brand__mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand__name { font-size: 19px; font-weight: 680; letter-spacing: -0.045em; }
 .brand__divider { width: 1px; height: 28px; background: var(--omni-border); }
 
@@ -147,7 +147,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
 }
 .context-control { height: 39px; gap: 8px; padding: 0 10px; border-color: var(--omni-border); border-radius: 9px; color: var(--omni-text); font-size: 12px; font-weight: 620; }
 .context-control:hover, .wallet-menu:hover, .icon-button:hover { border-color: var(--omni-border-strong); background: var(--omni-surface-hover); }
-.chain-mark { width: 12px; height: 12px; border: 2px solid var(--omni-blue); border-radius: 50%; box-shadow: 0 0 0 2px rgba(109, 124, 255, 0.14); }
+.chain-mark { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .connection-status { display: inline-flex; align-items: center; gap: 7px; padding: 0 2px; color: var(--omni-green); font-size: 12px; font-weight: 580; white-space: nowrap; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .status-dot--green { color: var(--omni-green); }
