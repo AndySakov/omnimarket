@@ -1,5 +1,6 @@
 use rand_chacha::ChaCha8Rng;
 use rand_core::{Rng as _, SeedableRng};
+use types::LineageId;
 
 pub trait Rng {
     fn next_u64(&mut self) -> u64;
@@ -37,6 +38,11 @@ impl Rng for SeededRng {
     fn next_u64(&mut self) -> u64 {
         self.inner.next_u64()
     }
+}
+
+/// A lineage ID for a record with no natural key (D71), from two draws.
+pub fn random_lineage_id(rng: &mut dyn Rng) -> LineageId {
+    LineageId::from_draws(rng.next_u64(), rng.next_u64())
 }
 
 #[cfg(test)]

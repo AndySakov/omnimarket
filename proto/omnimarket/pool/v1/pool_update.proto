@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package omnimarket.pool.v1;
+
+import "omnimarket/lineage/v1/lineage.proto";
+
+// One change to one pool's state, with the state before and after (D12), on
+// `pool-updates.<chain>`, keyed by pool. Natural key: (chain, pool, block hash, log index).
+// Caused by the chain event at (chain, block hash, log index).
+message PoolUpdate {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  bytes pool = 3;
+  uint64 block_number = 4;
+  bytes block_hash = 5;
+  uint64 log_index = 6;
+  // Unset when the pool was just discovered.
+  PoolState before = 7;
+  PoolState after = 8;
+}
+
+message PoolState {
+  oneof state {
+    V2Reserves v2 = 1;
+  }
+}
+
+// Unsigned integers as big-endian bytes, without leading zeros.
+message V2Reserves {
+  bytes reserve0 = 1;
+  bytes reserve1 = 2;
+}

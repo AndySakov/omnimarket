@@ -21,11 +21,13 @@ Results of checking every **(verify)** marker in the spec. Checked 2026-09-28 fr
 
 | Item | Finding | Change |
 |---|---|---|
-| Base `newFlashblocks` logs (D16) | Receipts were removed from the Flashblocks WebSocket payload in Base's v1 upgrade; an open issue asks to restore them | `newFlashblocks` becomes a tick; each tick triggers one filtered `getLogs` at `pending`. Base fast-loop cost ~13M → ~26M requests/month, still fixed. [Issue #2265](https://github.com/base/base/issues/2265), [issue #613](https://github.com/base/base/issues/613) |
+| Base `newFlashblocks` logs (D16) | Receipts were removed from the Flashblocks WebSocket payload in Base's v1 upgrade; an open issue asks to restore them | `newFlashblocks` becomes a tick; each tick triggers one filtered `getLogs` at `pending`. Base fast-loop cost ~13M → ~26M requests/month, still fixed. [Issue #2265](https://github.com/base/base/issues/2265), [issue #613](https://github.com/base/base/issues/613) Superseded by D77: no Flashblocks feed. |
 | Kumbaya (D21) | MegaETH's dominant DEX (~80% of chain TVL early 2026). v3-like concentrated liquidity, but non-standard pool bytecode and unverified source | Quoted by simulation until our v3 math passes the shadow check against it. [Report](https://github.com/Stengarl/DeFi_Bullshit_Detector/blob/main/kumbaya-report.md), [DefiLlama](https://defillama.com/protocol/kumbaya) |
 | GoPlus on MegaETH (D29) | Not listed | Use the Etherscan API (chain ID 4326) for verified-source checks on MegaETH. [MegaETH Etherscan API](https://mega.etherscan.io/api) |
 | MinIO open-source images (D41, D70) | Repository archived April 2026; `minio/minio` returns 404 on Docker Hub and has no active tags on quay.io. Checked 2026-09-29 | RustFS replaces it in dev and staging (D75). [minio/minio](https://github.com/minio/minio) |
 | Blacksmith runners (D50) | Organizations only, not personal repositories; `AndySakov/omnimarket` is personal. Checked 2026-09-29 | CI stays on GitHub-hosted runners, free for public repositories (D76). [Blacksmith quickstart](https://docs.blacksmith.sh/introduction/quickstart) |
+| Base Denim hard fork (D10, D12, D44) | Base plans to remove Flashblocks. Its upcoming Denim hard fork "replaces Flashblocks with canonical 200ms blocks, so Flashblocks subscriptions and pending state are unavailable after activation". Not active on Sepolia or mainnet; activation time undecided. Live for testing on Vibenet. Checked 2026-09-29. [Migrate from Flashblocks](https://docs.base.org/upgrades/denim/migrate-from-flashblocks) | Base follows canonical blocks only and triggers fire on canonical blocks (D77), so neither Flashblocks nor Denim's timing affects the design. Prototype: branch `prototype/base-tip-following` |
+| Base Flashblocks WebSocket (D16, D17) | The raw Flashblocks WebSocket is for node operators. "Applications should not connect to it directly", and "Base does not provide a free public WebSocket RPC endpoint". The free option is HTTP polling of `pending` on `mainnet.base.org`. [Flashblocks FAQ](https://docs.base.org/specifications/flashblocks) | Base follows canonical blocks only and triggers fire on canonical blocks (D77), so neither Flashblocks nor Denim's timing affects the design. Prototype: branch `prototype/base-tip-following` |
 | PancakeSwap Infinity (found while checking) | BNB's PancakeSwap Infinity has concentrated-liquidity and **bin** pools, with hooks | Added to D21 scope; bin-pool math still to spec |
 
 ## Partly confirmed
@@ -66,12 +68,14 @@ The delay includes the poll interval and the round trip, so it is an upper bound
 
 **Pending state over HTTP.** `eth_getBlockByNumber("pending")` changed on 174 of 176 polls over 2 minutes, 3.6 changes per block on average: it updates faster than one client can poll from here (~440ms between polls), consistent with ~200ms Flashblocks. The free HTTP endpoint serves pending state; resolving the 200ms cadence needs a WebSocket or a closer client.
 
-## Needs a decision
+**Reorgs of canonical blocks (D78)**, `scripts/measure-base.py reorgs`, measured 2026-09-30 00:03–01:03 EAT: `latest` polled every 500ms for 60 minutes, 1,801 consecutive blocks. Each block's parent was checked against the hash already held, and every height was re-read 10 blocks (20s) and 300 blocks (10 min) later.
 
-| Finding | Affects |
+| | Count |
 |---|---|
-| **Base plans to remove Flashblocks.** Its upcoming Denim hard fork "replaces Flashblocks with canonical 200ms blocks, so Flashblocks subscriptions and pending state are unavailable after activation". Not active on Sepolia or mainnet; activation time undecided. Live for testing on Vibenet. Checked 2026-09-29. [Migrate from Flashblocks](https://docs.base.org/upgrades/denim/migrate-from-flashblocks) | D10 (Base fast loop), D12 (Base provisional tier), D44 (own node for the Flashblocks feed), build plan (Base first because Flashblocks exercise provisional state) |
-| **The raw Flashblocks WebSocket is for node operators.** "Applications should not connect to it directly", and "Base does not provide a free public WebSocket RPC endpoint". The free option is HTTP polling of `pending` on `mainnet.base.org`. [Flashblocks FAQ](https://docs.base.org/specifications/flashblocks) | D16 and D17 (free Base feed for dev), build plan ("a free public Flashblocks feed") |
+| Reorgs seen when the next block arrived | 0 |
+| Heights whose hash changed on a re-read | 0 |
+
+No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at about 3 per 1,801 blocks (1 per ~20 minutes) at 95% confidence, so this shows reorgs are rare, not that they never happen: a longer run or a sequencer incident would tighten it. The public endpoint is load-balanced, so a single lagging backend could in principle report a stale hash; none did. D78's guard stays, as insurance against the rare case rather than a frequent one.
 
 ## Still to measure (needs live network access)
 

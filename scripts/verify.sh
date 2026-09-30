@@ -23,8 +23,7 @@ if [[ -f contracts/foundry.toml ]]; then
 fi
 
 if [[ -f proto/buf.yaml ]]; then
-  need buf
-  (cd proto && buf lint)
+  scripts/proto-check.sh
   ran=1
 fi
 

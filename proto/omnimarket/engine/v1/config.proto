@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package omnimarket.engine.v1;
+
+// A Chain Engine's configuration, recorded first in its input log so a replay rebuilds the
+// same core (D54).
+message EngineConfig {
+  uint64 chain_id = 1;
+  bytes v2_factory = 2;
+  bytes v2_init_code_hash = 3;
+  // Unset: no shadow state check.
+  optional uint64 check_every = 4;
+  uint64 check_sample = 5;
+}

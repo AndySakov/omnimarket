@@ -49,6 +49,12 @@ Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · ni
 
 CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh`, so a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
+Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
+
+CI also runs a Kafka service container (the same `apache/kafka` image as the local stack) for the input-log integration test, `cargo test -p sim --test kafka -- --ignored`. Locally it runs against `scripts/stack up`.
+
+**Review gate (D81).** Branch protection on `main` requires two status checks on a PR's head commit, for admins too: `verify` (the CI job) and `watchdog/review`. A separate watchdog agent session posts `watchdog/review` as a commit status (`pending` while it reviews, then `success` or `failure`) with its findings as a PR comment. A new push needs a new review. The protocol agents follow is in `CLAUDE.md`.
+
 ## Production cloud (D51)
 
 Google Cloud: GKE, Cloud KMS (executor keys), Cloud Storage (snapshots). Credits: Start tier ($2k) at MVP → blockchain foundation grant (BNB Chain Builder Grant first) → Web3 program Scale tier, up to $200k over 2 years.

@@ -164,6 +164,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 
 *(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
+*(Amended by D77: Base follows canonical blocks only, like BNB. No Flashblocks feed.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Each Chain Engine runs two loops.
@@ -284,6 +286,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 *(Amended by D44: production also runs our own Base node.)*
 
+*(Amended by D77: Base's fast stream is `newHeads` + one `getLogs` per 2s block, ~2.6M requests/month; the Flashblocks tick and its ~26M are dropped.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (numbers **(verify)** by measurement)
 
 **Decision:**
@@ -384,6 +388,8 @@ Chart candles are built from actual swap prices (the universal convention), not 
 ---
 
 ## D20 — Triggers: Trojan-style, instant on the display price
+
+*(Amended by D77: triggers fire on canonical blocks, not provisional state. The rest stands.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1036,6 +1042,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D44 — Production runs our own Base node
+
+*(Amended by D77: the node serves canonical blocks, simulation and state reads. No Flashblocks feed.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (amends D16)
 
@@ -1748,3 +1756,105 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Why:** D50 chose Blacksmith for free minutes, but GitHub-hosted runners are free and unmetered for public repositories, so the cost reason is gone.
 
 **Consequence:** Going private brings GitHub's free-tier minute cap; that is the point to reconsider Blacksmith (with an organization) or paid minutes.
+
+---
+
+## D77 — Triggers fire on canonical blocks; Base follows canonical blocks only
+
+**Date:** 2026-09-29 · **Status:** Decided (amends D10, D16, D20, D44)
+
+**Decision:**
+- Trigger orders evaluate on state from the chain's canonical blocks, never on provisional state. The display price updates as soon as the engine applies new state.
+- The engine checks triggers whenever canonical state changes: a new block from the fast loop, and a block the reconciler confirms or gap-fills.
+- Base follows canonical blocks only (`newHeads` + one filtered `getLogs` per 2s block, like BNB). M1 drops the Flashblocks tick, pending `getLogs` and dropped-preconfirmation handling.
+- Chains with a preconfirmation layer (MegaETH mini-blocks) revisit this when they are grilled.
+
+**Rejected:**
+- *Fire instantly on provisional state* (D20 as written). A dropped preconfirmation leaves a firing whose cause never happened, and a sell cannot be taken back.
+- *Per-order opt-in instant mode.* Kept as a later option: D20 already keeps the trigger rule pluggable per order.
+- *Wait for L1 finality.* No phantom firings, but 15 to 20 minutes makes a stop-loss useless.
+
+**Why:** A throwaway prototype (branch `prototype/base-tip-following`, `crates/engine/tip-following.PROTOTYPE.html`) modelled the fast loop and reconciler under Flashblocks and under Base's planned 200ms blocks (Denim). Firing on canonical blocks removed every phantom firing caused by a dropped preconfirmation; only reorgs still cause them. The cost is up to one block: 2s on Base today plus ~0.5s delivery (measured, [verification.md](verification.md)), about 200ms after Denim. Flashblocks are also an unstable dependency: the raw feed is for node operators, there is no free public WebSocket (D17), and Denim plans to remove them. Following canonical blocks makes the design the same before and after Denim.
+
+**Consequence:**
+- The UI says triggers fire on confirmed blocks. A user can briefly see the display price past their level before the order fires.
+- The trigger latency target ([slas.md](slas.md)) starts when the engine applies a canonical block.
+- Base stays first (build plan), for being measured, free and having reorgs to exercise the reconciler. It no longer exercises provisional state.
+- Reorgs remain the only source of phantom firings: D78.
+
+---
+
+## D78 — Trigger swaps carry an on-chain price guard
+
+**Date:** 2026-09-29 · **Status:** Decided **(verify)** feasibility and gas cost in the router
+
+**Decision:** A trigger order's swap reverts if the pool price at execution is on the wrong side of the trigger level (for a stop-loss, above it). A firing caused by a reorged-out block then costs gas instead of the position.
+
+**Rejected:**
+- *Accept reorg phantoms.* The slippage limit bounds how bad a fill is, not whether the order should have fired.
+- *Wait N blocks before firing.* Slower, and a deeper reorg still gets through.
+
+**Why:** Under D77, reorgs are the only way a trigger fires on a price that never settled, and the chain itself is the only place that knows the settled price at execution.
+
+**Consequence:**
+- The router contract needs a price check per trigger swap → `routing.md`, `security.md` when `contracts/` is built.
+- Relative triggers (% from entry, trailing) pass the absolute level computed at firing.
+- Base replaced no canonical block in an hour of measurement (1,801 blocks), so reorg phantoms are rare, not impossible → [verification.md](verification.md).
+
+---
+
+## D79 — Kafka client: rdkafka
+
+**Date:** 2026-09-30 · **Status:** Decided (from building the input log, #20)
+
+**Decision:** Rust services talk to Kafka through `rdkafka`, the Rust wrapper over librdkafka, built from its bundled source. The input-log producer is idempotent (`enable.idempotence`), so retries can't reorder or duplicate records.
+
+**Rejected:**
+- *rskafka* (pure Rust, no C build). Lighter to compile, but a much smaller user base and no idempotent producer, which the input log's ordering relies on.
+- *kafka* (the `kafka` crate). Unmaintained.
+
+**Why:** librdkafka is the client most Kafka deployments run, with idempotence, transactions and consumer groups we'll need past M0. Boring Rust (D45) favours the well-known crate.
+
+**Consequence:** Building `det` compiles librdkafka (C), about a minute and a half on a clean build; CI caches it. A C toolchain is needed locally, which macOS and the CI image already have.
+
+---
+
+## D80 — On free RPC, Base is followed by polling, and pools are discovered as they appear or trade
+
+**Date:** 2026-09-30 · **Status:** Decided (from building M1, #37; dev and staging only, D17)
+
+**Decision:**
+- **Head following:** in dev and staging, the Base head follower polls the free public RPC over HTTP (`eth_blockNumber` every 500ms). For each new block it reads the header by number and the followed logs by block hash, and fills any skipped block by number, in order. Production swaps in `newHeads` from our own node or the paid provider (D16, D44) behind the same `ChainReader`.
+- **Pool discovery:** a pool becomes known from its creation event, or from its first followed event (`Sync`, `Swap`, `Mint`, `Burn`) if it was created before the engine started. Each is proven genuine by recomputing its CREATE2 address from the factory, its tokens (and fee) and the init code hash. A contract answering `factory()` can lie; its address can't.
+
+**Rejected:**
+- *A factory scan from genesis at cold start.* The free endpoint caps `eth_getLogs` at 2,000 blocks, so covering Base's ~52M blocks takes about 26,000 calls and returns over a million v2 pairs, most never traded again. Cold start would take hours.
+- *A free third-party WebSocket.* No signup-free Base WebSocket is documented by Base, and polling measured fine: blocks first seen ~473ms after their timestamp (verification.md).
+
+**Why:** A pool that trades shows up in the logs we already follow, and a pool that never trades can't be priced anyway. Proving pools by address keeps discovery free of extra trust.
+
+**Consequence:**
+- A pool created before startup that hasn't traded since is unknown until it trades. The history job's 30-day backfill (D15) populates known pools for search when it lands.
+- Discovery needs the factory addresses and init code hashes per venue in config, each checked against a live pool in a test.
+
+---
+
+## D81 — PRs merge only after a watchdog review
+
+**Date:** 2026-09-30 · **Status:** Decided (process; from auditing M0 and M1)
+
+**Decision:** A separate watchdog agent session reviews every PR before it merges. It checks the change against its issue, the D-entries and CLAUDE.md's update table, runs the tests, and posts a `watchdog/review` commit status on the PR's head commit (`pending`, then `success` or `failure`) with its findings as a PR comment. Branch protection on `main` requires `verify` and `watchdog/review`, and applies to admins. Each push needs a fresh review. The protocol is in CLAUDE.md.
+
+**Found while auditing:** PRs #32 to #44 had no reviews. The builder merged each one 1 to 8 minutes after opening it, so CI was the only gate. #44 landed without the D-entry and `pricing.md` update CLAUDE.md requires (#48), and a follower stall on reorged-out blocks went unnoticed (#46).
+
+**Rejected:**
+- *Required approving reviews.* Every agent acts as the one GitHub account, and GitHub doesn't let an account approve its own PR.
+- *A soft gate (the builder waits a while, then merges).* Relies on the builder following a rule it already skipped: CLAUDE.md asked for `/meta-review` before merging.
+- *Review after merge.* Defects reach `main` first.
+- *A paid CI review bot.* Free resources only for now.
+
+**Why:** The builder moves faster than anyone can read its PRs. A gate that blocks the merge is the only review that reliably happens.
+
+**Consequence:**
+- When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
+- GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**

@@ -1,0 +1,19 @@
+[package]
+name = "chain-io"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = ["std", "provider-http", "rpc-types", "reqwest-rustls-tls"] }
+futures.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tracing.workspace = true
+types.workspace = true
+
+[dev-dependencies]
+det.workspace = true
+
+[lints]
+workspace = true

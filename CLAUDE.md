@@ -82,7 +82,7 @@ Run the real thing before claiming done, and say what you could not verify.
 | `contracts/` | `docs/spec/routing.md`; `docs/spec/security.md` |
 | `crates/api/` | `docs/spec/frontend.md` (API contract) |
 | `crates/candles/`, `crates/history/` | `docs/spec/data.md` |
-| `crates/watcher/`, lineage or brakes | `docs/spec/observability.md` |
+| `crates/watcher/`, `crates/telemetry/`, lineage or brakes | `docs/spec/observability.md` |
 | `deploy/`, CI | `docs/spec/infra.md` |
 | A latency budget | `docs/spec/slas.md` |
 | A new domain term | `CONTEXT.md` |
@@ -96,6 +96,16 @@ Run the real thing before claiming done, and say what you could not verify.
 - Keep changes to the task. List unrelated problems you notice as follow-ups instead of fixing them.
 - Branch per task and open a PR. The PR title states the effect of the change; the body opens with the problem, then the fix.
 - When compacting, preserve the goal, the done criteria, decisions made and open questions.
+
+## Review gate
+
+`main` merges only when two checks pass on the PR's head commit: CI's `verify` and `watchdog/review` (D81). A separate watchdog session reviews every PR against its issue, the D-entries and the update table above, then posts `watchdog/review` with its findings as a PR comment. Branch protection enforces this for admins too.
+
+- After opening a PR or pushing to one, wait for the checks: `gh pr checks <n> --required --watch`. While you wait, you may start the next unblocked issue on a new branch off `main`.
+- On `failure`, read the latest watchdog comment (`gh pr view <n> --comments`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
+- If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
+- Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself.
+- If `watchdog/review` hasn't appeared 30 minutes after a push, tell Temi. The watchdog may be down.
 
 ## Agent skills
 

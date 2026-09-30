@@ -61,7 +61,7 @@ Levels follow live landed tips per chain; per-trade fee cap; user override. Gas 
 
 - Engine + execution per chain in the region nearest that chain's sequencer/builders; execution close to Privy's nearest region.
 - Submission over persistent WebSockets to all endpoints at once (first wins); Base also direct to the sequencer **(verify)**.
-- Production Base node next to the Base engine: direct Flashblocks feed, local simulation and state reads (< 5ms).
+- Production Base node next to the Base engine: direct block feed, local simulation and state reads (< 5ms).
 
 ## Tracking & failures (D34)
 

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package omnimarket.chain.v1;
+
+// A canonical block and the logs in it the engine follows, as the engine receives it.
+message Block {
+  uint64 number = 1;
+  bytes hash = 2;
+  bytes parent_hash = 3;
+  uint64 timestamp = 4;
+  repeated Log logs = 5;
+}
+
+// Natural key: (chain, block hash, log_index).
+message Log {
+  bytes address = 1;
+  repeated bytes topics = 2;
+  bytes data = 3;
+  uint64 log_index = 4;
+  bytes transaction_hash = 5;
+}

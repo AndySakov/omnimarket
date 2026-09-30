@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package omnimarket.det.v1;
+
+// Which det trait an input came through.
+enum InputSource {
+  INPUT_SOURCE_UNSPECIFIED = 0;
+  INPUT_SOURCE_CLOCK = 1;
+  INPUT_SOURCE_RNG = 2;
+  INPUT_SOURCE_EVENT = 3;
+  INPUT_SOURCE_RPC = 4;
+  // The core's configuration, first in the log, so a replay rebuilds the same core.
+  INPUT_SOURCE_CONFIG = 5;
+}
+
+// One input a core received, as written to the input log `inputs.<chain>` (D54, D72).
+// Keyed by core instance; one partition, so the log order is the core's input order.
+message InputRecord {
+  // Position in the core's input order, across all its sources.
+  uint64 seq = 1;
+  InputSource source = 2;
+  // When the input reached the core. Replay doesn't use it.
+  uint64 arrived_unix_nanos = 3;
+  // Source-specific encoding: a clock read or Rng draw is 8 bytes little-endian; an event is
+  // a 0 byte (source ended) or a 1 byte and the event; an RPC response is the call number
+  // (8 bytes little-endian) and the response.
+  bytes payload = 4;
+}
