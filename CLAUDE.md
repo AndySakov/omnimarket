@@ -97,6 +97,16 @@ Run the real thing before claiming done, and say what you could not verify.
 - Branch per task and open a PR. The PR title states the effect of the change; the body opens with the problem, then the fix.
 - When compacting, preserve the goal, the done criteria, decisions made and open questions.
 
+## Review gate
+
+`main` merges only when two checks pass on the PR's head commit: CI's `verify` and `watchdog/review` (D81). A separate watchdog session reviews every PR against its issue, the D-entries and the update table above, then posts `watchdog/review` with its findings as a PR comment. Branch protection enforces this for admins too.
+
+- After opening a PR or pushing to one, wait for the checks: `gh pr checks <n> --required --watch`. While you wait, you may start the next unblocked issue on a new branch off `main`.
+- On `failure`, read the latest watchdog comment (`gh pr view <n> --comments`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
+- If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
+- Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself.
+- If `watchdog/review` hasn't appeared 30 minutes after a push, tell Temi. The watchdog may be down.
+
 ## Agent skills
 
 ### Issue tracker
