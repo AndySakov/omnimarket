@@ -19,6 +19,7 @@ omnimarket/
 ├── proto/                    Protobuf schemas: events, lineage IDs, API types (D41, D53)
 ├── crates/                   Rust workspace (D45)
 │   ├── types/                Chain IDs, amounts, IDs, lineage IDs
+│   ├── proto/                Rust types generated from proto/ (prost + protox)
 │   ├── det/                  Deterministic runtime: Clock, Rng, EventSource, Rpc, Signer, Broadcaster, Store traits;
 │   │                         real, recorded and simulated implementations (D49, D54)
 │   ├── chain-io/             Providers, subscriptions, reconciler inputs, failover (D10, D16)

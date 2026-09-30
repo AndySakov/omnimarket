@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package planted;
+
+message Planted {
+  uint64 kept = 1;
+  uint64 removed = 2;
+}

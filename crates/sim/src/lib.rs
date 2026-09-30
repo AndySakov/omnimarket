@@ -11,7 +11,8 @@ use det::{
 };
 use futures::future::LocalBoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
-use types::Timestamp;
+use prost::Message;
+use types::{LineageId, Timestamp};
 
 /// Where every simulated run starts: 2026-01-01T00:00:00Z.
 pub const SIM_START: Timestamp = Timestamp::from_unix_nanos(1_767_225_600_000_000_000);
@@ -28,22 +29,28 @@ pub struct ToyEvent {
     pub price: u32,
 }
 
+impl ToyEvent {
+    pub fn lineage_id(&self) -> LineageId {
+        LineageId::from_natural_key("sim.toy_event", &self.id.to_le_bytes())
+    }
+}
+
 impl Recordable for ToyEvent {
     fn encode(&self) -> Vec<u8> {
-        [
-            &self.id.to_le_bytes()[..],
-            &[self.pool],
-            &self.price.to_le_bytes(),
-        ]
-        .concat()
+        proto::sim::v1::ToyEvent {
+            id: self.id,
+            pool: self.pool.into(),
+            price: self.price,
+        }
+        .encode_to_vec()
     }
 
     fn decode(bytes: &[u8]) -> Option<Self> {
-        let bytes: &[u8; 13] = bytes.try_into().ok()?;
+        let event = proto::sim::v1::ToyEvent::decode(bytes).ok()?;
         Some(Self {
-            id: u64::from_le_bytes(bytes[..8].try_into().ok()?),
-            pool: bytes[8],
-            price: u32::from_le_bytes(bytes[9..].try_into().ok()?),
+            id: event.id,
+            pool: event.pool.try_into().ok()?,
+            price: event.price,
         })
     }
 }
@@ -60,19 +67,22 @@ pub struct Quote {
 
 impl Recordable for Quote {
     fn encode(&self) -> Vec<u8> {
-        self.price.to_le_bytes().to_vec()
+        proto::sim::v1::Quote { price: self.price }.encode_to_vec()
     }
 
     fn decode(bytes: &[u8]) -> Option<Self> {
-        Some(Self {
-            price: u32::from_le_bytes(bytes.try_into().ok()?),
-        })
+        let quote = proto::sim::v1::Quote::decode(bytes).ok()?;
+        Some(Self { price: quote.price })
     }
 }
 
-/// What the toy core decided about one quoted swap.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What the toy core decided about one quoted swap: its decision record.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
+    /// From the natural key: the swap's id.
+    pub id: LineageId,
+    /// The swap, then the quote.
+    pub caused_by: [LineageId; 2],
     pub at: Timestamp,
     pub event: u64,
     pub quote: u32,
@@ -81,15 +91,22 @@ pub struct Decision {
 }
 
 impl Decision {
-    /// A fixed byte layout, so digests don't depend on how Rust lays out the struct.
-    fn to_bytes(self) -> [u8; 22] {
-        let mut bytes = [0; 22];
-        bytes[..8].copy_from_slice(&self.at.unix_nanos.to_le_bytes());
-        bytes[8..16].copy_from_slice(&self.event.to_le_bytes());
-        bytes[16..20].copy_from_slice(&self.quote.to_le_bytes());
-        bytes[20] = self.roll;
-        bytes[21] = u8::from(self.fire);
-        bytes
+    pub fn to_proto(&self) -> proto::sim::v1::ToyDecision {
+        proto::sim::v1::ToyDecision {
+            lineage: Some(proto::lineage::v1::Lineage {
+                id: self.id.as_bytes().to_vec(),
+                caused_by: self
+                    .caused_by
+                    .iter()
+                    .map(|id| id.as_bytes().to_vec())
+                    .collect(),
+            }),
+            at_unix_nanos: self.at.unix_nanos,
+            event_id: self.event,
+            quote: self.quote,
+            roll: self.roll.into(),
+            fire: self.fire,
+        }
     }
 }
 
@@ -134,8 +151,12 @@ impl ToyCore {
             tokio::select! {
                 biased;
                 Some((event, quote)) = in_flight.next(), if !in_flight.is_empty() => {
+                    // The quote has no natural key, so its ID comes from the Rng (D71).
+                    let quote_id = det::random_lineage_id(rng.as_mut());
                     let roll = (rng.next_u64() % 100) as u8;
                     decisions.push(Decision {
+                        id: LineageId::from_natural_key("sim.toy_decision", &event.id.to_le_bytes()),
+                        caused_by: [event.lineage_id(), quote_id],
                         at: clock.now(),
                         event: event.id,
                         quote: quote.price,
@@ -189,10 +210,12 @@ fn world_rpc(seed: u64) -> SimRpc<QuoteRequest, Quote> {
     })
 }
 
-fn digest(decisions: &[Decision]) -> blake3::Hash {
+/// A digest of the decision records' proto bytes, length-delimited so records can't run
+/// together. prost encodes a given message to the same bytes every time.
+pub fn digest(decisions: &[Decision]) -> blake3::Hash {
     let mut digest = blake3::Hasher::new();
     for decision in decisions {
-        digest.update(&decision.to_bytes());
+        digest.update(&decision.to_proto().encode_length_delimited_to_vec());
     }
     digest.finalize()
 }
@@ -230,9 +253,9 @@ pub fn run(seed: u64) -> Run {
     }
 }
 
-/// Replays a recording through the toy core and returns the digest of its decisions.
-/// Panics with "replay diverged" if the core asks for inputs out of recorded order.
-pub fn replay(recording: Vec<InputRecord>) -> blake3::Hash {
+/// Replays a recording through the toy core and returns its decisions. Panics with "replay
+/// diverged" if the core asks for inputs out of recorded order.
+pub fn replay(recording: Vec<InputRecord>) -> Vec<Decision> {
     let replay = Replay::new(recording);
     let core = ToyCore::new(
         Box::new(replay.clock()),
@@ -240,7 +263,7 @@ pub fn replay(recording: Vec<InputRecord>) -> blake3::Hash {
         Box::new(replay.events()),
         Box::new(replay.rpc()),
     );
-    digest(&replay.run(core.run()))
+    replay.run(core.run())
 }
 
 #[cfg(test)]
@@ -289,6 +312,22 @@ mod tests {
     }
 
     #[test]
+    fn every_decision_carries_its_lineage() {
+        let events: Vec<ToyEvent> = world_events(3).into_iter().map(|(_, e)| e).collect();
+        for d in run(3).decisions {
+            let event = &events[d.event as usize];
+            assert_eq!(
+                d.id,
+                LineageId::from_natural_key("sim.toy_decision", &d.event.to_le_bytes())
+            );
+            assert_eq!(d.caused_by[0], event.lineage_id());
+            let lineage = d.to_proto().lineage.unwrap();
+            assert_eq!(lineage.id, d.id.as_bytes());
+            assert_eq!(lineage.caused_by.len(), 2);
+        }
+    }
+
+    #[test]
     fn toy_payloads_round_trip() {
         let event = ToyEvent {
             id: 7,
@@ -296,7 +335,12 @@ mod tests {
             price: 950,
         };
         assert_eq!(ToyEvent::decode(&event.encode()), Some(event));
-        assert_eq!(ToyEvent::decode(&[1, 2, 3]), None);
+        let too_big_pool = proto::sim::v1::ToyEvent {
+            id: 7,
+            pool: 256,
+            price: 950,
+        };
+        assert_eq!(ToyEvent::decode(&too_big_pool.encode_to_vec()), None);
         let quote = Quote { price: 12 };
         assert_eq!(Quote::decode(&quote.encode()), Some(quote));
     }

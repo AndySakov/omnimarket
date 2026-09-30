@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package omnimarket.lineage.v1;
+
+// Carried by every wide event (D53, D71).
+message Lineage {
+  // 16 bytes. BLAKE3-128 of the record's natural key where it has one, otherwise 16 bytes
+  // from the core's seeded Rng.
+  bytes id = 1;
+  // Lineage IDs of the records that caused this one.
+  repeated bytes caused_by = 2;
+}

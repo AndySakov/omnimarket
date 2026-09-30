@@ -10,6 +10,8 @@ types.workspace = true
 det.workspace = true
 blake3.workspace = true
 futures.workspace = true
+prost.workspace = true
+proto.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 
 [lints]
