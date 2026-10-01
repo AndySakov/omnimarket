@@ -1,6 +1,7 @@
 //! The I/O around the pure core: a Kafka consumer task that feeds `prices.base` into the feed,
 //! and axum serving REST and the WebSocket stream from it (D45, D62).
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -8,14 +9,14 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use det::{Clock, SystemClock};
 use prost::Message as _;
-use proto::api::v1::ServerMessage;
+use proto::api::v1::{DiscoveryList, ServerMessage};
 use rdkafka::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
@@ -24,12 +25,20 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::Instrument;
 
+use crate::discovery::{DiscoveryConfig, Filters};
 use crate::feed::{Feed, Published};
 use crate::stream::{Session, heartbeat, to_json};
 
 /// How many ticks a connection may fall behind before it's dropped back to fresh snapshots,
 /// rather than queueing without limit.
 pub const CONNECTION_BACKLOG: usize = 256;
+
+/// The engine's output topics the read models are built from.
+pub const INPUT_TOPICS: [&str; 3] = [
+    engine::POOL_UPDATES_TOPIC,
+    engine::TRADES_TOPIC,
+    engine::PRICES_TOPIC,
+];
 
 pub struct Config {
     pub listen: SocketAddr,
@@ -39,13 +48,14 @@ pub struct Config {
     pub group_id: String,
     /// The terminal's origin, for CORS.
     pub cors_origin: String,
+    pub discovery: DiscoveryConfig,
 }
 
 #[derive(Debug)]
 pub enum ServerError {
     Io(std::io::Error),
     Kafka(KafkaError),
-    /// `prices.base` couldn't be created.
+    /// An input topic couldn't be created.
     Topic(det::kafka::InputLogError),
     BadCorsOrigin(String),
 }
@@ -62,8 +72,12 @@ pub struct Shared {
 
 impl Shared {
     pub fn new() -> Arc<Self> {
+        Self::with_discovery(DiscoveryConfig::default())
+    }
+
+    pub fn with_discovery(discovery: DiscoveryConfig) -> Arc<Self> {
         Arc::new(Self {
-            feed: Mutex::new(Feed::default()),
+            feed: Mutex::new(Feed::new(discovery)),
             ticks: broadcast::channel(CONNECTION_BACKLOG).0,
             requests: AtomicU64::new(0),
             connections: AtomicU64::new(0),
@@ -77,30 +91,43 @@ impl Shared {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Applies one encoded `prices.base` record and publishes its ticks. Publishing happens
-    /// under the lock, so a connection's snapshot always includes every tick it was sent.
+    /// Applies one encoded `prices.base` record and publishes its deltas.
     pub fn apply_price(&self, payload: &[u8]) {
-        let update = match proto::price::v1::PriceUpdate::decode(payload) {
-            Ok(update) => update,
-            Err(e) => {
-                tracing::warn!(error = %e, "skipped a price record that doesn't decode");
-                return;
-            }
-        };
+        self.apply(engine::PRICES_TOPIC, payload);
+    }
+
+    /// Applies one encoded record from an input topic and publishes its deltas. Publishing
+    /// happens under the lock, so a connection's snapshot always includes every delta it was
+    /// sent.
+    pub fn apply(&self, topic: &str, payload: &[u8]) {
         let mut feed = self.feed();
-        match feed.apply_price(&update) {
+        let published = match topic {
+            engine::PRICES_TOPIC => match proto::price::v1::PriceUpdate::decode(payload) {
+                Ok(update) => feed.apply_price(&update).map_err(|e| format!("{e:?}")),
+                Err(e) => Err(e.to_string()),
+            },
+            engine::TRADES_TOPIC => proto::trade::v1::Trade::decode(payload)
+                .map(|trade| feed.apply_trade(&trade))
+                .map_err(|e| e.to_string()),
+            engine::POOL_UPDATES_TOPIC => proto::pool::v1::PoolUpdate::decode(payload)
+                .map(|update| feed.apply_pool_update(&update))
+                .map_err(|e| e.to_string()),
+            _ => Ok(Vec::new()),
+        };
+        match published {
             Ok(published) => {
                 for p in published {
                     // No receivers is fine: nobody is connected.
                     let _ = self.ticks.send(Arc::new(p));
                 }
             }
-            Err(e) => tracing::warn!(error = ?e, "skipped a price record"),
+            Err(error) => tracing::warn!(topic, error, "skipped a record"),
         }
     }
 }
 
-/// The routes: `/health`, `GET /v1/tokens/{chain_id}/{address}` and the stream at `/v1/stream`.
+/// The routes: `/health`, `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery` and the
+/// stream at `/v1/stream`.
 pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerError> {
     let origin = HeaderValue::from_str(cors_origin)
         .map_err(|_| ServerError::BadCorsOrigin(cors_origin.to_string()))?;
@@ -111,6 +138,7 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
     Ok(Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/v1/tokens/{chain_id}/{address}", get(token))
+        .route("/v1/discovery", get(discovery))
         .route("/v1/stream", get(stream))
         .layer(middleware::from_fn_with_state(
             shared.clone(),
@@ -122,10 +150,12 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
 
 /// Runs the consumer and the server until either stops.
 pub async fn serve(config: Config) -> Result<(), ServerError> {
-    let shared = Shared::new();
+    let shared = Shared::with_discovery(config.discovery);
     let app = router(shared.clone(), &config.cors_origin)?;
-    // The engine may not have started yet: create the topic so the consumer waits on it.
-    det::kafka::ensure_topic(&config.kafka, engine::PRICES_TOPIC).map_err(ServerError::Topic)?;
+    // The engine may not have started yet: create the topics so the consumer waits on them.
+    for topic in INPUT_TOPICS {
+        det::kafka::ensure_topic(&config.kafka, topic).map_err(ServerError::Topic)?;
+    }
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", &config.kafka)
         .set("group.id", &config.group_id)
@@ -134,7 +164,7 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         .create()
         .map_err(ServerError::Kafka)?;
     consumer
-        .subscribe(&[engine::PRICES_TOPIC])
+        .subscribe(&INPUT_TOPICS)
         .map_err(ServerError::Kafka)?;
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
@@ -151,7 +181,7 @@ async fn consume(consumer: &StreamConsumer, shared: &Shared) -> Result<(), Serve
     loop {
         let message = consumer.recv().await.map_err(ServerError::Kafka)?;
         if let Some(payload) = message.payload() {
-            shared.apply_price(payload);
+            shared.apply(message.topic(), payload);
         }
     }
 }
@@ -191,6 +221,46 @@ async fn token(
     }
 }
 
+/// `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=`: the published feed, filtered. `list` is
+/// `new` or `trending`; a parameter that doesn't parse is a 400.
+async fn discovery(
+    State(shared): State<Arc<Shared>>,
+    Query(params): Query<BTreeMap<String, String>>,
+) -> Response {
+    let Some(filters) = parse_filters(&params) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let feed = shared.feed().discovery().feed(&filters);
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(&feed).expect("generated messages always serialize"),
+    )
+        .into_response()
+}
+
+/// The discovery filters from a query string; `None` when one doesn't parse.
+pub fn parse_filters(params: &BTreeMap<String, String>) -> Option<Filters> {
+    let mut filters = Filters::default();
+    for (key, value) in params {
+        if value.is_empty() {
+            continue;
+        }
+        match key.as_str() {
+            "list" => {
+                filters.list = Some(match value.as_str() {
+                    "new" => DiscoveryList::New,
+                    "trending" => DiscoveryList::Trending,
+                    _ => return None,
+                })
+            }
+            "min_depth_usd" => filters.min_depth_usd = Some(value.parse().ok()?),
+            "max_age_ms" => filters.max_age_ms = Some(value.parse().ok()?),
+            _ => {}
+        }
+    }
+    Some(filters)
+}
+
 async fn stream(ws: WebSocketUpgrade, State(shared): State<Arc<Shared>>) -> Response {
     ws.on_upgrade(move |socket| connection(socket, shared))
 }
@@ -209,18 +279,18 @@ async fn connection(mut socket: WebSocket, shared: Arc<Shared>) {
             let out: Vec<ServerMessage> = tokio::select! {
                 biased;
                 frame = socket.recv() => match frame {
-                    Some(Ok(Message::Text(text))) => session.on_text(&text, shared.feed().model()),
+                    Some(Ok(Message::Text(text))) => session.on_text(&text, &shared.feed()),
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                     Some(Ok(_)) => Vec::new(),
                 },
                 tick = ticks.recv() => match tick {
                     Ok(published) => session
-                        .on_published(&published, shared.feed().model())
+                        .on_published(&published, &shared.feed())
                         .into_iter()
                         .collect(),
                     // Too far behind: start again from fresh snapshots.
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        session.resync(shared.feed().model())
+                        session.resync(&shared.feed())
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 },

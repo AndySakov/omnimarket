@@ -36,6 +36,10 @@ A known pool is recorded from its creation event, metadata only. An active pool 
 One Swap on a tracked pool, as a fact: the token against its quote asset, side, amounts and execution price in base units, with no USD (D102).
 _Avoid_: swap (that's the log), fill (that's ours)
 
+**Discovery feed** / **New** / **Trending**:
+The API's ranked token lists (#81). New holds tokens whose pool was created during the session (the engine discovered it empty), newest first, within the new-pool window; Trending ranks tokens above a minimum depth by 5m USD volume, then 5m txns. Rows are published once per block.
+_Avoid_: pulse, trenches (other products' names for it)
+
 **Quote asset**:
 The token a trade or price is expressed in: on Base, USDC, USDT or WETH, in that order of preference (D18, D102).
 

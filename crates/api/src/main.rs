@@ -1,13 +1,16 @@
 //! The API server binary.
 //!
 //!   api --kafka BROKERS [--listen ADDR] [--cors-origin URL] [--group-id ID]
+//!       [--new-pool-window-ms MS] [--trending-min-depth-usd USD]
 //!
-//! Consumes `prices.base` from the start and serves contract v0 (D91): `/health`,
-//! `GET /v1/tokens/{chain_id}/{address}` and the WebSocket stream at `/v1/stream`.
+//! Consumes `pool-updates.base`, `trades.base` and `prices.base` from the start and serves
+//! contract v0 (D91): `/health`, `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery` and
+//! the WebSocket stream at `/v1/stream`.
 
 use std::net::SocketAddr;
 use std::process::ExitCode;
 
+use api::DiscoveryConfig;
 use api::server::{Config, serve};
 use clap::Parser;
 
@@ -23,6 +26,12 @@ struct Cli {
     cors_origin: String,
     #[arg(long, default_value = "omnimarket-api")]
     group_id: String,
+    /// How long a pool created during the session stays in the discovery feed's New list.
+    #[arg(long, default_value_t = 3_600_000)]
+    new_pool_window_ms: u64,
+    /// The least ±2% depth, in USD, a token needs to trend (D24).
+    #[arg(long, default_value_t = 10_000.0)]
+    trending_min_depth_usd: f64,
 }
 
 #[tokio::main]
@@ -34,6 +43,11 @@ async fn main() -> ExitCode {
         kafka: cli.kafka,
         group_id: cli.group_id,
         cors_origin: cli.cors_origin,
+        discovery: DiscoveryConfig {
+            new_pool_window_ms: cli.new_pool_window_ms,
+            trending_min_depth_usd: cli.trending_min_depth_usd,
+            ..DiscoveryConfig::default()
+        },
     };
     match serve(config).await {
         Ok(()) => ExitCode::SUCCESS,
