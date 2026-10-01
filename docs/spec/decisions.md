@@ -2087,7 +2087,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
 
-*(Amended by D96: up to three builders per track, four open PRs per track and four watchdogs reviewing at once.)*
+*(Amended by D97: up to three builders per track, four open PRs per track and four watchdogs reviewing at once.)*
 
 *(Amended by D93: Jutin builds the frontend issues labelled `jutin` alongside the farm; an open PR saying `Part of #n` also takes an issue; the watchdog reviews every open PR, whoever opened it.)*
 
@@ -2219,7 +2219,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
-## D96 — The build account runs up to three builders per track
+## D97 — The build account runs up to three builders per track
 
 **Date:** 2026-10-01 · **Status:** Decided by Temi (process; amends D90)
 

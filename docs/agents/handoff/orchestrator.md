@@ -16,9 +16,9 @@ Session **titles are your registry**: they survive your compaction and container
 
 | Role | Title | Limit |
 |---|---|---|
-| Backend builder | `farm:backend #<issue>` | 3 working at a time (D96) |
-| Frontend builder | `farm:frontend #<issue>` | 3 working at a time (D96) |
-| Watchdog | `farm:watchdog PR#<pr>` | 1 per PR; at most 4 reviewing at once |
+| Backend builder | `farm:backend #<issue>` | 3 working at a time (D97) |
+| Frontend builder | `farm:frontend #<issue>` | 3 working at a time (D97) |
+| Watchdog | `farm:watchdog PR#<pr>` | 1 per PR; at most 4 reviewing at once (D97) |
 
 A builder whose PR is waiting on review or CI is idle, and doesn't count against its track's limit, but each track may have at most **4 open PRs** at once: more means reviews are the bottleneck, so stop starting work there. Builders on one track run side by side, so tell each new one which issues its siblings hold: the queue keeps them off the same issue, but not off the same files. One session works on one issue from claim to merge; then you archive it and start a fresh one. Fresh sessions are cheaper than long ones, because every turn re-reads the whole context.
 
