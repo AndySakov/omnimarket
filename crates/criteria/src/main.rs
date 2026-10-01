@@ -1,4 +1,4 @@
-//! The `criteria` CI job's command (D92).
+//! The `criteria` CI job's command (D95).
 //!
 //! - `criteria closes <pr-body.md>` prints the issues the PR body closes, one per line.
 //! - `criteria check <pr-body.md> <issues-dir> <test-output>...` checks the PR's

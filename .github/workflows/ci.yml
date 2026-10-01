@@ -24,7 +24,7 @@ jobs:
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      # The criteria job reads which tests passed from these logs (D92).
+      # The criteria job reads which tests passed from these logs (D95).
       # `shell: bash` adds pipefail, so a failing command still fails its step through `tee`.
       - shell: bash
         run: mkdir -p test-reports && scripts/verify.sh | tee test-reports/verify.log
@@ -54,7 +54,7 @@ jobs:
       - name: Verify frontend
         working-directory: web/terminal
         run: npm run verify:pr
-      # The criteria job reads which tests passed from these (D92).
+      # The criteria job reads which tests passed from these (D95).
       - name: List the frontend tests that passed
         run: |
           mkdir -p test-reports
@@ -74,7 +74,7 @@ jobs:
             web/terminal/storybook-static
 
   # Every acceptance criterion of the issue a PR closes names the test that proves it, and that
-  # test passed in this run (D92). The PR body and the issues are read when the job runs, so after
+  # test passed in this run (D95). The PR body and the issues are read when the job runs, so after
   # editing the body, re-run this job alone.
   criteria:
     if: github.event_name == 'pull_request'

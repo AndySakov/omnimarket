@@ -1,4 +1,4 @@
-//! The `criteria` CI job's rules (D92): every acceptance criterion of the issue a PR closes has a
+//! The `criteria` CI job's rules (D95): every acceptance criterion of the issue a PR closes has a
 //! row in the PR's table, every test a row names passed in this CI run, and `manual:` rows are
 //! listed for the watchdog.
 
@@ -93,7 +93,7 @@ fn a_closing_keyword_inside_a_word_closes_nothing() {
 fn the_pr_table_rows_carry_tests_and_manual_evidence() {
     let body = pr_body(
         "| A PR that names a test that doesn't exist fails the job | `a_missing_test_fails` in `crates/criteria/tests/check.rs`, `parse::rows_split_on_pipes` |\n\
-         | \"A D-entry records it.\" | manual: D92 in `docs/spec/decisions.md` |",
+         | \"A D-entry records it.\" | manual: D95 in `docs/spec/decisions.md` |",
     );
     assert_eq!(
         pr_rows(&body),
@@ -104,7 +104,7 @@ fn the_pr_table_rows_carry_tests_and_manual_evidence() {
             },
             Row {
                 criterion: "\"A D-entry records it.\"".into(),
-                proof: Proof::Manual("D92 in `docs/spec/decisions.md`".into()),
+                proof: Proof::Manual("D95 in `docs/spec/decisions.md`".into()),
             },
         ]
     );
@@ -118,7 +118,7 @@ fn an_escaped_pipe_stays_inside_its_cell() {
 
 #[test]
 fn every_row_without_a_test_or_manual_evidence_fails() {
-    let body = pr_body("| A D-entry records it | see the diff |\n| Another | D92 |");
+    let body = pr_body("| A D-entry records it | see the diff |\n| Another | D95 |");
     let rows = pr_rows(&body);
     assert_eq!(rows[0].proof, Proof::None);
     let report = check(&[], &rows, &passed_tests(CARGO_OUTPUT));
@@ -163,14 +163,14 @@ fn a_full_table_of_passing_tests_passes() {
         },
         Row {
             criterion: "A  D-entry records it".into(),
-            proof: Proof::Manual("D92".into()),
+            proof: Proof::Manual("D95".into()),
         },
     ];
     let report = check(&criteria_of_98(), &rows, &passed_tests(CARGO_OUTPUT));
     assert_eq!(report.problems, vec![]);
     assert_eq!(
         report.manual,
-        vec![("A  D-entry records it".to_string(), "D92".to_string())]
+        vec![("A  D-entry records it".to_string(), "D95".to_string())]
     );
 }
 
@@ -221,7 +221,7 @@ fn a_test_name_matches_only_a_whole_path_segment() {
 fn an_omitted_criterion_fails() {
     let rows = vec![Row {
         criterion: "A D-entry records it".into(),
-        proof: Proof::Manual("D92".into()),
+        proof: Proof::Manual("D95".into()),
     }];
     let report = check(&criteria_of_98(), &rows, &passed_tests(CARGO_OUTPUT));
     assert_eq!(
@@ -245,7 +245,7 @@ fn a_row_that_quotes_no_criterion_is_listed_and_its_tests_still_checked() {
     let rows = vec![
         Row {
             criterion: "A D-entry records it".into(),
-            proof: Proof::Manual("D92".into()),
+            proof: Proof::Manual("D95".into()),
         },
         Row {
             criterion: "(body) Something the issue's text asked".into(),
@@ -298,7 +298,7 @@ fn without_a_closed_issue_only_the_named_tests_are_checked() {
 fn the_summary_lists_manual_rows_and_problems() {
     let rows = vec![Row {
         criterion: "A D-entry records it".into(),
-        proof: Proof::Manual("D92 in decisions.md".into()),
+        proof: Proof::Manual("D95 in decisions.md".into()),
     }];
     let report = check(&criteria_of_98(), &rows, &passed_tests(CARGO_OUTPUT));
     let summary = report.summary();
@@ -307,7 +307,7 @@ fn the_summary_lists_manual_rows_and_problems() {
         "{summary}"
     );
     assert!(
-        summary.contains("| A D-entry records it | D92 in decisions.md |"),
+        summary.contains("| A D-entry records it | D95 in decisions.md |"),
         "{summary}"
     );
     assert!(summary.contains("No row for #98's criterion"), "{summary}");
@@ -395,7 +395,7 @@ fn a_quoted_criterion_matches_with_its_full_stop_inside_or_outside_the_quotes() 
     ] {
         let rows = vec![Row {
             criterion: quoted.into(),
-            proof: Proof::Manual("D92".into()),
+            proof: Proof::Manual("D95".into()),
         }];
         let closed = vec![Closed {
             issue: 98,

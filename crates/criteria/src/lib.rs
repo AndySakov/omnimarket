@@ -1,5 +1,5 @@
 //! Checks a PR's acceptance-criteria table against the issues it closes and the tests that passed
-//! in its CI run (D92). The `criteria` binary does the file reading; everything here is a pure
+//! in its CI run (D95). The `criteria` binary does the file reading; everything here is a pure
 //! function of the texts it's given.
 //!
 //! - An issue's criteria are the checkbox items under its `## Acceptance criteria` heading.

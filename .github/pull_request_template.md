@@ -8,7 +8,7 @@
 
 ## Acceptance criteria
 
-<!-- CI's `criteria` job checks this table (D92). One row per acceptance criterion of the issue this
+<!-- CI's `criteria` job checks this table (D95). One row per acceptance criterion of the issue this
 PR closes, quoting it as the issue words it. "Proved by" names the tests in backticks: a Rust test's
 name or path (`a_lagging_node_is_asked_again_with_backoff`, `follow::tests::x`), or a frontend test's
 title (`navigates between terminal workspaces`, `global header visual baselines > desktop shell`;

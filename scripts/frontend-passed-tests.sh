@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prints the frontend tests that passed, from the Vitest and Playwright JSON reports CI writes in
 # web/terminal/test-reports/, as libtest-style `test <name> ... ok` lines for the criteria job
-# (D92). A name is the test's file, then its describe titles and its own title, joined by ` > `.
+# (D95). A name is the test's file, then its describe titles and its own title, joined by ` > `.
 set -euo pipefail
 dir=${1:-web/terminal/test-reports}
 command -v jq >/dev/null || { echo "frontend-passed-tests: jq is required but not installed" >&2; exit 1; }

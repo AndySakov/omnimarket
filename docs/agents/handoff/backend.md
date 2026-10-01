@@ -19,7 +19,7 @@ If your brief names a **PR** instead (a stalled one, D87 rule 1): `scripts/work 
 ## Build
 
 - **Branch:** work on the branch your session was given. Merge `origin/main` into it if it's behind. Never rebase or force-push a branch someone else pushed to.
-- **Test first.** Write the test for each acceptance criterion before the code, and check it fails for the right reason. Test the behaviour the spec requires, not your implementation. A fix's regression test must fail on `main`: prove it by running it against `main`'s code.
+- **Test first.** Write the test for each acceptance criterion before the code, and check it fails for the right reason. Test the behaviour the spec requires, not your implementation. A fix's regression test must fail on `main`: prove it with `scripts/regression-check` (CI runs it on PRs closing a `bug` issue, D92).
 - **The rules that bite** (CLAUDE.md's build-mode rules; clippy and `scripts/check-determinism.sh` enforce most):
   - No wall clock, randomness, threads, `HashMap` or `HashSet` in core code: time comes from `det::Clock`, randomness from `det::Rng`, maps are `BTreeMap`. Any `select!` starts with `biased;`.
   - Every input a core reads goes through a `det` trait with a recording wrapper, so a recorded run replays exactly. Every published record carries its lineage IDs (D53).
@@ -54,7 +54,7 @@ Write the body to a file, then `scripts/work open-pr "<title>" <file>`. The titl
 Closes #n
 ```
 
-Every criterion of the issue gets a row, quoted as the issue words it: CI's `criteria` job fails on a missing row or a named test that didn't pass in the run (D92). A criterion moved to a follow-up issue is `manual: moved to #m`. Don't message the orchestrator yet: CI comes first (next section).
+Every criterion of the issue gets a row, quoted as the issue words it: CI's `criteria` job fails on a missing row or a named test that didn't pass in the run (D95). A criterion moved to a follow-up issue is `manual: moved to #m`. Don't message the orchestrator yet: CI comes first (next section).
 
 ## Get it reviewed
 

@@ -1,4 +1,4 @@
-//! The `criteria` binary as the CI job runs it (D92): exit 0 passes the job, 1 fails it, 2 is a
+//! The `criteria` binary as the CI job runs it (D95): exit 0 passes the job, 1 fails it, 2 is a
 //! usage or read error; the summary goes to stdout.
 
 use std::fs;
@@ -40,18 +40,18 @@ fn stdout(output: &Output) -> String {
 fn a_complete_table_passes_the_job_and_lists_manual_rows() {
     let dir = setup(
         "complete",
-        "| It parses | `it_parses` |\n| A D-entry records it | manual: D92 |",
+        "| It parses | `it_parses` |\n| A D-entry records it | manual: D95 |",
     );
     let output = run_check(&dir);
     assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
-    assert!(stdout(&output).contains("| A D-entry records it | D92 |"));
+    assert!(stdout(&output).contains("| A D-entry records it | D95 |"));
 }
 
 #[test]
 fn a_test_that_does_not_exist_fails_the_job() {
     let dir = setup(
         "missing-test",
-        "| It parses | `no_such_test` |\n| A D-entry records it | manual: D92 |",
+        "| It parses | `no_such_test` |\n| A D-entry records it | manual: D95 |",
     );
     let output = run_check(&dir);
     assert_eq!(output.status.code(), Some(1), "{}", stdout(&output));

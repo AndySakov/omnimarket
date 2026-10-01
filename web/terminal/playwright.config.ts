@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  // CI's criteria job reads which tests passed from the JSON reports (D92). verify:pr runs Playwright
+  // CI's criteria job reads which tests passed from the JSON reports (D95). verify:pr runs Playwright
   // once per suite, so each run writes its own file.
   reporter: process.env.CI
     ? [

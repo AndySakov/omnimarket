@@ -36,7 +36,7 @@ omnimarket/
 │   ├── candles/, history/    Cold-path services (D15, D41)
 │   ├── watcher/              Independent watcher: shares only proto/, by design (D55)
 │   ├── sim/                  Deterministic simulation harness and chaos fuzzer (D49)
-│   └── criteria/             CI tool: a PR's acceptance criteria name tests that passed (D92)
+│   └── criteria/             CI tool: a PR's acceptance criteria name tests that passed (D95)
 ├── contracts/                Foundry: router, intent verification, invariant tests (D26, D58, D59)
 ├── web/thin/                 Thin prototyping UI (project lead)
 ├── web/terminal/             Full terminal UI (Jutin, D62)
