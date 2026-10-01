@@ -45,6 +45,8 @@ pub struct Config {
 pub enum ServerError {
     Io(std::io::Error),
     Kafka(KafkaError),
+    /// `prices.base` couldn't be created.
+    Topic(det::kafka::InputLogError),
     BadCorsOrigin(String),
 }
 
@@ -122,6 +124,8 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
 pub async fn serve(config: Config) -> Result<(), ServerError> {
     let shared = Shared::new();
     let app = router(shared.clone(), &config.cors_origin)?;
+    // The engine may not have started yet: create the topic so the consumer waits on it.
+    det::kafka::ensure_topic(&config.kafka, engine::PRICES_TOPIC).map_err(ServerError::Topic)?;
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", &config.kafka)
         .set("group.id", &config.group_id)
