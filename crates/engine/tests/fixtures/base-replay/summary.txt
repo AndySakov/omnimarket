@@ -1,0 +1,7 @@
+head 52037553 0x8dd4d0b86b4e9e7f0cf16575c096aa9950d9d03c4539064b55fec4d2d34175ca
+61 blocks, 5125 logs, 0 reorgs detected, digest 081ec6ac22ab9866bbffdbe011c79ebbc1afafbd5d2cb9ddd9eca68dc287bf3f
+v2: 32 pairs tracked, 8 rejected, 26 verification calls (0 failed)
+v3: 150 pools tracked, 186 rejected, 915 bootstrap calls (0 bootstraps failed)
+1244 pool updates, digest cb91942f95032690eef9e5a15b7b2e45fa3e4f9918be2a6db7efed66c82be018
+1261 trades (0 dropped with a failed read), digest faa8c6299bc38f79d3a71b4359410eb29547b292c25880979fc34b8ebaec1f22
+shadow checks: 203 passed, 0 failed

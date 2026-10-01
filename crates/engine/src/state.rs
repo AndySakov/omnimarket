@@ -153,6 +153,47 @@ pub struct Summary {
     pub trades_digest: blake3::Hash,
 }
 
+/// The text `engine follow` and `engine replay` print, and a pinned replay fixture's summary
+/// file holds (D99): two runs with the same text made the same decisions.
+impl std::fmt::Display for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((number, hash)) = self.head {
+            writeln!(f, "head {number} {hash}")?;
+        }
+        let s = &self.stats;
+        writeln!(
+            f,
+            "{} blocks, {} logs, {} reorgs detected, digest {}",
+            s.blocks, s.logs, s.reorgs_detected, self.digest
+        )?;
+        writeln!(
+            f,
+            "v2: {} pairs tracked, {} rejected, {} verification calls ({} failed)",
+            s.pairs_tracked, s.pairs_rejected, s.verify_calls, s.verify_failures
+        )?;
+        writeln!(
+            f,
+            "v3: {} pools tracked, {} rejected, {} bootstrap calls ({} bootstraps failed)",
+            s.pools_tracked, s.pools_rejected, s.bootstrap_calls, s.bootstrap_failures
+        )?;
+        writeln!(
+            f,
+            "{} pool updates, digest {}",
+            s.updates, self.updates_digest
+        )?;
+        writeln!(
+            f,
+            "{} trades ({} dropped with a failed read), digest {}",
+            s.trades, s.trades_dropped, self.trades_digest
+        )?;
+        writeln!(
+            f,
+            "shadow checks: {} passed, {} failed",
+            s.checks_passed, s.checks_failed
+        )
+    }
+}
+
 /// A call the engine is waiting on, and what to do with its answer.
 pub(crate) enum Pending {
     V2(crate::v2::Call),
