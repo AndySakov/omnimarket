@@ -113,6 +113,13 @@ A separate service with its own code and RPC that reconciles every router and ex
 **Brakes**:
 Automatic breakers plus four manual levels that stop money paths at the smallest effective scope (D56).
 
+**Data source**:
+Where the terminal's data comes from, fixed per build by `VITE_DATA_SOURCE`: *fixtures* (the contract fixtures served by MSW in the browser), *replay* (a recorded session played back through the real API) or *live* (D94).
+_Avoid_: mock mode, backend mode
+
+**Data state**:
+What a streamed region of the UI says about its numbers: loading, live, stale (heartbeats stopped), reconnecting (from before a drop) or unavailable (D94).
+
 ## Relationships
 
 - A **Trigger order** produces one or more **Firings**. Each **Firing** produces at most one trade, deduped by **Firing ID**.

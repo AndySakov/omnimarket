@@ -4,6 +4,8 @@ test.describe('global header visual baselines', () => {
   test('desktop shell', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
+    // The fixture stream connects before the baseline is taken, so it never catches "Connecting".
+    await expect(page.getByRole('status', { name: /^Market data: Fixtures/ })).toBeVisible()
 
     await expect(page.locator('.global-header')).toHaveScreenshot('header-desktop.png')
   })

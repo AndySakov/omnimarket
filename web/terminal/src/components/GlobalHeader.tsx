@@ -10,6 +10,7 @@ import {
   Star,
   X,
 } from 'lucide-react'
+import { ConnectionStatus } from './ConnectionStatus'
 
 const routes = ['Discover', 'Portfolio', 'Trackers', 'Wallets', 'Settings']
 
@@ -128,15 +129,6 @@ function ChainSelector() {
       <span>Base</span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>
-  )
-}
-
-function ConnectionStatus() {
-  return (
-    <span className="connection-status" role="status" aria-label="Wallet connection status: connected">
-      <span className="status-dot status-dot--green" aria-hidden="true" />
-      <span>Connected</span>
-    </span>
   )
 }
 

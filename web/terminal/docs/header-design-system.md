@@ -74,8 +74,10 @@ deposit action.
 
 ### Connection and wallet
 
-- Connection status is text plus a semantic dot (`Connected`, `Reconnecting`,
-  `Unavailable`).
+- Connection status is the market-data connection (#63, D94), text plus a
+  semantic dot: `Live` (green), `Replay` or `Fixtures` (blue), `Connecting`,
+  `Stale` or `Reconnecting` (amber), `Unavailable` (red). Live or Replay comes
+  from the engine's own mode; fixture builds always say `Fixtures`.
 - Wallet address and balance use tabular/monospace numerals.
 - Deposit is the primary action; wallet management is a separate control.
 
@@ -89,7 +91,8 @@ deposit action.
 
 | State | Header behavior |
 |---|---|
-| Connected | Green status and wallet menu enabled |
+| Live / Replay / Fixtures | Green or blue status naming the data source; wallet menu enabled |
+| Stale | Amber status: heartbeats stopped, numbers on screen may be old |
 | Reconnecting | Amber status, new trade actions pause elsewhere |
 | Unavailable | Red status with recovery message; wallet action disabled |
 | Search open | Search control expands without moving the primary route hierarchy |

@@ -8,11 +8,13 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'dist-live',
       'node_modules',
       'playwright-report',
       'test-results',
       'storybook-static',
       'src/api/generated',
+      'public/mockServiceWorker.js',
     ],
   },
   js.configs.recommended,
