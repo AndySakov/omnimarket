@@ -92,6 +92,16 @@ The full pipeline (quote, build, simulate against live state, sign locally) that
 **Real-funds demo**:
 A recorded end-to-end run with a small funded wallet per chain (D5).
 
+**Demo slice**:
+The demo in #62: a thin slice through M2, M4, M5 and M6 on live Base, built ahead of milestone order, with each shortcut recorded (D96).
+
+**Demo account**:
+An account in the demo: a guest one with no signup, or one linked to a Privy login. It trades from a shadow balance, never with real funds, even when a Privy wallet is linked (D96).
+_Avoid_: wallet, test account
+
+**Shadow balance**:
+A demo account's starting balance, set by config (e.g. 1 ETH), that shadow fills debit and credit. It is never real funds (D96).
+
 **det runtime**:
 The `det` crate's traits (Clock, Rng, EventSource, Rpc, Signer, Broadcaster, Store). Each has a real, a simulated, a recording and a replay implementation, so core logic is deterministic and replays exactly (D49, D54, D74).
 
