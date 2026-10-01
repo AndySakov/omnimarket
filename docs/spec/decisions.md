@@ -2087,6 +2087,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
 
+*(Amended by D93: Jutin builds the frontend issues labelled `jutin` alongside the farm; an open PR saying `Part of #n` also takes an issue; the watchdog reviews every open PR, whoever opened it.)*
+
 **Date:** 2026-10-01 · **Status:** Decided by Temi (process)
 
 **Decision:** Most build work moves to Claude Code cloud sessions on a second Claude account (the **build account**), whose GitHub connection acts as `AndySakov`, like Temi's own sessions. Temi steers it through one long-lived **orchestrator** session on that account, which starts and tracks the other sessions. The protocol is in `docs/agents/handoff/`.
@@ -2186,6 +2188,62 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
 - The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
 - The watchdog still reads the failure on `main` to confirm it's the bug's.
+
+---
+
+## D93 — Jutin and the build account share the frontend track, issue by issue
+
+**Date:** 2026-10-01 · **Status:** Decided by Temi (process; amends D90)
+
+**Decision:** Jutin is back at reduced capacity, working from his fork with Codex. He and the build account's frontend builder share the frontend track:
+- **Jutin claims an issue himself** by commenting `Taking this` from his GitHub account (`Dropping this` releases it). Agent sessions act as `AndySakov`, so only he can make that claim. Temi or the orchestrator can also label an issue `jutin` (`JUTIN TAKES #n`). `scripts/work` never hands either to an agent session, and `JUTIN BACK` still returns the whole track to him.
+- **Any open PR that says `Closes #n` or `Part of #n` takes issue `#n`, whoever opened it.** That's how the queue sees work from Jutin's fork.
+- **The watchdog reviews every open PR whose CI is green,** Jutin's included, so his PRs can pass the same gate (D81).
+- **One data layer.** Frontend work builds on the generated contract types (#75) and the shared client (#63); a slice that overlaps another person's open PR builds on it and raises the overlap there.
+- **`AGENTS.md`** at the root points Codex at CLAUDE.md and these rules, and `web/terminal/docs/collaboration-workflow.md` carries them for Jutin.
+
+**Found when Jutin returned (2026-10-01):** his PR #105 built #64 but said "Issue 64" rather than `Closes #64`, so the queue would have handed #64 to the farm once #63 merged. It also added a hand-written stream client overlapping #63's. Nothing would have reviewed it: the orchestrator watchdogged only its own sessions' PRs. Codex doesn't read CLAUDE.md, and the repo had no `AGENTS.md`.
+
+**Rejected:**
+- *`hold` for Jutin's issues.* `hold` is Temi's brake, and `scripts/work merge` refuses PRs that close a held issue; Jutin's own claim needs a label of its own.
+- *Reassigning issues away from Jutin.* He stays assigned to every frontend issue (D90), so the assignee can't say who's building one.
+- *Only a label, applied by Temi.* Every claim would wait on Temi. Jutin's comment is his own, can't come from an agent session, and his agent can post it unprompted.
+
+**Why:** The farm picks frontend work by rule, so Jutin's work has to be visible to that rule, and his PRs need the same review path to merge.
+
+**Consequence:**
+- Run `scripts/work labels` once to create `jutin`; issues held for Jutin before this (#64) move from `hold` to `jutin`.
+- A PR body without `Closes #n` or `Part of #n` is invisible to the queue, from anyone.
+
+---
+
+## D94 — The terminal's data layer: one client for fixtures, replay and live
+
+**Date:** 2026-10-01 · **Status:** Decided (#63)
+
+**Decision:** The terminal (`web/terminal`) reads all its data through one REST client and one WebSocket stream manager, both on the generated contract types (D91). A build-time env variable, `VITE_DATA_SOURCE`, picks the source: `fixtures` (the default), `replay` or `live`; replay and live also take `VITE_API_URL`. Nothing else changes between sources.
+- **Fixtures run through MSW**, in the browser, for REST and the WebSocket alike. The fixture stream answers each subscribe with the D91 fixture as its snapshot, then sends a heartbeat every second and deterministic price ticks on token topics. So the client code that runs offline is the code that runs live.
+- **The stream is at `/v1/stream`** on the API's host (`ws://` or `wss://`), unless `VITE_WS_URL` says otherwise.
+- **Visible topics only.** Components subscribe while mounted; the manager reference-counts topics and unsubscribes when the last one unmounts, dropping the topic's data.
+- **Sequencing.** A delta before its topic's snapshot, or at or below the last applied `seq`, is dropped. A delta more than one ahead is a gap: the topic's data is discarded and the topic resubscribed (unsubscribe, then subscribe).
+- **Drops.** On a close the manager reconnects with backoff (500 ms, doubling to 10 s; no jitter, as each browser tab holds one connection) and resubscribes every wanted topic. Data stays on screen labelled *reconnecting* until each new snapshot replaces it. After five failed attempts in a row the connection shows *unavailable*, and it keeps retrying. An attempt counts as working once the server sends its first message, not when the socket opens, so a server that accepts and closes at once still escalates; a socket the browser refuses to create counts as a failure too.
+- **Heartbeats.** Three seconds without one marks the connection *stale*; the next one clears it. Ten seconds without one counts as a dead connection: it is closed and replaced.
+- **Data states.** Every streamed region shows one of loading, live, stale, reconnecting or unavailable, derived from the connection and the topic. A `StreamError` for a topic makes it unavailable and drops its data.
+- **Rendering.** One Zustand store, with each topic's data in its own slice keyed by the topic string. Hooks select their own slice, so a tick on one token rerenders only that token's components.
+- **The header** shows Live or Replay from the engine's own mode on the `status` topic (the env's source until it arrives), Fixtures in fixture mode whatever the fixture says, and Connecting, Stale, Reconnecting or Unavailable otherwise.
+
+**Rejected:**
+- *A separate mock client for fixture mode.* Two code paths, and the one the demo runs offline wouldn't be the one it runs live.
+- *A mock server process for fixtures.* A second process to start, and it doesn't work in Storybook or on static hosting (#73).
+- *Choosing the source at runtime (a URL parameter or a toggle).* A shared demo link could then show sample data as if it were live. The source is fixed per build, and the header always names it.
+- *Blanking data on every drop.* A brief blip would empty every screen. Keeping the old numbers, labelled reconnecting, is more useful as long as the label is there; a gap or a topic error does blank, because there the data is known to be wrong.
+- *Waiting out a seq gap for the missing delta.* The WebSocket is ordered, so a gap means a lost message, not a late one.
+
+**Why:** The demo has to run before the API server (#78) and replay (#88) exist, and switch to them without code changes. Labelling every region's data state is what lets the UI keep showing numbers through a reconnect without passing old ones off as current.
+
+**Consequence:**
+- #78's server must serve the stream at `/v1/stream`, and #88's replay server the same API.
+- A screen built on the stream hooks gets its data states and resubscription for free; it only has to render the state.
 
 ## D99 — CI replays a pinned real Base recording to its recorded summary
 

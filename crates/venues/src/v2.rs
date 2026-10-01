@@ -124,7 +124,7 @@ pub fn decode_reserves(returned: &[u8]) -> Option<Reserves> {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{Bytes, U256, address};
+    use alloy_primitives::{Bytes, U256, address, b256, hex};
     use alloy_sol_types::SolValue;
 
     use super::*;
@@ -163,6 +163,93 @@ mod tests {
                 reserve1: 7
             })
         );
+    }
+
+    // The logs below are real, from Base, read with eth_getLogs on 2026-10-01. Unlike the tests
+    // above, they don't come from this crate's own encoders, so they also check the event
+    // signatures and the layout against the deployed contracts.
+
+    /// The WETH/USDC pair's `Sync` in block 52,035,610 (log 930).
+    fn base_sync() -> Log {
+        Log {
+            address: address!("88a43bbdf9d098eec7bceda4e2494615dfd9bb9c"),
+            topics: vec![b256!(
+                "1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1"
+            )],
+            data: Bytes::from_static(&hex!(
+                "00000000000000000000000000000000000000000000000d740ccf1a3f94faf1"
+                "0000000000000000000000000000000000000000000000000000009b817f992d"
+            )),
+            log_index: 930,
+            transaction_hash: b256!(
+                "fb1b28b2eb7b1aa9fce2052983e17143434844098d0c019888f601f6fe0c9632"
+            ),
+        }
+    }
+
+    /// The factory's `PairCreated` for the WETH/USDC pair, its first pair, in block 10,526,493
+    /// (log 469).
+    fn base_pair_created() -> Log {
+        Log {
+            address: BASE.factory,
+            topics: vec![
+                b256!("0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9"),
+                b256!("0000000000000000000000004200000000000000000000000000000000000006"),
+                b256!("000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913"),
+            ],
+            data: Bytes::from_static(&hex!(
+                "00000000000000000000000088a43bbdf9d098eec7bceda4e2494615dfd9bb9c"
+                "0000000000000000000000000000000000000000000000000000000000000001"
+            )),
+            log_index: 469,
+            transaction_hash: b256!(
+                "e537cba808a2646f59c4993e79e798231653333cf08d43b69d95b57171bb3548"
+            ),
+        }
+    }
+
+    #[test]
+    fn a_sync_from_base_is_a_sync_and_carries_the_pairs_reserves() {
+        let sync = base_sync();
+        assert!(is_sync(&sync));
+        assert!(!is_pair_created(&sync));
+        let reserves = Reserves {
+            reserve0: 248_169_959_277_987_166_961,
+            reserve1: 667_892_554_029,
+        };
+        assert_eq!(decode_sync(&sync), Some(reserves));
+        // getReserves() on the pair answered the same reserves at the time.
+        let answer = hex!(
+            "00000000000000000000000000000000000000000000000d740ccf1a3f94faf1"
+            "0000000000000000000000000000000000000000000000000000009b817f992d"
+            "000000000000000000000000000000000000000000000000000000006abe5d17"
+        );
+        assert_eq!(decode_reserves(&answer), Some(reserves));
+    }
+
+    #[test]
+    fn a_pair_created_from_base_is_a_creation_and_not_a_sync() {
+        let created = base_pair_created();
+        assert!(is_pair_created(&created));
+        assert!(!is_sync(&created));
+        assert_eq!(
+            decode_pair_created(&created),
+            Some(Created {
+                pair: address!("88a43bbdf9d098eec7bceda4e2494615dfd9bb9c"),
+                token0: WETH,
+                token1: USDC
+            })
+        );
+    }
+
+    // Each selector is the first four bytes of the keccak-256 of the function's signature,
+    // computed outside this crate. The live pair answered them with WETH, USDC and its
+    // reserves on 2026-10-01.
+    #[test]
+    fn calls_use_the_pairs_abi_selectors() {
+        assert_eq!(token0_call(), hex!("0dfe1681"));
+        assert_eq!(token1_call(), hex!("d21220a7"));
+        assert_eq!(get_reserves_call(), hex!("0902f1ac"));
     }
 
     #[test]
