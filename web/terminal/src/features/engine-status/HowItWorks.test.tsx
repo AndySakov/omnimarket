@@ -33,9 +33,14 @@ describe('How it works', () => {
 
     expect(within(dialog).getByRole('region', { name: 'Live' })).toHaveTextContent(/Base market data/)
     expect(within(dialog).getByRole('region', { name: 'Shadow' })).toHaveTextContent(/simulated.*Nothing is broadcast/)
+    // Copy must match what's built (#71): anything not built yet says so, with its issue.
+    expect(within(dialog).getByRole('region', { name: 'Live' })).toHaveTextContent('Prices and quotes, computed in memory from that state (D21; being built: #76, #83)')
+    expect(within(dialog).getByRole('region', { name: 'Shadow' })).toHaveTextContent('stop just before sending (being built: #84, #86)')
 
     const stages = within(within(dialog).getByRole('list', { name: /^Data path/ })).getAllByRole('listitem')
     expect(stages.map((stage) => stage.querySelector('strong')?.textContent)).toEqual(['Chain engine', 'Kafka', 'API', 'Terminal'])
+    expect(stages[1]).toHaveTextContent('pool updates now; trades and status being built (#77, #79)')
+    expect(stages[2]).toHaveTextContent('being built: #78')
 
     expect(within(dialog).getByRole('link', { name: 'The project README' })).toHaveAttribute('href', 'https://github.com/AndySakov/omnimarket#readme')
     expect(within(dialog).getByRole('link', { name: 'The decision log' })).toHaveAttribute('href', 'https://github.com/AndySakov/omnimarket/blob/main/docs/spec/decisions.md')

@@ -11,7 +11,7 @@ const REPO = 'https://github.com/AndySakov/omnimarket'
 // cited: this copy describes the backend, so it must match what's built (#71).
 const stages = [
   { name: 'Chain engine', detail: 'Follows Base block by block and keeps Uniswap v2 and v3 pool state in memory. Records every input, so any run replays exactly.' },
-  { name: 'Kafka', detail: 'Carries the engine’s records (pool updates, trades, status), each with lineage IDs.' },
+  { name: 'Kafka', detail: 'Carries the engine’s records, each with lineage IDs: pool updates now; trades and status being built (#77, #79).' },
   { name: 'API', detail: 'Serves those records over REST and one WebSocket stream (being built: #78).' },
   { name: 'Terminal', detail: 'This page: subscribes to what’s on screen and marks anything old as stale.' },
 ]
@@ -70,13 +70,13 @@ export function HowItWorksContent({ source, children }: { source: DataSourceKind
           <h4 id="how-live"><span className="status-dot status-dot--green" aria-hidden="true" />Live</h4>
           <ul>
             <li>Base market data: the engine reads every block and keeps pool state current.</li>
-            <li>Prices and quotes, computed in memory from that state (D21).</li>
+            <li>Prices and quotes, computed in memory from that state (D21; being built: #76, #83).</li>
           </ul>
         </section>
         <section className="how-it-works__card how-it-works__card--shadow" aria-labelledby="how-shadow">
           <h4 id="how-shadow"><span className="status-dot status-dot--amber" aria-hidden="true" />Shadow</h4>
           <ul>
-            <li>Execution is simulated: trades and trigger orders run against live chain data and stop just before sending.</li>
+            <li>Execution is simulated: trades and trigger orders run against live chain data and stop just before sending (being built: #84, #86).</li>
             <li>Nothing is broadcast and no real funds move. Balances, trades and receipts say “shadow”.</li>
           </ul>
         </section>

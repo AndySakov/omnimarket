@@ -92,7 +92,8 @@ export class FixtureStream {
     let payload: MessageInitShape<typeof ServerMessageSchema>['kind'] & { case: 'snapshot' }
     switch (kind) {
       case 'status':
-        payload = snapshot(topic, { case: 'status', value: apiFixture(EngineStatusSchema) })
+        // In step with the heartbeat's head, however late the client subscribes.
+        payload = snapshot(topic, { case: 'status', value: statusAt(apiFixture(EngineStatusSchema), this.heartbeats) })
         break
       case 'discovery':
         payload = snapshot(topic, { case: 'discovery', value: apiFixture(DiscoveryFeedSchema) })
