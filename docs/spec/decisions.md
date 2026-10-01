@@ -2151,3 +2151,38 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - From merge on, `buf breaking` holds the contract: changes are additive, or go to `v2`.
 - The UI parses amounts into `decimal.js` (or its fixed-decimal type) and never into `number` (frontend-plan.md).
 - #78's server and #63's client follow this protocol; the fixtures are the shared example of each message.
+
+---
+
+## D92 — CI proves a fix's regression test fails on main's code
+
+**Date:** 2026-10-01 · **Status:** Decided (#97)
+
+**Decision:** A PR whose body closes an issue labelled `bug` (GitHub's closing keywords: `Fixes #n`, `Closes #n`, `Resolves #n` and their tenses, with `#n` or this repository's `owner/repo#n`; a number that isn't an issue here doesn't count) gets the `regression-check` CI job, which runs `scripts/regression-check`:
+- **Which tests.** The Rust test functions (`#[test]`, `#[tokio::test]`, ...) the PR adds or whose text it changes, since its merge base with `main`, in files under a `tests/` directory and in source files' `#[cfg(test)]` items. `#[ignore]`d ones are skipped.
+- **Main's code with the PR's tests**, the way the watchdog did it by hand: a worktree of `main`, given the PR's version of every changed test file, and in every other changed source file `main`'s code with the PR's `#[cfg(test)]` items in place of `main`'s.
+- **The verdict.** Every test must pass on the PR's head, and at least one must fail on `main`'s code. A test that doesn't build on `main`'s code (it calls API the fix adds) is reported but doesn't count: it shows the API changed, not that the bug was there. If one source file's test module doesn't build on `main`'s code, each file's tests run again with only its own module put in, so one file can't hide the others.
+- **The report** in the job summary: each test's result on both sides, the panic of each test failing on `main` (so a reviewer can see it fails for the bug's reason), and build errors.
+- **Not yet required.** Once it has passed on two fix PRs it joins `verify` and `watchdog/review` in branch protection. On a PR that isn't a fix it passes at once, so it can be required on every PR.
+
+**Found while building (2026-10-01):**
+- Replayed on #57's history (`--base 19e1874 --head a09f080`, also a `workflow_dispatch` input): it passes, with `follower::tests::a_lagging_node_is_asked_again_with_backoff` failing on the old code (`left: [0, 0, 0, 0]`, `right: [250, 500, 1000, 2000]`: no backoff). Because `a09f080` merged `main` since `19e1874`, `main`'s own new tests come along too: `http.rs`'s test module doesn't build on `19e1874` (it calls `is_retryable`, which `main` added), and without the per-file retry it hid the follower's tests.
+- Run as CI would have run it on #57's final head (`--base 000c733 --head a09f080`, `000c733` being `main` then), it passes on the PR's reorg tests (`a_block_replaced_between_its_header_and_logs_is_read_again`, `a_block_reorged_out_between_header_and_logs_does_not_stall_the_follower`), and `a_lagging_node_is_asked_again_with_backoff` passes on `main` too: that bug came in with the PR's own first commit, so only the replay from `19e1874` shows it. The check is per PR, against `main`.
+- A shared target dir for both trees made `main`'s code look fixed: cargo's fingerprints name sources relative to the workspace root, so the second tree reused the first tree's test binaries. Each tree now has its own target dir. The self-test caught it.
+- The replay takes about 6 minutes on a 4-core cloud container, from a cold build of both trees.
+
+**Rejected:**
+- *Reverting the fix's non-test files whole and keeping the PR's test files.* Unit tests live in `#[cfg(test)]` modules inside source files, as #57's did, so whole-file reverts would drop them or keep the fix.
+- *Counting a test that doesn't build on `main` as failing.* Any fix that adds a function and tests it would pass without showing the bug.
+- *Running every test in the workspace on `main`'s code.* Slower, and a failure unrelated to the PR would pass the check.
+- *Requiring it now.* #97 asks for two green fix PRs first, so a false failure can't block merges before it's been seen working.
+- *Leaving it to the watchdog.* That's the gap #97 names: if the watchdog is down or wrong, a test that never showed the bug merges.
+
+**Why:** CLAUDE.md requires a fix's regression test to fail on `main`, and until now only the watchdog checked it, by hand. A check in CI runs on every fix PR the same way, and its report shows the reviewer the failure on `main`.
+
+**Consequence:**
+- Fix PRs should keep `Fixes #n` / `Closes #n` in the body: without a closing reference to the `bug` issue the job doesn't check anything.
+- A fix whose only possible test needs new API (it can't build on `main`) fails the job; its author explains in the PR, and the watchdog and Temi decide.
+- Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
+- The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
+- The watchdog still reads the failure on `main` to confirm it's the bug's.
