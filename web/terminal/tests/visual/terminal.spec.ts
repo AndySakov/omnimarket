@@ -13,7 +13,7 @@ async function waitForStableSurface(page: Page) {
 test.describe('terminal typography reference baselines', () => {
   test('discover wide reference composition', async ({ page }) => {
     await page.setViewportSize({ width: 1918, height: 744 })
-    await page.goto('/')
+    await page.goto('/?visual=1')
     await page.locator('.discovery-table-shell').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
 
@@ -22,7 +22,7 @@ test.describe('terminal typography reference baselines', () => {
 
   test('discover standard desktop composition', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/')
+    await page.goto('/?visual=1')
     await page.locator('.discovery-table-shell').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
 
@@ -31,7 +31,7 @@ test.describe('terminal typography reference baselines', () => {
 
   test('discover compact desktop composition', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 })
-    await page.goto('/')
+    await page.goto('/?visual=1')
     await page.locator('.discovery-table-shell').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
 
@@ -40,7 +40,7 @@ test.describe('terminal typography reference baselines', () => {
 
   test('discover mobile composition', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/')
+    await page.goto('/?visual=1')
     await page.locator('.discovery-table-shell').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
 
@@ -49,7 +49,7 @@ test.describe('terminal typography reference baselines', () => {
 
   test('token workspace desktop composition', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/')
+    await page.goto('/?visual=1')
     await page.locator('.token-name').filter({ hasText: 'NovaSet' }).first().click()
     await page.locator('.token-page').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
@@ -59,7 +59,7 @@ test.describe('terminal typography reference baselines', () => {
 
   test('token workspace mobile composition', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/')
+    await page.goto('/?visual=1')
     await page.locator('.token-name').filter({ hasText: 'NovaSet' }).first().click()
     await page.locator('.token-page').waitFor({ state: 'visible' })
     await waitForStableSurface(page)

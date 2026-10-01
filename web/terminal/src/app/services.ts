@@ -42,7 +42,8 @@ export function startApiServices(env: DataSourceEnv): Promise<ApiServices> {
     if (source.kind === 'fixtures') {
       // Loaded on demand, so replay and live builds never start the mocks.
       const { startFixtureWorker } = await import('../mocks/api/browser')
-      await startFixtureWorker(source)
+      const visualMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('visual')
+      await startFixtureWorker(source, visualMode ? { tickIntervalMs: 60_000 } : undefined)
     }
     return createApiServices(source)
   })()
