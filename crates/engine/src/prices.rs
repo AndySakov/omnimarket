@@ -443,7 +443,7 @@ impl Prices {
                 .iter()
                 .map(|q| PricedPool {
                     quote: *q,
-                    counted: q.depth_usd >= floor && q.depth_usd > 0.0,
+                    counted: pricing::display::counts(q.depth_usd, floor),
                 })
                 .collect(),
         ))

@@ -80,7 +80,7 @@ impl PricingConfig {
 
 /// A pool's tokens in the factory's order.
 fn sorted(a: Address, b: Address) -> (Address, Address) {
-    if a < b { (a, b) } else { (b, a) }
+    (a.min(b), a.max(b))
 }
 
 #[cfg(test)]

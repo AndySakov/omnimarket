@@ -25,6 +25,11 @@ pub struct DisplayPrice {
     pub main: PoolQuote,
 }
 
+/// Whether a pool counts toward a display price: at or above the liquidity floor (D18).
+pub fn counts(depth_usd: f64, floor_usd: f64) -> bool {
+    depth_usd >= floor_usd
+}
+
 /// `Σ price·depth / Σ depth` over the pools at or above `floor_usd`; with none, the deepest
 /// pool's price, flagged thin. Pools whose price isn't a positive finite number are skipped.
 /// Ties for deepest go to the first pool in `pools`.
@@ -43,7 +48,7 @@ pub fn display_price(pools: &[PoolQuote], floor_usd: f64) -> Option<DisplayPrice
     let depth_usd = usable.iter().map(|p| p.depth_usd).sum();
     let (weighted, counted) = usable
         .iter()
-        .filter(|p| p.depth_usd >= floor_usd && p.depth_usd > 0.0)
+        .filter(|p| counts(p.depth_usd, floor_usd))
         .fold((0.0, 0.0), |(w, d), p| {
             (w + p.price_usd * p.depth_usd, d + p.depth_usd)
         });

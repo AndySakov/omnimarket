@@ -254,3 +254,66 @@ fn no_usable_pool_gives_no_price() {
     };
     assert_eq!(display_price(&[broken], FLOOR_USD), None);
 }
+
+// Pools with a price or depth that isn't a usable number are left out, not averaged in.
+#[test]
+fn pools_with_a_zero_price_or_unusable_depth_are_left_out() {
+    let good = PoolQuote {
+        pool: address!("1000000000000000000000000000000000000001"),
+        quote: BASE_USDC,
+        price_in_quote: 2.0,
+        price_usd: 2.0,
+        depth_usd: 50_000.0,
+    };
+    let zero_price = PoolQuote {
+        pool: address!("2000000000000000000000000000000000000002"),
+        price_in_quote: 0.0,
+        price_usd: 0.0,
+        depth_usd: 1e9,
+        ..good
+    };
+    let nan_depth = PoolQuote {
+        pool: address!("3000000000000000000000000000000000000003"),
+        price_usd: 9.0,
+        depth_usd: f64::NAN,
+        ..good
+    };
+    let negative_depth = PoolQuote {
+        pool: address!("4000000000000000000000000000000000000004"),
+        price_usd: 9.0,
+        depth_usd: -1e9,
+        ..good
+    };
+    let price = display_price(&[zero_price, nan_depth, negative_depth, good], FLOOR_USD).unwrap();
+    assert_eq!(price.price_usd, 2.0);
+    assert_eq!(price.depth_usd, 50_000.0);
+    assert_eq!(price.main.pool, good.pool);
+}
+
+// pricing.md: ties for the deepest pool go to the first, so the main pool doesn't flip.
+#[test]
+fn a_tie_for_deepest_keeps_the_first_pool() {
+    let first = PoolQuote {
+        pool: address!("1000000000000000000000000000000000000001"),
+        quote: BASE_USDC,
+        price_in_quote: 1.0,
+        price_usd: 1.0,
+        depth_usd: 500.0,
+    };
+    let second = PoolQuote {
+        pool: address!("2000000000000000000000000000000000000002"),
+        price_usd: 3.0,
+        ..first
+    };
+    let price = display_price(&[first, second], FLOOR_USD).unwrap();
+    assert!(price.thin);
+    assert_eq!(price.main.pool, first.pool);
+    assert_eq!(price.price_usd, 1.0);
+}
+
+// D18: the floor is inclusive.
+#[test]
+fn a_pool_exactly_at_the_floor_counts() {
+    assert!(pricing::display::counts(FLOOR_USD, FLOOR_USD));
+    assert!(!pricing::display::counts(FLOOR_USD - 0.01, FLOOR_USD));
+}

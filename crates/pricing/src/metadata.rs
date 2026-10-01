@@ -47,15 +47,13 @@ pub fn decode(answers: &[Option<&[u8]>; 4]) -> TokenMetadata {
     }
 }
 
-/// An ABI string, or a `bytes32` (early tokens such as MKR) with its trailing zeros cut.
-/// Invalid UTF-8 is replaced, control characters dropped; empty text is `None`.
+/// An ABI string, or a `bytes32` (early tokens such as MKR). Invalid UTF-8 is replaced and
+/// control characters, zero padding included, are dropped; empty text is `None`.
 pub fn decode_text(returned: &[u8]) -> Option<String> {
     let text = match String::abi_decode(returned) {
         Ok(text) => text,
-        Err(_) if returned.len() == 32 => {
-            let end = returned.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
-            String::from_utf8_lossy(&returned[..end]).into_owned()
-        }
+        // Its zero padding goes with the control characters below.
+        Err(_) if returned.len() == 32 => String::from_utf8_lossy(returned).into_owned(),
         Err(_) => return None,
     };
     let text: String = text.chars().filter(|c| !c.is_control()).collect();
@@ -126,6 +124,8 @@ mod tests {
         assert_eq!(metadata, TokenMetadata::default());
         assert_eq!(decode_text(&encode::text("")), None);
         assert_eq!(decode_text(&encode::bytes32("")), None);
+        // Readable bytes that are neither an ABI string nor a bytes32.
+        assert_eq!(decode_text(b"thirty-three bytes of plain text!"), None);
         assert_eq!(decode_decimals(&encode::uint(U256::from(78))), None);
         assert_eq!(decode_decimals(&encode::uint(U256::from(256))), None);
         assert_eq!(decode_decimals(&encode::uint(U256::from(77))), Some(77));

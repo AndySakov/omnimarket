@@ -39,7 +39,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 ### Token metadata (D100)
 
 - `name`, `symbol`, `decimals`, `totalSupply`, read in one Multicall3 call per 50 tokens (four calls each) through the engine's recorded calls and the call worker's rate limits (D82), at the end of the block the token's first quote-asset pool updated. Read once; a call that fails as a whole is forgotten and read again on the token's next update.
-- **Fallbacks.** A `bytes32` name or symbol (early tokens such as MKR) is read up to its first trailing zero; control characters are dropped; a revert, an empty string or an unreadable answer leaves the field unset. Decimals above 77 or unreadable: unset, and the token isn't priced.
+- **Fallbacks.** A `bytes32` name or symbol (early tokens such as MKR) is read as text; control characters, its zero padding included, are dropped; a revert, an empty string or an unreadable answer leaves the field unset. Decimals above 77 or unreadable: unset, and the token isn't priced.
 - **Supply** is read again once it is 1,800 blocks old (about an hour), for priced tokens, oldest first, 50 a block. The engine doesn't follow `Transfer` logs, so a mint or burn shows within the hour.
 - **Market cap** = total supply × display price, published as `fdv_usd`: total supply counts locked and unvested tokens, so it's a fully diluted value. Unset without a supply.
 
