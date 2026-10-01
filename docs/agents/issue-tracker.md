@@ -15,7 +15,19 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Picking the next issue
 
-The order is CLAUDE.md's "Current mode" (D87). These are the queries behind each rule. Several sessions run at once under the one GitHub account, so an issue counts as taken once it has an assignee or an open PR that closes it.
+The order is CLAUDE.md's "Current mode" (D87). `scripts/work next backend|frontend` applies it and prints why it skipped the rest; the queries below are what it does. Several sessions run at once under the one GitHub account, from Temi's Claude account and the build account (D90), so an issue counts as taken once it has an assignee, the `wip` label, or an open PR that closes it.
+
+**In cloud sessions, use `scripts/work`.** GitHub's GraphQL API is blocked there, so `gh issue list`, `gh issue view`, `gh pr list`, `gh pr view` and `gh pr checks` fail; `gh api` (REST) works.
+
+| Instead of | Use |
+|---|---|
+| `gh issue view <n> --comments`, `gh pr view <n> --comments` | `scripts/work show <n>` |
+| `gh pr list` with checks | `scripts/work prs` |
+| `gh pr checks <n>` | `scripts/work checks <n>` |
+| the claim commands below | `scripts/work claim <n>` |
+| `gh pr create` | `scripts/work open-pr <title> <body-file>` |
+| `gh pr merge` | `scripts/work merge <n>` |
+| `gh issue comment <n> --body …` | `gh api repos/AndySakov/omnimarket/issues/<n>/comments -f body=…` |
 
 1. **Stalled open PRs.** Any open PR from this account, not only ones this session remembers opening: sessions restart and share the account. List them oldest first, with their checks:
    ```bash
@@ -28,7 +40,7 @@ The order is CLAUDE.md's "Current mode" (D87). These are the queries behind each
    ```bash
    gh issue list --state open --label critical --json number,title,milestone,assignees
    ```
-3. **Demo sprint** (backend only; the `frontend` issues are assigned to Jutin):
+3. **Demo sprint** (backend; the `frontend` issues are Jutin's, and while he's away only the build account's frontend builder takes them, D90):
    ```bash
    gh issue list --state open --label demo --label backend --limit 100 \
      --json number,title,assignees,body \
@@ -50,9 +62,10 @@ For each candidate, in order:
   ```
   Read the matches: only a `Closes #<n>` (or `Fixes`) line counts.
   An issue whose closing PR is stalled isn't picked here: rule 1 picks up the PR.
-- **Claim it** before your first commit, in this order:
+- **Claim it** before your first commit: `scripts/work claim <n>`, which does this:
   ```bash
-  gh issue edit <n> --add-assignee @me
+  gh issue edit <n> --add-label wip
+  gh issue edit <n> --add-assignee @me   # only if nobody is assigned: Jutin stays on his issues
   gh issue comment <n> --body "Taking this: <session link>"
   ```
   Then put `Closes #<n>` in the PR body. If another session's claim comment appears first, back off and pick again.

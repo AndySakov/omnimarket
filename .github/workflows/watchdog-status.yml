@@ -1,0 +1,57 @@
+name: watchdog-status
+
+# The review gate (D81, D90). The watchdog posts its verdict as a PR comment whose first line is one of
+#   ## Watchdog reviewing `<sha>`                       -> pending
+#   ## Watchdog review: `<sha>` passes                  -> success
+#   ## Watchdog review: `<sha>` fails on N findings     -> failure
+# ("re-review" works in place of "review"). This job turns that line into the `watchdog/review` commit
+# status that branch protection requires, linked to the comment. Claude Code cloud sessions can comment
+# but can't post commit statuses, so the status is posted here. A verdict for any commit but the PR's
+# current head posts nothing: each push needs a fresh review. The job never checks out PR code.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  statuses: write
+  pull-requests: read
+
+jobs:
+  status:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '## Watchdog') &&
+      github.event.comment.user.login == 'AndySakov'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post watchdog/review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          BODY: ${{ github.event.comment.body }}
+          URL: ${{ github.event.comment.html_url }}
+        run: |
+          first=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
+          verdict='^## Watchdog (re-)?review: `([0-9a-f]{7,40})` (passes|fails)'
+          started='^## Watchdog reviewing `([0-9a-f]{7,40})`'
+          if [[ $first =~ $verdict ]]; then
+            sha=${BASH_REMATCH[2]}
+            [[ ${BASH_REMATCH[3]} == passes ]] && state=success || state=failure
+          elif [[ $first =~ $started ]]; then
+            sha=${BASH_REMATCH[1]}
+            state=pending
+          else
+            echo "::notice::not a verdict line: $first"
+            exit 0
+          fi
+          head=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          if [[ $head != "$sha"* ]]; then
+            echo "::warning::the verdict is for $sha but the PR's head is $head; no status posted"
+            exit 0
+          fi
+          desc=${first#\#\# }
+          gh api "repos/$REPO/statuses/$head" -f state="$state" -f context=watchdog/review \
+            -f target_url="$URL" -f description="${desc:0:140}"
+          echo "watchdog/review: $state on $head"

@@ -1857,6 +1857,8 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D81 — PRs merge only after a watchdog review
 
+*(Amended by D90: the watchdog posts its verdict as a PR comment, and the `watchdog-status` workflow turns it into the `watchdog/review` status; the watchdog runs on the build account; builders merge once both checks pass.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (process; from auditing M0 and M1)
 
 **Decision:** A separate watchdog agent session reviews every PR before it merges. It checks the change against its issue, the D-entries and CLAUDE.md's update table, runs the tests, and posts a `watchdog/review` commit status on the PR's head commit (`pending`, then `success` or `failure`) with its findings as a PR comment. Branch protection on `main` requires `verify` and `watchdog/review`, and applies to admins. Each push needs a fresh review. The protocol is in CLAUDE.md.
@@ -1987,6 +1989,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D87 — Work order: critical work first, then the demo sprint, then M1
 
+*(Amended by D90: `scripts/work next` applies this order over REST; the build account's frontend builder takes Jutin's frontend issues while he's away, claimed by the `wip` label instead of reassignment.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
 
 **Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
@@ -2076,3 +2080,39 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - The ledger assumes tests don't get weaker: a test deleted after its mutants were caught goes unnoticed until the next fresh run (weekly in CI, `--fresh` locally).
 - CI recreates the worktrees on each run, so it rebuilds the workspace's own crates every time; only dependencies come warm from the cache.
 - The workers are git worktrees, so they appear in `git worktree list`. `scripts/mutants.sh --clean` removes them, their builds and the ledger. After a plain `cargo clean`, it (or `git worktree prune`) clears the entries left behind.
+
+---
+
+## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
+
+**Date:** 2026-10-01 · **Status:** Decided by Temi (process)
+
+**Decision:** Most build work moves to Claude Code cloud sessions on a second Claude account (the **build account**), whose GitHub connection acts as `AndySakov`, like Temi's own sessions. Temi steers it through one long-lived **orchestrator** session on that account, which starts and tracks the other sessions. The protocol is in `docs/agents/handoff/`.
+- **Roles.** One backend builder and one frontend builder at a time, one session per issue, and one watchdog session per PR (D81's separate reviewer). The orchestrator picks work with `scripts/work next`, which applies D87's order, starts sessions, dispatches reviews and reports to Temi. It writes no code.
+- **The gate.** The watchdog posts its verdict as a PR comment whose first line names the head commit and passes or fails. The `watchdog-status` workflow turns that line into the `watchdog/review` commit status, linked to the comment, and only for the PR's current head. Branch protection is unchanged.
+- **Merging.** The builder merges with a merge commit (`scripts/work merge`), which refuses unless `verify`, `frontend` and `watchdog/review` all pass on the head, there's no conflict and nothing is labelled `hold`. `frontend` gates merges this way, though branch protection doesn't require it yet (D86).
+- **Claims.** `scripts/work claim` adds the `wip` label, assigns the claimer if nobody is assigned, and comments with the session link. While Jutin is away, the frontend builder takes his frontend issues and leaves him assigned, so he sees what's left when he's back; `wip` is the claim there. An acceptance criterion that names Jutin's review is met by Temi's review while he's away, and Jutin is tagged for a look.
+- **Partial work.** An acceptance criterion that can't be met from the repo (a signup only Temi can do; a frontend slice waiting on its backend) moves to a new issue linked both ways, labelled `needs-temi` or blocked by the backend issue, and the original closes with the rest.
+- **Temi's brakes.** The `hold` label on an issue or PR stops agents taking or merging it. `needs-temi` marks work only Temi can unblock.
+- **Cloud sessions are readied by a SessionStart hook** (`.claude/hooks/session-start.sh`): dockerd, the git hooks, buf, npm deps, Playwright's Chromium (or the preinstalled one), and a cargo build warmed in the background.
+
+**Found while setting up (2026-10-01):**
+- In cloud sessions GitHub's GraphQL API is refused ("GraphQL is not available from Claude Code sessions"), so `gh issue list`, `gh pr view` and `gh pr checks` fail. REST through `gh api` works.
+- Commit-status and check-run writes are refused by the session proxy ("Write access to this GitHub API path is not permitted"), whatever the network level, token or GitHub account connected (a PAT stored as an environment credential changed nothing). Comments, labels, assignees, opening and merging PRs, and workflow dispatch are allowed.
+- A cold `scripts/verify.sh` takes 3.5 minutes on a cloud container, and Docker's daemon isn't running at start.
+- A session started by another session receives its brief as an automated message. It followed an ordinary work brief, but refused one that read like a credential probe.
+
+**Rejected:**
+- *A PAT for `AndySakov` in the build account's environment.* The proxy ignored it, and still blocks status writes and GraphQL for every account.
+- *A watchdog that dispatches a workflow with the verdict as inputs.* Two steps that can disagree; a status from a comment can't exist without the findings it links to.
+- *Keeping the watchdog on Temi's account.* Temi's usage limits would cap how many PRs merge a day.
+- *Builders picking their own issues.* Two builders could race for one issue; one dispatcher can't.
+- *Reassigning Jutin's issues.* Temi wants Jutin to see what's left when he's back.
+
+**Why:** The build account has the budget and Temi doesn't, so the token-heavy work (building, reviewing) runs there and Temi spends his limits only on steering and decisions. The gate and the work order stay as they were; only their mechanics change to fit what cloud sessions can do.
+
+**Consequence:**
+- The gate has the same trust gap D81 records: any session with write access could post a fake verdict comment, as it could post a status before. CLAUDE.md forbids it, and the status now links to the comment that set it.
+- Both Claude accounts act on GitHub as `AndySakov`, so GitHub alone can't tell their work apart; the claim comment's session link can.
+- When the build account's budget runs out, the orchestrator stops starting sessions, and Temi's watchdog (or Temi) reviews again.
+- When Jutin is back, frontend issues return to him one by one, as he takes them.
