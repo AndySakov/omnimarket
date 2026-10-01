@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package omnimarket.trade.v1;
+
+import "omnimarket/lineage/v1/lineage.proto";
+
+// One Swap on a tracked pool, on `trades.<chain>`, keyed by pool (#77, D97). Natural key:
+// (chain, block hash, log index). Caused by the chain event at the same key. A pure fact from
+// the log: no USD (the API adds it from the display price at the trade's block) and no
+// `tx.from` (an extra read per transaction).
+//
+// Unsigned integers are big-endian bytes without leading zeros, in the tokens' base units.
+message Trade {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  bytes pool = 3;
+  Venue venue = 4;
+  // The token traded, and the quote asset it traded against. The quote is the pool's token
+  // that comes first in the engine's quote-asset list; when neither is listed, the token is
+  // token0 and the quote is token1.
+  bytes token = 5;
+  bytes quote = 6;
+  Side side = 7;
+  bytes token_amount = 8;
+  bytes quote_amount = 9;
+  // The execution price: quote base units per token base unit, times 10^36, rounded down.
+  // Unset when the token amount is zero.
+  optional bytes price_e36 = 10;
+  // The Swap log's sender and recipient (v2's `to`). Not the trader: that's `tx.from`.
+  bytes sender = 11;
+  bytes recipient = 12;
+  bytes tx_hash = 13;
+  uint64 block_number = 14;
+  bytes block_hash = 15;
+  // Seconds since the Unix epoch, from the block header.
+  uint64 block_timestamp = 16;
+  uint64 log_index = 17;
+
+  enum Venue {
+    VENUE_UNSPECIFIED = 0;
+    VENUE_UNISWAP_V2 = 1;
+    VENUE_UNISWAP_V3 = 2;
+  }
+
+  enum Side {
+    SIDE_UNSPECIFIED = 0;
+    // The pool paid out the token: someone bought it with the quote asset.
+    SIDE_BUY = 1;
+    // The pool took the token in: someone sold it for the quote asset.
+    SIDE_SELL = 2;
+  }
+}

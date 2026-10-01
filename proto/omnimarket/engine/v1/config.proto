@@ -14,4 +14,7 @@ message EngineConfig {
   bytes v3_factory = 6;
   bytes v3_init_code_hash = 7;
   bytes v3_tick_lens = 8;
+  // The quote assets trade records are priced in, most preferred first (D97). Empty in
+  // recordings made before trade records: every trade is then token0 against token1.
+  repeated bytes quote_assets = 9;
 }

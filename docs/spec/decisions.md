@@ -2244,3 +2244,32 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Consequence:**
 - #78's server must serve the stream at `/v1/stream`, and #88's replay server the same API.
 - A screen built on the stream hooks gets its data states and resubscription for free; it only has to render the state.
+
+---
+
+## D97 — Trade records: one per Swap, quoted by a preference list, priced in base units
+
+**Date:** 2026-10-01 · **Status:** Decided (#77)
+
+**Decision:** The engine publishes every Swap on a tracked pool as a `omnimarket.trade.v1.Trade` on `trades.<chain>`, keyed by pool. A trade is the log's fact and nothing more:
+- **Token and quote.** The engine config carries a list of quote assets, most preferred first; Base's is USDC, USDT, WETH (the reference stablecoins, then the native token, D18). A pool's quote is whichever of its tokens comes first in the list, and the other is the token, so WETH/USDC is WETH against USDC. When neither is listed, the token is token0 and the quote token1. The list is part of the recorded config (D83), so a replay quotes the same way.
+- **Side and amounts** come from the pool's net change in each token: v3's signed `amount0` and `amount1`, and v2's `amountIn − amountOut` per token, which also nets a flash swap. The pool paying out the token is a buy; taking it in is a sell. A swap that moves none of the token is a buy if the quote went in, a sell otherwise. Amounts are unsigned, in base units.
+- **Price** is quote base units per token base unit, times 10^36, rounded down: the engine doesn't know decimals (token metadata is #76's), and the scale keeps a memecoin's tiny price significant. Unset when the token amount is zero.
+- **Keys and lineage.** Natural key (chain, block hash, log index), kind `trade`, caused by the chain event at the same key (D71). Block number, hash and timestamp, tx hash, and the log's sender and recipient go with it.
+- **Pools not yet tracked.** A v2 pair waiting for its CREATE2 proof, or a v3 pool whose state is being read, buffers its swaps (for v3, including those in the block of the read) and publishes them in order once the pool is tracked. If the proof or read fails, its buffered swaps are dropped and counted (`trades_dropped`); the pool is read again when it next trades. Fakes and forks publish nothing.
+- **Not in the record:** USD (the API adds it from the display price at the trade's block), and the trader, `tx.from`, which costs a read per block (`eth_getBlockByNumber` with full transactions) or per transaction **(verify)**. Left out for the demo.
+- The engine now also follows v2's `Swap` (the follower's topic list grows from seven to eight).
+
+**Rejected:**
+- *USD in the record.* It would make a fact depend on a price model, and a pricing fix would mean rewriting history instead of re-deriving it.
+- *A decimal price.* Needs token decimals the engine doesn't have, and a float isn't exact across languages.
+- *The deeper or older token as the quote.* Changes as liquidity moves, so the same pool's trades would flip sides over time; a fixed list doesn't.
+- *Dropping swaps on untracked pools until tracked.* A pool first seen trading would lose the very trades that put it on screen.
+- *Keeping buffered swaps across a failed read.* The pool's state restarts from a new read anyway; carrying a partial history across attempts adds a second buffer for a rare failure, and the count shows how rare.
+
+**Why:** The demo's live market (#64, #65) needs a trade tape and candles from the chain, and the API needs facts it can price and re-price without touching the engine.
+
+**Consequence:**
+- `trades.<chain>` replaces the planned `swaps.<chain>` topic (data.md).
+- Trades follow pool updates through reorgs: they share the block-hash key, so tiered undo (#40, D12) retracts a reorged-out block's trades with its pool updates. Base follows canonical blocks only (D77), so until then a reorg is only counted.
+- Recordings made before this have no quote-asset list and no v2 `Swap` logs; replaying one publishes only v3 trades, token0 against token1.
