@@ -212,30 +212,22 @@ fn the_shadow_check_compares_with_the_chain_at_the_same_block() {
         vec![sync(genuine(), 0, 10, 20)],
         vec![sync(genuine(), 0, 11, 19)],
         vec![],
+        vec![],
     ]);
     let mut node = node();
-    // The chain agrees at block 101 and disagrees at 102.
-    node.reserves.insert(
-        (genuine(), 101),
-        Reserves {
-            reserve0: 11,
-            reserve1: 19,
-        },
-    );
-    node.reserves.insert(
-        (genuine(), 102),
-        Reserves {
-            reserve0: 12,
-            reserve1: 18,
-        },
-    );
+    // The chain agrees at blocks 101 and 103 and disagrees at 102. Two agreements to one
+    // disagreement, so counting them the wrong way round shows.
+    for (block, reserve0, reserve1) in [(101, 11, 19), (102, 12, 18), (103, 11, 19)] {
+        node.reserves
+            .insert((genuine(), block), Reserves { reserve0, reserve1 });
+    }
     let config = EngineConfig {
         check_every: Some(1),
         ..EngineConfig::base()
     };
     let run = run(config, blocks, node);
     // Block 100's check finds no pair yet: the proof is still in flight.
-    assert_eq!(run.summary.stats.checks_passed, 1);
+    assert_eq!(run.summary.stats.checks_passed, 2);
     assert_eq!(run.summary.stats.checks_failed, 1);
 }
 
@@ -295,9 +287,30 @@ fn a_gap_stops_the_engine() {
 
 #[test]
 fn a_changed_parent_is_counted_as_a_reorg() {
-    let mut blocks = chain(vec![vec![], vec![], vec![]]);
+    // Normal parent links on both sides of the changed one, so only the changed one counts.
+    let mut blocks = chain(vec![vec![], vec![], vec![], vec![], vec![]]);
     blocks[2].1.parent_hash = B256::repeat_byte(0xee);
     let run = run(EngineConfig::base(), blocks, Node::default());
     assert_eq!(run.summary.stats.reorgs_detected, 1);
-    assert_eq!(run.summary.head, Some((102, hash(102))));
+    assert_eq!(run.summary.head, Some((104, hash(104))));
+}
+
+// Only the factory's PairCreated makes a pair known without its CREATE2 proof. The same event
+// from any other contract is ignored, even when it names a real pair.
+#[test]
+fn a_pair_created_log_from_another_contract_is_ignored() {
+    let mut forged = pair_created(TOKEN_A, TOKEN_B, genuine(), 0);
+    forged.address = FORGED;
+    let blocks = chain(vec![vec![forged, sync(genuine(), 1, 10, 20)], vec![]]);
+    let node = node();
+    let calls = node.calls.clone();
+    let run = run(EngineConfig::base(), blocks, node);
+    // Proven by its token0() and token1() before its first Sync is published.
+    assert_eq!(calls.get(), 1);
+    let seen: Vec<(Address, Option<PoolState>, PoolState)> = run
+        .updates
+        .iter()
+        .map(|u| (u.pool, u.before.clone(), u.after.clone()))
+        .collect();
+    assert_eq!(seen, vec![(genuine(), None, reserves(10, 20))]);
 }
