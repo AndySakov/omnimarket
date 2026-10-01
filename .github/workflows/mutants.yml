@@ -1,0 +1,88 @@
+name: Mutants
+
+# Mutation testing (D89). Not a required check: it reports which mutants of the code no test
+# catches, for the author and the watchdog to read.
+# - On a PR that touches Rust: only mutants in the PR's changed code, a fresh verdict.
+# - Nightly on main: every mutant not already caught. The ledger of caught mutants is cached
+#   per ISO week, so the first run each week tests everything again.
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/mutants.toml"
+      - "scripts/mutants.sh"
+      - ".github/workflows/mutants.yml"
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # --diff needs the merge base with the PR's base branch.
+          fetch-depth: 0
+      # Installs the toolchain pinned in rust-toolchain.toml.
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants@27.1.0
+      - id: keys
+        run: |
+          echo "toolchain=${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+          echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      # The workers' target dirs: a run rebuilds only what changed since the cached one.
+      - uses: actions/cache/restore@v4
+        with:
+          path: target/mutants/targets
+          key: mutants-targets-${{ steps.keys.outputs.toolchain }}-${{ github.run_id }}
+          restore-keys: mutants-targets-${{ steps.keys.outputs.toolchain }}-
+      - uses: actions/cache/restore@v4
+        if: github.event_name != 'pull_request'
+        with:
+          path: |
+            target/mutants/ledger.txt
+            target/mutants/ledger.from
+          key: mutants-ledger-${{ steps.keys.outputs.week }}-${{ github.run_id }}
+          restore-keys: mutants-ledger-${{ steps.keys.outputs.week }}-
+      - name: Mutants in this PR's changes
+        if: github.event_name == 'pull_request'
+        run: scripts/mutants.sh --diff "origin/${{ github.base_ref }}"
+      # Exit 2 means mutants were missed: that's the report, not a failed run.
+      - name: Mutants across the workspace
+        if: github.event_name != 'pull_request'
+        run: scripts/mutants.sh || [ $? -eq 2 ]
+      - name: Summary
+        if: always()
+        run: cat target/mutants/last/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants
+          path: |
+            target/mutants/last
+            target/mutants/runs/*.log
+          if-no-files-found: ignore
+      # Saved from main's runs only, even when mutants were missed, so the next run and every PR
+      # start warm. PRs restore it without saving, so they don't fill the repository's cache.
+      - uses: actions/cache/save@v4
+        if: always() && github.event_name != 'pull_request'
+        with:
+          path: target/mutants/targets
+          key: mutants-targets-${{ steps.keys.outputs.toolchain }}-${{ github.run_id }}
+      - uses: actions/cache/save@v4
+        if: always() && github.event_name != 'pull_request'
+        with:
+          path: |
+            target/mutants/ledger.txt
+            target/mutants/ledger.from
+          key: mutants-ledger-${{ steps.keys.outputs.week }}-${{ github.run_id }}

@@ -80,6 +80,8 @@ M0 creates the workspace and the commands. Until then there is nothing to run. O
 
 Run the real thing before claiming done, and say what you could not verify.
 
+Passing tests only show the code ran. To check that a change's tests would notice its code doing the wrong thing, run `scripts/mutants.sh --diff origin/main`: it lists the mutations of the changed code that no test catches (D89). CI's `mutants` workflow runs the same on every PR that touches Rust.
+
 ## When you change X, update Y
 
 | Change | Update in the same commit |
