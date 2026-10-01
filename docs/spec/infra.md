@@ -51,7 +51,7 @@ CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the l
 
 The hook runs `scripts/verify-fast.sh` (D86). A commit whose staged files are all under `web/terminal/` gets the frontend's fast checks (`npm run verify:fast`: typecheck, lint, unit tests). Every other commit runs `scripts/verify.sh`: any path outside `web/terminal/`, including `clippy.toml`, `.github/`, docs or a new top-level directory, gets the full checks. `verify.sh` doesn't touch the frontend, so a backend clone needs no Node or `node_modules`.
 
-CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
+CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, a check that the TypeScript generated from `proto/omnimarket/api` isn't stale (`npm run api:check`, D91), the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
 
 Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
 

@@ -1,0 +1,14 @@
+{
+  "lineage": {
+    "id": "kFvDUxxYw/iZkUMZW6h/cQ==",
+    "causedBy": [
+      "CTPltBe6roTliam9WkeaMg==",
+      "bqRXEQVJDUd2Je4IqBuNoA=="
+    ]
+  },
+  "orderId": "o_01h9demo0002",
+  "state": "STATE_FILLED",
+  "firingCount": "1",
+  "lastFiringId": "0x5d1c9e0b7a4f3e2d1c0b9a8f7e6d5c4b3a291807f6e5d4c3b2a1908f7e6d5c4b",
+  "updatedAtMs": "1790000600400"
+}

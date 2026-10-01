@@ -1,0 +1,7 @@
+{
+  "clientRequestId": "c-quote-0001",
+  "chainId": "8453",
+  "tokenIn": "0x4200000000000000000000000000000000000006",
+  "tokenOut": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+  "amountIn": "0.1"
+}

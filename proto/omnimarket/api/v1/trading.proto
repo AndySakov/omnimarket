@@ -1,0 +1,229 @@
+syntax = "proto3";
+
+package omnimarket.api.v1;
+
+import "omnimarket/api/v1/common.proto";
+import "omnimarket/lineage/v1/lineage.proto";
+
+// `POST /v1/quotes` (#83).
+message QuoteRequest {
+  // Chosen by the client; a repeat with the same ID gets the same quote.
+  string client_request_id = 1;
+  uint64 chain_id = 2;
+  string token_in = 3;
+  string token_out = 4;
+  // Exact amount in, in whole-token units.
+  string amount_in = 5;
+  // Unset: the situation default (D27), returned with its reason.
+  optional uint32 slippage_bps = 6;
+}
+
+// A quote from in-memory pool state (#83). Never executed as shown: the trade is re-quoted at
+// send time (D27). Re-quotes arrive on the `account` topic with a new quote ID.
+message Quote {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string quote_id = 2;
+  string client_request_id = 3;
+  uint64 chain_id = 4;
+  uint64 block_number = 5;
+  uint64 expires_at_ms = 6;
+  TokenRef token_in = 7;
+  TokenRef token_out = 8;
+  string amount_in = 9;
+  // Expected output after our fee.
+  string amount_out = 10;
+  // amount_out × (1 − slippage).
+  string min_amount_out = 11;
+  // Against the display price, in percent.
+  string price_impact_pct = 12;
+  // Execution price: token_out per token_in.
+  string price = 13;
+  Fee fee = 14;
+  Slippage slippage = 15;
+  // In route order; two at most in the demo (one pool, or two hops through WETH or USDC).
+  repeated RouteLeg route = 16;
+  // Gas the executor is expected to pay, in the chain's native token, and in USD (D42).
+  string gas_estimate_native = 17;
+  string gas_estimate_usd = 18;
+  // The intent to sign (D59), as EIP-712 typed data in JSON, ready for `eth_signTypedData_v4`.
+  // Set for a Privy account (D57); empty for a guest, whose intent the server signs.
+  string intent_typed_data = 19;
+}
+
+// The slippage applied and why (D27), e.g. 1500 and "new pair: 15%".
+message Slippage {
+  uint32 bps = 1;
+  string reason = 2;
+  // True when the user set it rather than the situation default.
+  bool user_set = 3;
+}
+
+// `POST /v1/trades` (#84). The response is the first `TradeStatus`; later ones arrive on the
+// `account` topic.
+message TradeRequest {
+  // Chosen by the client; a retry with the same ID never makes a second trade (build rule 7).
+  string client_request_id = 1;
+  string quote_id = 2;
+  // A Privy user's EIP-712 signature over the intent (D57), 0x hex. Empty for a guest account,
+  // whose intent the server's local signer signs, in shadow mode only.
+  string intent_signature = 3;
+}
+
+// The steps of a trade, in order.
+enum TradeStep {
+  TRADE_STEP_UNSPECIFIED = 0;
+  // Re-quote at send time (D27).
+  TRADE_STEP_QUOTE = 1;
+  // Build the intent (D59).
+  TRADE_STEP_BUILD = 2;
+  TRADE_STEP_SIGN = 3;
+  TRADE_STEP_SIMULATE = 4;
+  // Shadow mode stops here instead of broadcasting (D5).
+  TRADE_STEP_STOP_BEFORE_BROADCAST = 5;
+  TRADE_STEP_BROADCAST = 6;
+  TRADE_STEP_LAND = 7;
+}
+
+// One step's timing. Times are the server's, from the det clock.
+message TradeStepTiming {
+  TradeStep step = 1;
+  uint64 started_at_ms = 2;
+  // Unset while the step runs.
+  uint64 finished_at_ms = 3;
+  Outcome outcome = 4;
+  // Why it failed, or a note such as "simulated in memory".
+  string detail = 5;
+
+  enum Outcome {
+    // Still running.
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_SUCCEEDED = 1;
+    OUTCOME_FAILED = 2;
+  }
+}
+
+// A trade's progress (#84), on the `account` topic. Each update carries every step so far.
+message TradeStatus {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string trade_id = 2;
+  string client_request_id = 3;
+  string account_id = 4;
+  ExecutionMode mode = 5;
+  State state = 6;
+  repeated TradeStepTiming steps = 7;
+  // Set when the trade came from a trigger order's firing (D35).
+  string firing_id = 8;
+
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_RUNNING = 1;
+    // Shadow: simulated and stopped before broadcast. A `TradeReceipt` follows.
+    STATE_SIMULATED = 2;
+    STATE_LANDED = 3;
+    STATE_FAILED = 4;
+  }
+}
+
+// The receipt for a finished trade (#84). `GET /v1/trades/{trade_id}/receipt`.
+message TradeReceipt {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string trade_id = 2;
+  string account_id = 3;
+  ExecutionMode mode = 4;
+  string quote_id = 5;
+  // The EIP-712 intent's hash; the trade's natural key (D71).
+  string intent_hash = 6;
+  // True while intents use the placeholder EIP-712 domain, before the router is deployed (M3).
+  bool demo_intent = 7;
+  uint64 chain_id = 8;
+  TokenRef token_in = 9;
+  TokenRef token_out = 10;
+  string amount_in = 11;
+  // Simulated output in shadow mode; landed output in live mode.
+  string amount_out = 12;
+  // The signed minimum, and the tighter one the submitter passed (D59).
+  string signed_min_amount_out = 13;
+  string min_amount_out = 14;
+  Fee fee = 15;
+  repeated RouteLeg route = 16;
+  string gas_estimate_native = 17;
+  string gas_estimate_usd = 18;
+  // The block the simulation ran against, or the trade landed in.
+  uint64 block_number = 19;
+  // Empty in shadow mode: nothing was broadcast.
+  string tx_hash = 20;
+  // True when the simulation fell back to in-memory state (#84).
+  bool simulated_in_memory = 21;
+  repeated TradeStepTiming steps = 22;
+  // From the first step's start to the last step's finish.
+  uint64 total_ms = 23;
+  string firing_id = 24;
+}
+
+// A demo account (#85). `POST /v1/session` creates a guest one; `GET /v1/account` reads it. The
+// `account` topic's snapshot is an `AccountSnapshot`.
+message Account {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string account_id = 2;
+  Kind kind = 3;
+  // A Privy user's embedded wallet; empty for a guest.
+  string wallet_address = 4;
+  ExecutionMode mode = 5;
+  // Shadow balances in shadow mode: never real funds.
+  repeated Balance balances = 6;
+  uint64 created_at_ms = 7;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_GUEST = 1;
+    KIND_PRIVY = 2;
+  }
+}
+
+message Balance {
+  TokenRef token = 1;
+  string amount = 2;
+  string value_usd = 3;
+}
+
+// A holding built from the account's fills (#85), marked to the display price (D18).
+message Position {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string account_id = 2;
+  TokenRef token = 3;
+  ExecutionMode mode = 4;
+  string amount = 5;
+  // Average entry price, and what the current amount cost.
+  string average_entry_price_usd = 6;
+  string cost_basis_usd = 7;
+  string mark_price_usd = 8;
+  string value_usd = 9;
+  string unrealized_pnl_usd = 10;
+  string unrealized_pnl_pct = 11;
+  string realized_pnl_usd = 12;
+  uint64 opened_at_ms = 13;
+  uint64 updated_at_ms = 14;
+  // Zero amount: closed, kept for realised PnL and history.
+  bool closed = 15;
+}
+
+// `GET /v1/positions`.
+message PositionList {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  repeated Position positions = 2;
+}
+
+// `GET /v1/history`: the account's finished trades, newest first.
+message TradeHistory {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  repeated TradeReceipt receipts = 2;
+}
+
+// `POST /v1/session`'s response (#85): a guest account, or one linked to a Privy login. Later
+// requests send `session_token` as a bearer token.
+message Session {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string session_token = 2;
+  uint64 expires_at_ms = 3;
+  Account account = 4;
+}

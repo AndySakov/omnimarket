@@ -1,0 +1,16 @@
+{
+  "address": "0x1f2e3d4c5b6a79880716253443526170f0e1d2c3",
+  "venue": "uniswap-v3",
+  "poolFeeBps": 30,
+  "quoteToken": {
+    "chainId": "8453",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "decimals": 18
+  },
+  "priceUsd": "0.01241",
+  "depthUsd": "171900.25",
+  "active": true,
+  "createdBlock": "36120240"
+}

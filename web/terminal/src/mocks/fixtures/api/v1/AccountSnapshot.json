@@ -1,0 +1,162 @@
+{
+  "lineage": {
+    "id": "XbOLCoO/OeaIeU9cazft1g==",
+    "causedBy": [
+      "q5nvo3/6DCG132T3ntrHHQ=="
+    ]
+  },
+  "account": {
+    "lineage": {
+      "id": "q5nvo3/6DCG132T3ntrHHQ==",
+      "causedBy": [
+        "Uu0jtXIEV7m2u2UGfp80Vg=="
+      ]
+    },
+    "accountId": "acct_guest_7f3a",
+    "kind": "KIND_GUEST",
+    "mode": "EXECUTION_MODE_SHADOW",
+    "balances": [
+      {
+        "token": {
+          "chainId": "8453",
+          "address": "0x0000000000000000000000000000000000000000",
+          "symbol": "ETH",
+          "name": "Ether",
+          "decimals": 18
+        },
+        "amount": "0.9",
+        "valueUsd": "2250"
+      },
+      {
+        "token": {
+          "chainId": "8453",
+          "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+          "symbol": "USDC",
+          "name": "USD Coin",
+          "decimals": 6
+        },
+        "amount": "1000",
+        "valueUsd": "1000"
+      },
+      {
+        "token": {
+          "chainId": "8453",
+          "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+          "symbol": "NOVA",
+          "name": "NovaSet (fixture)",
+          "decimals": 18
+        },
+        "amount": "19871.2034",
+        "valueUsd": "246.40292216"
+      }
+    ],
+    "createdAtMs": "1789999900000"
+  },
+  "positions": [
+    {
+      "lineage": {
+        "id": "sl7LUuAmumQWEd/TPgD/xA==",
+        "causedBy": [
+          "i6LIqkjNo0Z9cArgH1b7tA==",
+          "pJ8Wy4P5p8Rn14UKDDFbXw=="
+        ]
+      },
+      "accountId": "acct_guest_7f3a",
+      "token": {
+        "chainId": "8453",
+        "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "symbol": "NOVA",
+        "name": "NovaSet (fixture)",
+        "decimals": 18
+      },
+      "mode": "EXECUTION_MODE_SHADOW",
+      "amount": "19871.2034",
+      "averageEntryPriceUsd": "0.0125810196",
+      "costBasisUsd": "250",
+      "markPriceUsd": "0.0124",
+      "valueUsd": "246.40292216",
+      "unrealizedPnlUsd": "-3.59707784",
+      "unrealizedPnlPct": "-1.438831136",
+      "openedAtMs": "1790000001151",
+      "updatedAtMs": "1790000000000"
+    }
+  ],
+  "orders": [
+    {
+      "lineage": {
+        "id": "H/vEI2U3eqlgwdBcVmR6Fg==",
+        "causedBy": [
+          "QNWaxCL9TPkFGGNZuzbSfw=="
+        ]
+      },
+      "orderId": "o_01h9demo0001",
+      "accountId": "acct_guest_7f3a",
+      "token": {
+        "chainId": "8453",
+        "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "symbol": "NOVA",
+        "name": "NovaSet (fixture)",
+        "decimals": 18
+      },
+      "kind": "ORDER_KIND_STOP_LOSS",
+      "mode": "EXECUTION_MODE_SHADOW",
+      "level": {
+        "pctFromEntry": "-3"
+      },
+      "levelPriceUsd": "0.012203589012",
+      "sellPct": "100",
+      "exitGuarantee": true,
+      "createdAtMs": "1790000002000",
+      "status": {
+        "lineage": {
+          "id": "pCyWW4JpsG7g2ujXJ2bhhg==",
+          "causedBy": [
+            "QNWaxCL9TPkFGGNZuzbSfw=="
+          ]
+        },
+        "orderId": "o_01h9demo0001",
+        "state": "STATE_OPEN",
+        "updatedAtMs": "1790000002000"
+      }
+    },
+    {
+      "lineage": {
+        "id": "9cRaxqTy7rdY0C/Mfv5zEg==",
+        "causedBy": [
+          "EmEhzZP/DrugVFZeD6+1YA=="
+        ]
+      },
+      "orderId": "o_01h9demo0002",
+      "accountId": "acct_guest_7f3a",
+      "token": {
+        "chainId": "8453",
+        "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "symbol": "NOVA",
+        "name": "NovaSet (fixture)",
+        "decimals": 18
+      },
+      "kind": "ORDER_KIND_TAKE_PROFIT",
+      "mode": "EXECUTION_MODE_SHADOW",
+      "level": {
+        "pctFromEntry": "10"
+      },
+      "levelPriceUsd": "0.01383912156",
+      "sellPct": "100",
+      "createdAtMs": "1790000002000",
+      "status": {
+        "lineage": {
+          "id": "kFvDUxxYw/iZkUMZW6h/cQ==",
+          "causedBy": [
+            "CTPltBe6roTliam9WkeaMg==",
+            "bqRXEQVJDUd2Je4IqBuNoA=="
+          ]
+        },
+        "orderId": "o_01h9demo0002",
+        "state": "STATE_FILLED",
+        "firingCount": "1",
+        "lastFiringId": "0x5d1c9e0b7a4f3e2d1c0b9a8f7e6d5c4b3a291807f6e5d4c3b2a1908f7e6d5c4b",
+        "updatedAtMs": "1790000600400"
+      }
+    }
+  ]
+}
