@@ -2217,6 +2217,36 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
+## D94 — The terminal's data layer: one client for fixtures, replay and live
+
+**Date:** 2026-10-01 · **Status:** Decided (#63)
+
+**Decision:** The terminal (`web/terminal`) reads all its data through one REST client and one WebSocket stream manager, both on the generated contract types (D91). A build-time env variable, `VITE_DATA_SOURCE`, picks the source: `fixtures` (the default), `replay` or `live`; replay and live also take `VITE_API_URL`. Nothing else changes between sources.
+- **Fixtures run through MSW**, in the browser, for REST and the WebSocket alike. The fixture stream answers each subscribe with the D91 fixture as its snapshot, then sends a heartbeat every second and deterministic price ticks on token topics. So the client code that runs offline is the code that runs live.
+- **The stream is at `/v1/stream`** on the API's host (`ws://` or `wss://`), unless `VITE_WS_URL` says otherwise.
+- **Visible topics only.** Components subscribe while mounted; the manager reference-counts topics and unsubscribes when the last one unmounts, dropping the topic's data.
+- **Sequencing.** A delta before its topic's snapshot, or at or below the last applied `seq`, is dropped. A delta more than one ahead is a gap: the topic's data is discarded and the topic resubscribed (unsubscribe, then subscribe).
+- **Drops.** On a close the manager reconnects with backoff (500 ms, doubling to 10 s; no jitter, as each browser tab holds one connection) and resubscribes every wanted topic. Data stays on screen labelled *reconnecting* until each new snapshot replaces it. After five failed attempts in a row the connection shows *unavailable*, and it keeps retrying. An attempt counts as working once the server sends its first message, not when the socket opens, so a server that accepts and closes at once still escalates; a socket the browser refuses to create counts as a failure too.
+- **Heartbeats.** Three seconds without one marks the connection *stale*; the next one clears it. Ten seconds without one counts as a dead connection: it is closed and replaced.
+- **Data states.** Every streamed region shows one of loading, live, stale, reconnecting or unavailable, derived from the connection and the topic. A `StreamError` for a topic makes it unavailable and drops its data.
+- **Rendering.** One Zustand store, with each topic's data in its own slice keyed by the topic string. Hooks select their own slice, so a tick on one token rerenders only that token's components.
+- **The header** shows Live or Replay from the engine's own mode on the `status` topic (the env's source until it arrives), Fixtures in fixture mode whatever the fixture says, and Connecting, Stale, Reconnecting or Unavailable otherwise.
+
+**Rejected:**
+- *A separate mock client for fixture mode.* Two code paths, and the one the demo runs offline wouldn't be the one it runs live.
+- *A mock server process for fixtures.* A second process to start, and it doesn't work in Storybook or on static hosting (#73).
+- *Choosing the source at runtime (a URL parameter or a toggle).* A shared demo link could then show sample data as if it were live. The source is fixed per build, and the header always names it.
+- *Blanking data on every drop.* A brief blip would empty every screen. Keeping the old numbers, labelled reconnecting, is more useful as long as the label is there; a gap or a topic error does blank, because there the data is known to be wrong.
+- *Waiting out a seq gap for the missing delta.* The WebSocket is ordered, so a gap means a lost message, not a late one.
+
+**Why:** The demo has to run before the API server (#78) and replay (#88) exist, and switch to them without code changes. Labelling every region's data state is what lets the UI keep showing numbers through a reconnect without passing old ones off as current.
+
+**Consequence:**
+- #78's server must serve the stream at `/v1/stream`, and #88's replay server the same API.
+- A screen built on the stream hooks gets its data states and resubscription for free; it only has to render the state.
+
+---
+
 ## D95 — Every acceptance criterion names the test that proves it, and CI checks it passed
 
 **Date:** 2026-10-01 · **Status:** Decided (process; #98)
@@ -2243,3 +2273,4 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Rewording a criterion in the issue after the PR is open fails the job until the row is updated.
 - Contract tests (`forge test`) aren't read yet: `contracts/` doesn't exist. When it does, its output needs adding to the job.
 - Whether `actions/download-artifact` finds the earlier attempt's test results when only the `criteria` job is re-run is **(verify)**. If it doesn't, re-run the whole workflow after editing the body.
+
