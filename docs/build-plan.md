@@ -61,21 +61,21 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 | # | Milestone | Scope | Demo |
 |---|---|---|---|
 | **M0** | Foundations | `proto/`, `types`, `det` and `sim` crates only (D70); CI on GitHub Actions (D76); `det` runtime (real, recorded, simulated); local stack (compose + Anvil); observability skeleton (lineage, traces); Base **measurement tasks** (below) | CI green; a simulated-clock test replays identically |
-| **M1** | Base indexer | Canonical blocks via `newHeads` + `getLogs` (D77), reconciler, reorg handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
+| **M1** | Base indexer | Canonical blocks via `newHeads` + `getLogs` (D77), gap fill and reorg detection in the follower and core (no separate reconciler, D84), reorg handling, tiered undo, bootstrap with batched reads, v2/v3 pools, input recorder | Live Base pool state; a recorded hour replays exactly |
 | **M2** | Pricing + feeds | Display price, USD conversion, candle service, discovery and token WebSocket feeds, API contract v0 + **mock server for Jutin** | Thin UI shows live Base prices, candles and new pools |
 | **M3** | Router contract | Intents (Permit2 witness), submitter field, D59 terms, fee and gas caps; Foundry fuzz + invariants, Slither, Aderyn | Invariant suite green; router deployed on a Base fork |
 | **M4** | Routing + quotes | Single, 2-hop, split; cues; quote API; shadow check vs simulation | Quotes ≤ 10ms p99; shadow mismatch dashboard |
 | **M5** | Execution (skeleton complete) | Executor pool, nonce ledger, blocking simulation, submission, tracking, user-session signing via Privy | Manual buy → landed trade in shadow; **first real-funds trade on Base** |
 | **M6** | Triggers | Order catalogue core (limit, TP/SL, multi-level TP, trailing, auto-sell), exactly-once firing, exit guarantee | Stop-loss cascade scenario (D48 #3) in shadow |
 | **M7** | Safety | Four safety layers (simulation, inspection, liquidity, behaviour), safety evidence in UI | Honeypot blocked in shadow; safety evidence shown |
-| **M8** | BNB (launch beachhead, D64) | PancakeSwap v2/v3/Infinity, four.meme curves + migration, private builder fan-out, execution-quality report (D65) | New four.meme token → buy → graduation → sell, in shadow; sandwiches avoided shown in the report |
+| **M8** | BNB (D64) | PancakeSwap v2/v3/Infinity, four.meme curves + migration, private builder fan-out, execution-quality report (D65) | New four.meme token → buy → graduation → sell, in shadow; sandwiches avoided shown in the report |
 | **M9** | Base depth | v4 hooks + launchpad hook pools (Clanker, Zora, Flaunch), Aerodrome | Launch-fee decay quoted exactly in shadow |
 | **M10** | Copy trading + event orders | Copy trading, dev-sell, migration, scheduled orders | Copy fan-out scenario (D48 #4) |
 | **M11** | Chain onboarding kit + MegaETH (D67, D69) | Chain adapter kit and checklist; MegaETH (Realtime API, Kumbaya simulated until verified, Algebra) as its first use | MegaETH onboarded through the kit; firehose replay at 5× |
 | **M12** | Hardening | Engine + execution failover, brakes, independent watcher, audit-log anchoring, chaos fuzz in CI, full load suite, security pass | Failover under load with zero duplicate or missed firings |
-| **M13** | Launch readiness | GCP production, SLOs and alerts, runbooks, public status page, audit contest / bug bounty, fees + referral tiers (D68) | Production canaries green; BNB launch first |
+| **M13** | Production readiness (D85) | GCP production layout, SLOs and alerts, runbooks, public status page | Production canaries green on BNB and Base |
 
-*(Order revised by D64 and D69 after the market research in [market.md](market.md): BNB moves ahead of Base depth, MegaETH moves behind copy trading.)*
+*(Order revised by D64 and D69 after the research in [market.md](market.md): BNB moves ahead of Base depth, MegaETH moves behind copy trading. M13 trimmed by D85: this is a proof of concept, so nothing launches.)*
 
 **Frontend track (parallel, Jutin):** starts at M2 against the mock server; switches to the real API per milestone.
 
@@ -102,7 +102,7 @@ Relative size of each stretch of milestones, for one backend developer with the 
 | M0–M5 (walking skeleton on Base, first real trade) | 6–8 weeks |
 | M6–M7 (triggers, safety) | 4–5 weeks |
 | M8–M11 (BNB, Base depth, copy trading, MegaETH) | 6–8 weeks |
-| M12–M13 (hardening, launch) | 4–6 weeks |
-| **Total** | **~5–6 months** |
+| M12–M13 (hardening, production readiness) | 3–5 weeks |
+| **Total** | **~5 months** |
 
 Rough relative sizes only, before AI assistance; no dates are committed (D63). The walking skeleton (M5) is the first point where the project is demoable end to end.

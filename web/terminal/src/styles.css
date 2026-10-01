@@ -1,3 +1,7 @@
+/* Bundled fonts, so every machine (and Storybook) renders the same text and the visual baselines hold. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
 :root {
   color: #f4f6fb;
   background: #080a0f;
@@ -173,7 +177,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
 .icon-button:hover { color: var(--omni-text); }
 .wallet-menu { height: 39px; gap: 9px; padding: 0 9px 0 6px; border-color: var(--omni-border); border-radius: 9px; text-align: left; }
 .wallet-avatar { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #2a374d; color: #dbe3ff; font-size: var(--omni-type-badge); font-weight: 780; }
-.wallet-menu__details { display: grid; gap: 1px; }
+.wallet-menu__details { display: grid; gap: 1px; white-space: nowrap; }
 .wallet-menu__address { color: var(--omni-text); font-family: var(--omni-font-data); font-size: var(--omni-type-caption); }
 .wallet-menu__balance { color: var(--omni-text-muted); font-family: var(--omni-font-data); font-size: var(--omni-type-badge); }
 

@@ -11,4 +11,7 @@ message EngineConfig {
   // Unset: no shadow state check.
   optional uint64 check_every = 4;
   uint64 check_sample = 5;
+  bytes v3_factory = 6;
+  bytes v3_init_code_hash = 7;
+  bytes v3_tick_lens = 8;
 }

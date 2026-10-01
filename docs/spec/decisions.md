@@ -20,7 +20,7 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D2 — Chains: MegaETH, Base, BNB Chain
 
-*(Amended by D64 and D69: BNB is the launch beachhead; MegaETH is deprioritised until it has real volume.)*
+*(Amended by D64 and D69: BNB is the second chain, ahead of Base depth; MegaETH is deprioritised until it has real volume.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -162,6 +162,8 @@ Framing: OmniMarket is built and presented as a startup attempt in the space (pu
 
 ## D10 — Tip following: fastest stream per chain + canonical block reconciler
 
+*(Amended by D84: chains followed by canonical blocks (Base, BNB) have no separate reconciler loop.)*
+
 *(Amended by D16 and the verification pass: Base's fast loop uses a Flashblocks tick + pending `getLogs`; BNB uses `newHeads` + `getLogs`.)*
 
 *(Amended by D77: Base follows canonical blocks only, like BNB. No Flashblocks feed.)*
@@ -236,6 +238,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 ---
 
 ## D13 — Bootstrap reads are batched
+
+*(Note from M1: v2 pairs need no state read at all, since `Sync` carries full reserves; their batched read is `token0`/`token1` for the CREATE2 proof (D80). See `indexer.md`.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (implementation deferred)
 
@@ -599,7 +603,7 @@ The risk penalty is set by cues inferred from the order, the market, the pools, 
 
 ## D28 — Fees: Trojan's 1%, taken in the native/quote asset
 
-*(Amended by D68: referral tiers and cashback from launch.)*
+*(Amended by D68, then D85: the per-trade fee stays; referral tiers and cashback are out of scope.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1243,6 +1247,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D51 — Production cloud: Google Cloud, funded by credits via the Web3 startup program
 
+*(Amended by D85: no grant applications. Production on Google Cloud stays the plan, on the Start tier only.)*
+
 *(Amended by D75: RustFS replaces MinIO in dev and staging.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
@@ -1396,6 +1402,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 ## D57 — Security model: shrink every key's power, user-session signing when present
 
+*(Amended by D85: no audit contest or bug bounty for the router; there are no user funds.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D42, D46)
 
 **Decision:**
@@ -1515,7 +1523,7 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
 
-*(Amended by D70: M0 scope trimmed.)*
+*(Amended by D70: M0 scope trimmed. Amended by D85: the last milestone is production readiness, not launch.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1530,6 +1538,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ---
 
 ## D64 — Build on Base, launch on BNB
+
+*(Amended by D85: nothing launches. BNB keeps its place in the build order as the chain where EVM memecoin trading and sandwiching happen.)*
 
 **Date:** 2026-09-29 · **Status:** Decided (from [market.md](../market.md); amends D2, D63)
 
@@ -1560,7 +1570,7 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 **Decision:** No internal tool shows which wallets belong to which user by default. Any lookup of an identity ↔ wallet mapping requires a stated reason and is written to the public, on-chain-anchored audit log (D55), with the user's pseudonymous ID and the reason (never the wallets themselves). Aggregate analytics never expose per-user wallet sets.
 
 **Rejected:**
-- *Internal access controls without public logging.* Exactly what failed at Axiom (Feb 2026 allegations).
+- *Internal access controls without public logging.* The control at issue in the Feb 2026 insider-tracking allegations against a major terminal ([market.md](../market.md)).
 
 **Why:** Makes "we can't quietly track your wallets" a verifiable property, not a promise.
 
@@ -1579,6 +1589,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ---
 
 ## D68 — Fees: 1% headline with referral tiers and cashback
+
+*(Superseded by D85: referral tiers and cashback are out of scope. D28's per-trade fee stays.)*
 
 **Date:** 2026-09-29 · **Status:** Decided (amends D28)
 
@@ -1648,6 +1660,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ---
 
 ## D72 — det runtime in M0: four traits, lint-enforced, recorded to Kafka
+
+*(Amended by D83: every input log starts with the core's configuration.)*
 
 **Date:** 2026-09-29 · **Status:** Decided, except sync vs async (from the M0 grilling session; builds on D49, D54, D70)
 
@@ -1821,6 +1835,8 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D80 — On free RPC, Base is followed by polling, and pools are discovered as they appear or trade
 
+*(Amended by D82: `eth_call`s go to PublicNode's free endpoint. Amended by D88: a block endpoint that can't answer stops the run with an error naming `--rpc`.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (from building M1, #37; dev and staging only, D17)
 
 **Decision:**
@@ -1858,3 +1874,172 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 **Consequence:**
 - When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
 - GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**
+
+---
+
+## D82 — On free RPC, the engine's eth_calls go to PublicNode
+
+*(Amended by D88: an outage such as PublicNode's `-32701` is retried rather than taken as the call's answer, and a call endpoint that can't answer stops `engine follow` with an error naming `--call-rpc`.)*
+
+**Date:** 2026-09-30 · **Status:** Decided (from building v3 pools, #39; dev and staging only, D17; amends D80)
+
+**Decision:** In dev and staging, the engine reads blocks and logs from Base's public endpoint (D80) but sends its `eth_call`s (pool proofs, bootstrap reads, shadow checks) to PublicNode's free Base endpoint, `base-rpc.publicnode.com`, which needs no signup. The call worker also starts at most 5 calls a second, keeps at most 8 in flight, and retries rate-limit errors instead of passing them to the core as answers.
+
+**Found while building:** Base's endpoint allows about 20 `eth_call`s per 30 seconds per client, whatever the call's size: a 20-call and a 500-call multicall each got exactly 20 through per window. Plain requests aren't limited at 10 a second. A live run bootstrapping v3 pools spent more time waiting out rate limits than reading. It answers a rate limit with HTTP 429 and a JSON-RPC error body, which a client reads as the call's answer unless it checks.
+
+**Rejected:**
+- *Stay on Base's endpoint with bigger batches and a 0.6/s pace.* Bootstraps would lag minutes behind the chain on a busy stretch.
+- *Read bootstrap state at whatever block a merged call runs at, to merge more.* Workable, but a bigger change to the core to work around one endpoint.
+- *A keyed free tier.* Needs a signup (free-only rule: ask first); unnecessary while PublicNode works.
+
+**Why:** PublicNode took 500-call and 2,000-call multicalls at 2 to 5 a second without one rate limit (measured 2026-09-30, verification.md). The engine reads state seconds after its block, well inside the ~90 blocks of state PublicNode keeps.
+
+**Consequence:**
+- PublicNode refuses reads more than ~90 blocks back ("archive requests require a personal token"). The core sees that as a failed call and rediscovers the pool on its next event, so a long stall costs re-reads, not correctness.
+- Production uses our own node and the paid provider (D16, D44); `--rpc` and `--call-rpc` point anywhere.
+
+---
+
+## D83 — Every input log starts with the core's configuration
+
+**Date:** 2026-09-30 · **Status:** Decided (amends D72; from building v2 pools, #38, recorded after review in #48)
+
+**Decision:** The first record of every input log is the core's configuration, as its own source (`Source::Config`, `INPUT_SOURCE_CONFIG`), in the core's proto config schema (the engine's is `omnimarket.engine.v1.EngineConfig`). Recording wrappers never write it; the binary does, once, before the core runs (`Recorder::record_config`). Replay takes it first (`Replay::config`) and builds the core from it, so a recording replays from the log alone.
+
+**Found while building:** a live run with shadow checks on (`--check-every 5`) replayed under the default config diverged at the first recorded check answer: a core with different config issues different calls. D54 already asks for the config version on every decision record; the input log needs the config itself, since replay rebuilds the core.
+
+**Rejected:**
+- *Config passed on the replay command line.* A replay then depends on someone remembering the flags of a run days old, and a wrong flag looks like a determinism bug.
+- *A config version or hash only.* Enough to detect a mismatch, not to rebuild the core; it needs a config store keyed by version, which doesn't exist yet.
+- *Config as an event from the `EventSource`.* It isn't something the core waits for, and it must be there before the core starts.
+
+**Why:** Replay has to reproduce the core exactly, and config is one of its inputs.
+
+**Consequence:**
+- Every binary that records a core records its config first; `engine replay` refuses a recording that doesn't start with one.
+- Changing a config schema needs the same compatibility care as any recorded payload (`buf breaking` covers it).
+
+---
+
+## D84 — No separate reconciler on chains followed by canonical blocks
+
+**Date:** 2026-09-30 · **Status:** Decided by Temi (amends D10; answers #50)
+
+**Decision:** Base, and BNB when it lands, have no reconciler loop. Their one follower delivers canonical blocks, and the reconciler's jobs are done where they already happen:
+- **Confirming provisional events, catching dropped preconfirmations:** nothing is provisional (D77).
+- **Filling gaps:** the head follower fetches every skipped block by number, in order, and retries failures without skipping (D80).
+- **Detecting reorgs:** the core compares each block's parent hash with the head it holds; tiered undo walks back, undoes and emits corrections (D12).
+
+MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional.
+
+**Rejected:**
+- *A trailing `getLogs` re-read per block anyway.* It would catch a node that silently leaves logs out of an answer, but doubles the log requests for a failure not yet seen. The shadow state check (`--check-every`) already catches its effect on tracked pools; if it ever fires, a trailing re-read is the fix to add.
+- *Keep the reconciler in the M1 scope as written.* It would be a loop with nothing to do.
+
+**Why:** D10 split tip following into a fast provisional loop and a canonical reconciler. With D77 the fast loop is canonical on Base, so the split collapses into one loop.
+
+**Consequence:** The build plan's M1 scope and `indexer.md` drop the Base reconciler. The history job (D15) reuses the head follower's per-block `getLogs` loop on these chains instead of a reconciler's. A shadow-check mismatch on a live run is the trigger to revisit.
+
+---
+
+## D85 — OmniMarket is a proof of concept, not a commercial launch
+
+**Date:** 2026-09-30 · **Status:** Decided (amends D28, D51, D63, D64; supersedes D68)
+
+**Decision:** OmniMarket is a proof of concept: it shows how the backend of a Solana-first terminal like Trojan could run on EVM chains. It uses Trojan's product (order types, fee model, wallet stack) as its reference spec. It has no users, no token, no fundraising and no launch.
+- **M13 becomes production readiness:** GCP production layout, SLOs and alerts, runbooks. The audit contest, bug bounty, public launch and fee and referral tiers are dropped.
+- **Fees:** the router still takes D28's per-trade fee, because the reference product charges one and the contract design has to carry it. Referral tiers and cashback (D68) are out of scope.
+- **No grant applications** (D51). Anything beyond free tiers is Temi's call when it comes up.
+- **Real-funds demos stay** (D5): about $50 per chain, recorded, to prove the path end to end.
+- `docs/market.md` is kept as research into where EVM trading happens and what goes wrong there, not as positioning.
+
+**Rejected:**
+- *Keep the launch plan.* A launch needs distribution, legal and support work that proves nothing about the engineering, and it would compete with the product the project is modelled on.
+- *Drop the fee from the router.* The fee is part of what a production router has to get right (taken in the same transaction, in the native or quote asset), so leaving it out would make the proof weaker.
+
+**Why:** The project's job is to show how its author designs and builds trading infrastructure. Scope that only matters for a commercial product costs time and says nothing about that.
+
+**Consequence:** build-plan.md's M13 and relative-effort table, highlights.md, frontend.md, infra.md, market.md, routing.md (no referral rate), security.md and D57 (no audit contest or bug bounty) are updated to match.
+
+---
+
+## D86 — The commit gate splits by path, and fails closed
+
+**Date:** 2026-09-30 · **Status:** Decided (process; from the terminal foundation, #56)
+
+**Decision:** The git pre-commit hook runs `scripts/verify-fast.sh`. A commit whose staged files are all under `web/terminal/` runs the frontend's fast checks (`npm run verify:fast`: typecheck, lint, unit tests). Every other commit, an empty one included, runs `scripts/verify.sh` as before. `verify.sh` stays backend-only (Rust, contracts, proto) and needs no Node. CI runs the frontend's full checks (`npm run verify:pr`) in its own `frontend` job, beside `verify`.
+
+**Found while reviewing:** #56's first version added the frontend to `verify.sh`, so every backend commit and CI's `verify` job needed Node and `web/terminal/node_modules`. Its fast hook ran the backend checks only when a staged path matched a fixed list, so a commit touching only `clippy.toml` (D73) or `.github/` ran nothing and passed.
+
+**Rejected:**
+- *The frontend inside `verify.sh`.* Every backend clone needs `npm ci` before it can commit, and CI installs Node for `verify` as well as for `frontend`.
+- *Backend checks only for a list of backend paths.* Fails open: a path nobody listed skips the gate.
+- *Full `verify.sh` on every commit, frontend commits included.* Minutes of cargo on each frontend commit, for checks that can't see the frontend.
+
+**Why:** Each side's gate needs only its own toolchain, and anything not provably frontend-only gets the full backend checks, so the local gate fails closed.
+
+**Consequence:**
+- A commit that mixes frontend and other files runs only `verify.sh` locally; CI's `frontend` job checks its frontend half.
+- `frontend` isn't a required check on `main` yet, so a red `frontend` job doesn't block a merge. **(Follow-up: Temi adds it to branch protection.)**
+- The Claude Code hook still runs the full `verify.sh` when the git hook isn't installed: it runs before the files are necessarily staged.
+
+---
+
+## D87 — Work order: critical work first, then the demo sprint, then M1
+
+**Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
+
+**Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
+1. Stalled open PRs (red CI, a conflict or a failed `watchdog/review`), whoever opened them, oldest first. A claim on one lapses after 2 hours without a push.
+2. Issues labelled `critical`, in any milestone.
+3. Backend issues in the demo sprint (#62), lowest demo stage first. M1 issues in the blocking chain of the next demo issue count as demo work.
+4. The rest of M1, only when no demo issue is left to take.
+
+`critical` means red CI on `main`, a bug that stops or corrupts the live read path (following, pool state, recording or replay), or a security problem. An agent that applies the label says which part of the bar the issue meets. An issue is claimed by an assignee and a claim comment before the first commit, and it counts as taken once it has an assignee or an open PR that closes it. That lets several sessions pick work at the same time without a coordinator.
+
+**Rejected:**
+- *The demo sprint only, until it ships.* A stalled follower or a red `main` would wait behind features that depend on them. The demo shows the M0 and M1 engine, so a critical bug there breaks the demo too.
+- *A fixed share of sessions per track (e.g. one in three on M1).* Sessions don't see what the others picked, so nothing could enforce the share.
+- *Milestone order: finish M1, then M2.* It delays anything showable by weeks, and M1's open issues (#40, #41) don't affect the demo until replay mode (#88).
+
+**Why:** The demo is the priority, and the engine it runs on must stay correct. A written order lets every session choose the same way. Rule 1 covers every stalled PR, not only a session's own: sessions restart and share one GitHub account, so none can know which PRs it opened. Scoping it to "your own" left #57, the fix for the one critical bug (#46), unattended while #46 counted as taken.
+
+**Consequence:**
+- Non-critical M1 work waits until the demo sprint has no backend issue left to take. When the sprint reaches replay mode (#88), its chain pulls #42 forward, and through #42, #40 and #41. #46 is `critical`, since the follower stalls forever.
+- The sprint's scope and shortcuts are recorded separately (#74).
+- When the sprint ends, this entry gets an amendment note and CLAUDE.md's current mode returns to milestone order.
+
+---
+
+## D88 — An RPC endpoint that can't answer stops the run with an error naming its flag
+
+**Date:** 2026-09-30 · **Status:** Decided (from running the M1 demo; dev and staging, D17; amends D80 and D82)
+
+**Decision:**
+- **Check before the run.** Before anything else starts, `engine follow` asks its call endpoint for the latest block number, then makes one plain `eth_call` at that block (to the zero address, no data), which any node answers with empty bytes. A failure that isn't the node's answer is retried with the usual backoff for up to 5s. If nothing has answered by then, or the node answers the call with an error, the binary exits non-zero with an error that names `--call-rpc` and gives the endpoint's last error.
+- **An outage is not an answer.** PublicNode's `-32701 no available nodes found for platform base-rpc` joins rate limits and lagging nodes (#47) on the call worker's retry list, so it never reaches the core, or the input log, as a failed call.
+- **A limit during the run.** A call still unanswered 60s after its first attempt makes the call worker give up on the endpoint: it stops calling and reports the error, and the binary drops the core and exits non-zero with the same message. Until the core is gone the worker holds every call it hasn't answered, because `ChannelRpc` takes a dropped reply for a dead worker and panics.
+- **Each attempt is bounded.** An attempt gets the time left until its limit, at least 1s, and one that runs out counts as unanswered ("no reply within …s"). So an endpoint that takes the connection and never replies fails the check in 5s and stops a run 60s into its silence, like one that refuses.
+- **The block endpoint too.** The head follower (D80) gets the same check, on what one poll reads (the latest block number, that block's header and its logs), and the same 60s limit on each read during a run. Reading a height again when the node doesn't know its block's hash (#57) is bounded by the same 60s. When it gives up it returns the error, which ends the core's blocks; the core finishes what's in flight, and the binary exits non-zero with an error naming `--rpc`.
+
+**Found while running the demo:** On 2026-09-30 PublicNode answered every `eth_call` with `-32701`. The call worker handed that error to the core as the call's answer, as it does a revert, so `engine follow --minutes 1 --check-every 5` ran its full minute and printed 25 failed verification calls, 1,081 failed bootstraps and no pools tracked. The summary read as a broken engine. Pointing `--call-rpc` at Base's endpoint instead ran for more than 7 minutes on its rate limit (D82). A dead block endpoint was worse: the head follower retried every read forever and checked `--minutes` only between polls, so `engine follow --minutes 1 --rpc http://127.0.0.1:1` never ended and printed nothing.
+
+**Found in review (#61):** the limits were checked only when an attempt returned an error, and the HTTP client has no request timeout. A local listener that accepted connections and never replied kept `engine follow` running, silent, past 100s.
+
+**Rejected:**
+- *Exit non-zero when every call in a run failed.* It reports only after the whole run. It still records the outage as the chain's answers. And it can't tell an outage from real failed answers, such as reverts, or PublicNode's archive refusals after a stall.
+- *The check alone.* An endpoint that fails mid-run would still turn into failed calls, or, with its errors retried, hang the end of the run: the core finishes only once every call it made is answered.
+- *Retrying outages without a limit.* The same hang, with no end.
+- *A request timeout on the HTTP client instead of bounding attempts.* One fixed timeout can't fit both the 5s check and the 60s run limit, and it would leave the bound to one implementation, untested by the scripted endpoints the limits are tested on.
+- *A short limit, about 10s, in place of the check.* It would give up mid-run on a single rate-limit window (Base's is 30s, D82) or a brief outage. The check stops a dead endpoint sooner, before anything starts.
+- *Telling the core the endpoint is down (a third `CallResult`).* Which endpoint works is the I/O layer's business. The core can't act on it, and the input log would hold an outage as if the chain had said it.
+- *Dropping the core at once when the follower gives up, as when the call worker does.* Ending its blocks lets the core finish cleanly: the end of its blocks is recorded and its calls are answered, so the recording replays as a complete run. The call worker can't offer that, since the core can't finish without the answers it's waiting on.
+
+**Why:** Whoever runs the demo learns within seconds that the endpoint is at fault, not the engine, and the input log only ever holds what the chain answered.
+
+**Consequence:**
+- A dead endpoint, call or block, stops `engine follow` in about 8s; one that dies mid-run stops it about a minute after its first unanswered read. Either way the exit code is 1 and the error ends "Pass --call-rpc with another Base RPC URL." or "Pass --rpc with another Base RPC URL."
+- Base's own endpoint passes the check but can't keep up with a run's calls: with `--call-rpc https://mainnet.base.org`, a call went 64s without getting past the rate limit (`-32016`) and the run stopped after 152s with that error, where before it ran for over 7 minutes (verification.md). So it now fails the same clear way as a dead endpoint.
+- A run stopped mid-way prints the error, not a summary. When the call worker gave up, the recording ends with calls unanswered, like a crashed run's: replaying it reports the core waiting for an input. When the follower gave up, the recording is complete and replays.
+- The limit applies wherever chain I/O runs. In production, failover to the second provider (D16) should replace giving up; until it's built, the engine stops.
+- A long-running host gives up the same way. The always-on demo (#82) would exit on any upstream outage longer than 60s, and the free endpoints have them; a restart there means a new core instance, a cold bootstrap of every pool and a new recording. So #82 needs a supervisor with a restart policy, and probably a `--give-up-after` flag: 60s for the CLI, longer or off on the host.

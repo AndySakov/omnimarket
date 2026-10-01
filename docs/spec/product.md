@@ -4,7 +4,7 @@
 
 A multi-chain EVM trading terminal for fast-moving tokens. A trader sees a token the moment its pool is created, understands whether it's safe and liquid, buys in one click at the best available route, and leaves automated exits running, across MegaETH, Base, and BNB Chain from one account.
 
-The product exists to exercise the hard parts of a real terminal: ingesting chain data at head, keeping live pool state in memory, routing across fragmented liquidity, landing transactions fast and safely, and reacting to price moves automatically.
+It's a proof of concept (D85), not a commercial product. It exists to exercise the hard parts of a real terminal: ingesting chain data at head, keeping live pool state in memory, routing across fragmented liquidity, landing transactions fast and safely, and reacting to price moves automatically.
 
 ## Target user
 

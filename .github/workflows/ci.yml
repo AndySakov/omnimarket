@@ -24,17 +24,10 @@ jobs:
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/terminal/package-lock.json
-      - name: Install frontend dependencies
-        working-directory: web/terminal
-        run: npm ci
       - run: scripts/verify.sh
       - run: cargo test -p sim --test kafka -- --ignored
 
+  # The terminal UI's full checks (D86). verify.sh leaves web/terminal/ to this job.
   frontend:
     runs-on: ubuntu-latest
     steps:
