@@ -44,6 +44,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/terminal/package-lock.json
+      # api:check runs scripts/buf generate (#75); the same cache as verify's, so neither job
+      # depends on GitHub's release CDN once buf has been downloaded.
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: buf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/buf') }}
       - name: Install frontend dependencies
         working-directory: web/terminal
         run: npm ci
