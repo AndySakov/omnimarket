@@ -120,6 +120,15 @@ mod tests {
     }
 
     #[test]
+    fn a_gap_says_where() {
+        let error = decode_log_file(&encode_log_file(&[record(0), record(2)])).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "the input log file has a gap: expected seq 1, found 2"
+        );
+    }
+
+    #[test]
     fn bytes_that_arent_zstd_are_rejected() {
         assert!(matches!(
             decode_log_file(b"not a log"),
