@@ -1,0 +1,14 @@
+// The terminal's Cloudflare Worker (Workers Builds, docs/spec/infra.md): static assets from
+// `npm run build`, served as a single-page app so react-router's deep links load.
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "omnimarket",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  // `wrangler preview` (the per-branch build) refuses to run without this block; empty means
+  // previews use the settings above.
+  "previews": {}
+}
