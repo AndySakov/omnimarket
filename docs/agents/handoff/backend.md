@@ -27,13 +27,19 @@ If your brief names a **PR** instead (a stalled one, D87 rule 1): `scripts/work 
   - Shadow mode only: nothing broadcasts and no real funds move.
 - **Iterate cheaply.** Use `cargo test -p <crate>` and `cargo clippy -p <crate> --all-targets -- -D warnings` while working; each commit runs the full `scripts/verify.sh` through the git hook (about 1–3 minutes warm). The hook runs on every commit, so commit at meaningful green points, not every edit. Never `--no-verify`.
 - **Live runs** (measurements, recordings, fixtures): Base RPC is reachable here. Use `--rpc https://mainnet.base.org --call-rpc https://base-rpc.publicnode.com` (D80, D82, D88). For Kafka, Postgres or object storage: `scripts/stack up`.
-- **Docs in the same commit**, per CLAUDE.md's update table. A behaviour or architecture choice gets a D-entry, and its number comes from `scripts/work reserve-d "<the decision, in a few words>"`, never from counting by hand: it reserves the next free number in the D-number ledger ([process.md](../process.md#coordination-between-workers)), which every session on both accounts, and Jutin, shares. An unverified claim is marked **(verify)**, and a measured one goes in `docs/spec/verification.md`.
+- **Docs in the same commit**, per CLAUDE.md's update table. A choice about OmniMarket's behaviour or architecture gets a D-entry (CLAUDE.md, Decisions), numbered as "Work alongside other builders" says; a process change goes in `docs/agents/process.md` instead. An unverified claim is marked **(verify)**, and a measured one goes in `docs/spec/verification.md`.
+- **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or explain in the PR why not.
+
+## Work alongside other builders
+
+Up to three builders per track, and Jutin, work at once ([process.md](../process.md#coordination-between-workers)). This section applies to every builder, frontend and backend.
+
+- **D-numbers:** take a new entry's number from `scripts/work reserve-d "<the decision, in a few words>"`, never by counting by hand. It reserves the next free number in the D-number ledger that every session on both accounts, and Jutin, shares.
 - **Push at every green commit.** The container is reclaimed when idle, and unpushed work is lost. Your pushed branch is also how other builders see what you're changing.
 - **Check for overlaps** with `scripts/work overlaps` right after your first push and before every later push. It lists every other live branch and open PR that touches a file yours does, with the session working on it (from its claim comment). For each overlap outside the append-only files it marks:
   - `send_message` to that session (the ID is the end of its link): `OVERLAP #<your issue> / #<theirs>: I'm changing <file> to <what>; my branch is <branch>. Plan: <who changes what, or which of us merges first>.` Agree it in one or two messages, then follow it. The one that merges second merges `main` in and resolves.
   - If you can't agree, or the other session doesn't answer within a tick, report `BLOCKED #n: overlaps #<theirs> on <file>` to the orchestrator.
 - **Shared contracts.** When you change something other builders build on (`proto/`, `web/terminal/src/api/generated`, a crate's public API, `Cargo.toml` workspace dependencies, `scripts/work`, CLAUDE.md), `send_message` the orchestrator `CONTRACT #n: <what changed, in one line>` when you push it. It tells every running builder.
-- **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or explain in the PR why not.
 
 ## Open the PR
 
