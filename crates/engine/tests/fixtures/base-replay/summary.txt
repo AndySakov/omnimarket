@@ -1,6 +1,7 @@
-head 52036268 0xc0e3ec471fe2c0b97343a7291c4fffeebe8626077f28a30fd4f2bc8218b1dd1e
-61 blocks, 6412 logs, 0 reorgs detected, digest e6cafa57c22b4821078a1952028b71a3407dcab24385f20ead66200d9d084c52
-v2: 39 pairs tracked, 5 rejected, 31 verification calls (0 failed)
-v3: 140 pools tracked, 225 rejected, 941 bootstrap calls (0 bootstraps failed)
-1245 pool updates, digest 94a8db16f3df1a87edc3bc111b8b2fcd3a6073e2a4e08dc814f6673048d1c89b
-shadow checks: 154 passed, 0 failed
+head 52037553 0x8dd4d0b86b4e9e7f0cf16575c096aa9950d9d03c4539064b55fec4d2d34175ca
+61 blocks, 5125 logs, 0 reorgs detected, digest 081ec6ac22ab9866bbffdbe011c79ebbc1afafbd5d2cb9ddd9eca68dc287bf3f
+v2: 32 pairs tracked, 8 rejected, 26 verification calls (0 failed)
+v3: 150 pools tracked, 186 rejected, 915 bootstrap calls (0 bootstraps failed)
+1244 pool updates, digest cb91942f95032690eef9e5a15b7b2e45fa3e4f9918be2a6db7efed66c82be018
+1261 trades (0 dropped with a failed read), digest faa8c6299bc38f79d3a71b4359410eb29547b292c25880979fc34b8ebaec1f22
+shadow checks: 203 passed, 0 failed

@@ -6,6 +6,7 @@ fn main() {
         "omnimarket/chain/v1/block.proto",
         "omnimarket/chain/v1/call.proto",
         "omnimarket/pool/v1/pool_update.proto",
+        "omnimarket/trade/v1/trade.proto",
         "omnimarket/engine/v1/config.proto",
         "omnimarket/det/v1/input_record.proto",
         "omnimarket/sim/v1/toy.proto",

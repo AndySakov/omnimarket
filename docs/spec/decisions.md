@@ -2153,6 +2153,35 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
+## D95 — Every acceptance criterion names the test that proves it, and CI checks it passed
+
+**Date:** 2026-10-01 · **Status:** Decided (test tooling; #98)
+
+**Decision:** A PR body carries an "Acceptance criteria" table (`.github/pull_request_template.md`): one row per acceptance criterion of the issue it closes, quoting the criterion, and the tests that prove it in backticks, or `manual: <evidence>` where no test can. CI's `criteria` job checks the table:
+- **Every criterion has a row.** The criteria are the checkbox items under the closed issue's "Acceptance criteria" heading (`##` or any other level). A row matches a criterion when its text is the same, ignoring case, runs of whitespace, surrounding quotes and a final full stop. A criterion with no row fails the job, and so does a row that names neither a test nor `manual:` evidence. A row that quotes no criterion is listed in the summary but doesn't fail the job: PRs add rows for requirements in an issue's text (#103 did), and a misquote already fails as a criterion with no row. Its tests are still checked.
+- **Every named test passed in this CI run.** The job reads `cargo test`'s output from the `verify` job (the workspace tests and the Kafka test) and the frontend's Vitest and Playwright JSON reports from the `frontend` job (`scripts/frontend-passed-tests.sh` turns them into the same `test <name> ... ok` lines). A name matches a passed test's full name or its trailing segments (`::` for Rust paths, ` > ` for frontend titles), so a test that doesn't exist, failed or was ignored fails the job. A backticked file path says where a test is and isn't checked.
+- **`manual:` rows are listed** in the job summary for the watchdog, which checks their evidence. A criterion moved to a follow-up issue (D90) is a `manual:` row naming that issue.
+- The parsing and checking live in the `criteria` crate (a binary the job builds), so `cargo test` covers them and mutation testing (D89) reaches them. The job reads the PR body and the issues through the REST API when it runs, so after editing the body, re-running the `criteria` job alone picks the edit up. A PR that closes no issue only has its named tests checked.
+- It joins `main`'s required checks once it has run green on two PRs (Temi changes branch protection). `scripts/work merge` doesn't require it until then.
+
+**Rejected:**
+- *Ticking the issue's checkboxes.* Nobody ticked them, and a tick proves nothing.
+- *Test names in the issue instead of the PR.* The tests don't exist when the issue is written.
+- *Checking that the named test exists by searching the source.* A test that exists but is ignored, or fails, would pass; the run's output shows what actually passed.
+- *A step inside the `verify` job.* It couldn't become a separate required check, and an edited PR body would mean re-running every test.
+- *Failing on a row that quotes no criterion.* Run over #103's body, it failed rows that claimed requirements from #75's text, which are worth keeping. A misquote is already caught as a missing row.
+- *Parsing JUnit XML from every runner.* `cargo test` has no stable JUnit output yet; libtest's plain lines and the frontend's JSON reports are already there.
+
+**Why:** PR bodies claimed criteria in prose, and the watchdog mapped each criterion to a test by hand. A criterion with no test could be claimed and merged. A job that fails on a missing row or a test that didn't pass makes the claim checkable, and leaves the watchdog to judge whether the test proves the criterion and to check the manual evidence.
+
+**Consequence:**
+- A criterion only Storybook, a live run or a doc can show needs a `manual:` row, and the watchdog is the only check on it.
+- Rewording a criterion in the issue after the PR is open fails the job until the row is updated.
+- Contract tests (`forge test`) aren't read yet: `contracts/` doesn't exist. When it does, its output needs adding to the job.
+- Whether `actions/download-artifact` finds the earlier attempt's test results when only the `criteria` job is re-run is **(verify)**. If it doesn't, re-run the whole workflow after editing the body.
+
+---
+
 ## D96 — The demo is a thin slice through M2, M4, M5 and M6 on live Base, ahead of milestone order
 
 **Date:** 2026-10-01 · **Status:** Decided (#74; amends D4, D5, D41, D42, D57, D59, D63)
@@ -2201,13 +2230,13 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Decision:** A real Base recording lives in the repository as a test fixture, and `cargo test --workspace` replays it through the current engine and asserts the summary it was recorded with.
 - **Format.** `det::file` writes one core instance's input log as one file: the archive's length-delimited `omnimarket.det.v1.InputRecord`s in log order (D54, D72), compressed with zstd (level 19). Reading it rejects a gap in `seq`, as the archive and Kafka readers do.
 - **Recording.** `engine follow --record-to DIR` (not with `--kafka`) writes `inputs.pb.zst` and `summary.txt`, the summary text `engine follow` and `engine replay` print (now `Summary`'s `Display`), so the fixture's expected value is exactly what the live run printed.
-- **The fixture.** `crates/engine/tests/fixtures/base-replay/`: 2 minutes of Base with `--check-every 10` (61 blocks, 1,107 inputs, 580 KB). It contains v3 pools with a same-block event after their bootstrap, so the bootstrap guard's `>=` mutant fails it.
+- **The fixture.** `crates/engine/tests/fixtures/base-replay/`: 2 minutes of Base with `--check-every 10` (61 blocks, 1,077 inputs, 541 KB; re-recorded 2026-10-01 after trade records, D102, added v2 Swap logs and `quote_assets` to what the engine follows). It contains v3 pools with a same-block event after their bootstrap, so the bootstrap guard's `>=` mutant fails it.
 - **The test.** `crates/engine/tests/pinned_replay.rs` compares the replayed summary text with `summary.txt`. A PR that changes the engine's decisions re-records the fixture (observability.md says how) and says why the digests moved.
 
 **Rejected:**
 - *Kafka or the object-storage archive as the fixture's home.* The test must run offline in `cargo test --workspace`; a file in the repository needs no service.
-- *Uncompressed records.* This recording is 56.8 MB raw against 580 KB compressed (98×). The fixture is read on every test run but written rarely, so zstd's slow level 19 costs nothing that matters.
-- *Gzip (`flate2`).* Pure Rust, but gzip -9 makes this recording 1.79 MB, 3× zstd's. zstd is as well known, and its build needs only a C compiler, which `rdkafka` already requires.
+- *Uncompressed records.* This recording is 52.5 MB raw against 541 KB compressed (97×). The fixture is read on every test run but written rarely, so zstd's slow level 19 costs nothing that matters.
+- *Gzip (`flate2`).* Pure Rust, but gzip -9 makes this recording 1.65 MB, 3× zstd's. zstd is as well known, and its build needs only a C compiler, which `rdkafka` already requires.
 - *A longer recording (5 minutes).* 2 minutes already holds the same-block case the issue asks for and replays in about a second; longer means a bigger file in git for each re-record.
 - *Asserting only the digests.* The counts make a failure readable: which part of the engine decided differently.
 
@@ -2216,3 +2245,32 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Consequence:**
 - Every intended change to the engine's decisions, config encoding or calls means re-recording, and the new fixture comes from a different stretch of the chain, so the PR's diff shows new digests, not a comparison on the same blocks. The PR explains why they moved; the replay of the old fixture failing is the evidence that they did.
 - Each re-record adds about 0.6 MB to the repository's history.
+
+---
+
+## D102 — Trade records: one per Swap, quoted by a preference list, priced in base units
+
+**Date:** 2026-10-01 · **Status:** Decided (#77)
+
+**Decision:** The engine publishes every Swap on a tracked pool as a `omnimarket.trade.v1.Trade` on `trades.<chain>`, keyed by pool. A trade is the log's fact and nothing more:
+- **Token and quote.** The engine config carries a list of quote assets, most preferred first; Base's is USDC, USDT, WETH (the reference stablecoins, then the native token, D18). A pool's quote is whichever of its tokens comes first in the list, and the other is the token, so WETH/USDC is WETH against USDC. When neither is listed, the token is token0 and the quote token1. The list is part of the recorded config (D83), so a replay quotes the same way.
+- **Side and amounts** come from the pool's net change in each token: v3's signed `amount0` and `amount1`, and v2's `amountIn − amountOut` per token, which also nets a flash swap. The pool paying out the token is a buy; taking it in is a sell. A swap that moves none of the token is a buy if the quote went in, a sell otherwise. Amounts are unsigned, in base units.
+- **Price** is quote base units per token base unit, times 10^36, rounded down: the engine doesn't know decimals (token metadata is #76's), and the scale keeps a memecoin's tiny price significant. Unset when the token amount is zero.
+- **Keys and lineage.** Natural key (chain, block hash, log index), kind `trade`, caused by the chain event at the same key (D71). Block number, hash and timestamp, tx hash, and the log's sender and recipient go with it.
+- **Pools not yet tracked.** A v2 pair waiting for its CREATE2 proof, or a v3 pool whose state is being read, buffers its swaps (for v3, including those in the block of the read) and publishes them in order once the pool is tracked. If the proof or read fails, its buffered swaps are dropped and counted (`trades_dropped`); the pool is read again when it next trades. Fakes and forks publish nothing.
+- **Not in the record:** USD (the API adds it from the display price at the trade's block), and the trader, `tx.from`, which costs a read per block (`eth_getBlockByNumber` with full transactions) or per transaction **(verify)**. Left out for the demo.
+- The engine now also follows v2's `Swap` (the follower's topic list grows from seven to eight).
+
+**Rejected:**
+- *USD in the record.* It would make a fact depend on a price model, and a pricing fix would mean rewriting history instead of re-deriving it.
+- *A decimal price.* Needs token decimals the engine doesn't have, and a float isn't exact across languages.
+- *The deeper or older token as the quote.* Changes as liquidity moves, so the same pool's trades would flip sides over time; a fixed list doesn't.
+- *Dropping swaps on untracked pools until tracked.* A pool first seen trading would lose the very trades that put it on screen.
+- *Keeping buffered swaps across a failed read.* The pool's state restarts from a new read anyway; carrying a partial history across attempts adds a second buffer for a rare failure, and the count shows how rare.
+
+**Why:** The demo's live market (#64, #65) needs a trade tape and candles from the chain, and the API needs facts it can price and re-price without touching the engine.
+
+**Consequence:**
+- `trades.<chain>` replaces the planned `swaps.<chain>` topic (data.md).
+- Trades follow pool updates through reorgs: they share the block-hash key, so tiered undo (#40, D12) retracts a reorged-out block's trades with its pool updates. Base follows canonical blocks only (D77), so until then a reorg is only counted.
+- Recordings made before this have no quote-asset list and no v2 `Swap` logs; replaying one publishes only v3 trades, token0 against token1.

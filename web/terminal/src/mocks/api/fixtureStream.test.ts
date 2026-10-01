@@ -6,7 +6,7 @@ import Decimal from 'decimal.js'
 import { ClientMessageSchema, StreamError_Code } from '../../api/generated/omnimarket/api/v1/stream_pb'
 import { readDataSource } from '../../api/source'
 import { StreamManager } from '../../api/stream/manager'
-import { tokenTopic } from '../../api/stream/topics'
+import { STATUS_TOPIC, tokenTopic } from '../../api/stream/topics'
 import { fixtureHandlers } from './handlers'
 import { FixtureStream } from './fixtureStream'
 
@@ -67,5 +67,25 @@ describe('fixture stream', () => {
     expect(unauthenticated?.kind.case === 'error' && unauthenticated.kind.value.code).toBe(StreamError_Code.UNAUTHENTICATED)
     const [account] = stream.receive(subscribe('account', 'sess_1'))
     expect(account?.kind.case).toBe('snapshot')
+  })
+
+  it('sends the engine status once per block, every second tick, in step with the heartbeat head', () => {
+    const stream = new FixtureStream()
+    stream.receive(subscribe(STATUS_TOPIC))
+    const ticks = [1, 2, 3, 4].map(() => stream.tick())
+    const statuses = ticks.map((messages) => messages.find((m) => m.kind.case === 'delta'))
+    expect(statuses.map((m) => m !== undefined)).toEqual([false, true, false, true])
+    const [, second, , fourth] = statuses.map((m) => (m?.kind.case === 'delta' && m.kind.value.payload.case === 'status' ? m.kind.value : undefined))
+    const heartbeatHead = (messages: (typeof ticks)[number]) =>
+      messages.find((m) => m.kind.case === 'heartbeat')?.kind.value
+    expect(second?.seq).toBe(2n)
+    expect(fourth?.seq).toBe(3n)
+    expect(second?.payload.value).toMatchObject({ headBlockNumber: 36120451n, headBlockTimeMs: 1790000002000n, uptimeMs: 5402000n })
+    expect(fourth?.payload.value).toMatchObject({ headBlockNumber: 36120452n, headBlockTimeMs: 1790000004000n })
+    const hb = heartbeatHead(ticks[3]!)
+    expect(hb && 'headBlockNumber' in hb ? hb.headBlockNumber : 0n).toBe(36120452n)
+    // Shadow checks keep running, and keep agreeing.
+    const checks = (m: typeof second) => (m?.payload.case === 'status' ? m.payload.value.shadowChecks : 0n)
+    expect(checks(fourth)).toBeGreaterThan(checks(second))
   })
 })

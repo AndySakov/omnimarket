@@ -1,5 +1,6 @@
 //! Uniswap v3 pools in the engine: discovery, CREATE2 proof, a batched read of each pool's
-//! state at the block it was first seen, the events after it, and the shadow check.
+//! state at the block it was first seen, the events after it, trades from `Swap`, and the
+//! shadow check.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
@@ -11,6 +12,7 @@ use venues::v3::{self, Deployment, Pool, Price, TickLiquidity};
 
 use crate::outbox::{PoolState, PoolUpdate, V3State};
 use crate::state::{Effects, Pending, Stats};
+use crate::trades::{SwapSeen, Trade, Venue};
 
 /// Pools per identity call: six view calls each.
 const IDENTIFY_BATCH: usize = 50;
@@ -77,10 +79,15 @@ struct Bootstrap {
     stage: Stage,
     /// Events from blocks after `block`, in order, applied once the read completes.
     later: Vec<(EventKey, v3::Event)>,
+    /// Every `Swap` since the pool was first seen, `block`'s included: the read already holds
+    /// their state, but each is still a trade. Published once the read completes.
+    trades: Vec<SwapSeen>,
 }
 
 pub(crate) struct V3Pools {
     deployment: Deployment,
+    /// Trade records' quote assets, most preferred first (D102).
+    quote_assets: Vec<Address>,
     pools: BTreeMap<Address, Pool>,
     bootstrapping: BTreeMap<Address, Bootstrap>,
     /// Addresses that emitted a v3 event but aren't this deployment's pools: forks or fakes.
@@ -92,9 +99,10 @@ pub(crate) struct V3Pools {
 }
 
 impl V3Pools {
-    pub fn new(deployment: Deployment) -> Self {
+    pub fn new(deployment: Deployment, quote_assets: Vec<Address>) -> Self {
         Self {
             deployment,
+            quote_assets,
             pools: BTreeMap::new(),
             bootstrapping: BTreeMap::new(),
             rejected: BTreeSet::new(),
@@ -129,16 +137,26 @@ impl V3Pools {
             if self.rejected.contains(&address) {
                 continue;
             }
+            let swap = v3::decode_swap(log).map(|s| {
+                SwapSeen::new(block, log, (s.sender, s.recipient), (s.amount0, s.amount1))
+            });
             if let Some(pool) = self.pools.get_mut(&address) {
                 effects.updates.push(apply(chain_id, pool, key, event));
+                if let Some(swap) = swap {
+                    effects
+                        .trades
+                        .push(trade(chain_id, pool, &self.quote_assets, &swap));
+                }
                 continue;
             }
             match self.bootstrapping.get_mut(&address) {
-                Some(bootstrap) if block.number > bootstrap.block => {
-                    bootstrap.later.push((key, event))
+                Some(bootstrap) => {
+                    // Same block as the read: the read already includes its state.
+                    if block.number > bootstrap.block {
+                        bootstrap.later.push((key, event));
+                    }
+                    bootstrap.trades.extend(swap);
                 }
-                // Same block as the read: the read already includes it.
-                Some(_) => {}
                 None => {
                     let attempt = self.next_attempt;
                     self.next_attempt += 1;
@@ -150,6 +168,7 @@ impl V3Pools {
                             first: key,
                             stage: Stage::Identifying,
                             later: Vec::new(),
+                            trades: swap.into_iter().collect(),
                         },
                     );
                     newly_seen.push(Attempt {
@@ -417,6 +436,11 @@ impl V3Pools {
         for (key, event) in bootstrap.later {
             effects.updates.push(apply(chain_id, &mut pool, key, event));
         }
+        for swap in &bootstrap.trades {
+            effects
+                .trades
+                .push(trade(chain_id, &pool, &self.quote_assets, swap));
+        }
         self.pools.insert(address, pool);
     }
 
@@ -429,11 +453,14 @@ impl V3Pools {
     }
 
     /// Gives up on attempt `attempt` of a pool's bootstrap. It starts again the next time the
-    /// pool is seen. A failure from an earlier attempt leaves the current one alone.
+    /// pool is seen, and the swaps buffered so far are never published. A failure from an
+    /// earlier attempt leaves the current one alone.
     fn fail(&mut self, attempt: Attempt, stats: &mut Stats) {
-        if self.current(attempt).is_some() {
-            self.bootstrapping.remove(&attempt.pool);
+        if self.current(attempt).is_some()
+            && let Some(bootstrap) = self.bootstrapping.remove(&attempt.pool)
+        {
             stats.bootstrap_failures += 1;
+            stats.trades_dropped += bootstrap.trades.len() as u64;
         }
     }
 
@@ -543,6 +570,17 @@ fn apply(chain_id: u64, pool: &mut Pool, key: EventKey, event: v3::Event) -> Poo
         key,
         Some(state(before)),
         state(after),
+    )
+}
+
+fn trade(chain_id: u64, pool: &Pool, quote_assets: &[Address], swap: &SwapSeen) -> Trade {
+    Trade::new(
+        chain_id,
+        Venue::UniswapV3,
+        pool.address,
+        (pool.token0, pool.token1),
+        quote_assets,
+        swap,
     )
 }
 

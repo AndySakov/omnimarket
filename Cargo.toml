@@ -9,6 +9,7 @@ members = [
   "crates/venues",
   "crates/engine",
   "crates/sim",
+  "crates/criteria",
 ]
 exclude = ["scripts/fixtures/determinism"]
 
