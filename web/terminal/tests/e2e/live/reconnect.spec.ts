@@ -41,7 +41,8 @@ test('switching to the live source is an env change: the same app streams from t
   await page.goto('/')
   await expect(marketData(page, 'Live')).toBeVisible()
   expect(connections).toHaveLength(1)
-  expect(connections[0]!.topics).toEqual(['status'])
+  // The header's status and Discover's feed.
+  expect([...connections[0]!.topics].sort()).toEqual(['discovery', 'status'])
 })
 
 test('killing the WebSocket server shows Reconnecting, then recovers and resubscribes without a reload', async ({ page }) => {
