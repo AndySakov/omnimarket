@@ -9,19 +9,33 @@ use proto::api::v1::{
     server_message, snapshot, stream_error,
 };
 
-use crate::feed::{Published, token_topic};
+use crate::discovery::Filters;
+use crate::feed::{DISCOVERY_TOPIC, Feed, Published, token_topic};
 use crate::model::ReadModel;
 
-/// The topics this server serves. Others in the contract arrive with their issues (#79–#81,
+/// The topics this server serves. Others in the contract arrive with their issues (#79, #80,
 /// #85); subscribing to one is an unknown topic until then.
 #[derive(Debug, PartialEq)]
 pub enum Topic {
     /// By lowercase 0x address.
     Token(String),
+    Discovery,
+}
+
+impl Topic {
+    fn name(&self) -> String {
+        match self {
+            Topic::Token(address) => token_topic(address),
+            Topic::Discovery => DISCOVERY_TOPIC.to_string(),
+        }
+    }
 }
 
 /// Parses a topic name, accepting an address in either case.
 pub fn parse_topic(name: &str) -> Option<Topic> {
+    if name == DISCOVERY_TOPIC {
+        return Some(Topic::Discovery);
+    }
     let address = name.strip_prefix("token:")?.to_ascii_lowercase();
     let digits = address.strip_prefix("0x")?;
     if digits.len() == 40 && digits.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -47,11 +61,12 @@ struct TopicState {
 struct Sent {
     seq: u64,
     block_number: u64,
+    snapshot_block: u64,
 }
 
 impl Session {
     /// Handles one text frame from the client.
-    pub fn on_text(&mut self, text: &str, model: &ReadModel) -> Vec<ServerMessage> {
+    pub fn on_text(&mut self, text: &str, feed: &Feed) -> Vec<ServerMessage> {
         let message: ClientMessage = match serde_json::from_str(text) {
             Ok(message) => message,
             Err(e) => {
@@ -65,11 +80,11 @@ impl Session {
         match message.kind {
             Some(client_message::Kind::Subscribe(subscribe)) => {
                 match parse_topic(&subscribe.topic) {
-                    Some(Topic::Token(address)) => {
-                        let topic = token_topic(&address);
+                    Some(topic) => {
+                        let topic = topic.name();
                         let state = self.topics.entry(topic.clone()).or_default();
                         state.sent = None;
-                        snapshot_of(&topic, state, model).into_iter().collect()
+                        snapshot_of(&topic, state, feed).into_iter().collect()
                     }
                     None => vec![error(
                         stream_error::Code::UnknownTopic,
@@ -79,8 +94,8 @@ impl Session {
                 }
             }
             Some(client_message::Kind::Unsubscribe(unsubscribe)) => {
-                if let Some(Topic::Token(address)) = parse_topic(&unsubscribe.topic) {
-                    self.topics.remove(&token_topic(&address));
+                if let Some(topic) = parse_topic(&unsubscribe.topic) {
+                    self.topics.remove(&topic.name());
                 }
                 Vec::new()
             }
@@ -92,58 +107,69 @@ impl Session {
         }
     }
 
-    /// Turns a published tick into this connection's message for it, if it's subscribed: the
-    /// topic's snapshot if none has gone out yet, otherwise the next delta. A tick no newer than
-    /// what the client already has (one applied before its snapshot was taken) is skipped.
-    pub fn on_published(
-        &mut self,
-        published: &Published,
-        model: &ReadModel,
-    ) -> Option<ServerMessage> {
+    /// Turns a published delta into this connection's message for it, if it's subscribed: the
+    /// topic's snapshot if none has gone out yet, otherwise the next delta. A token tick no newer
+    /// than what the client already has (one applied before its snapshot was taken) is skipped,
+    /// and so is a discovery row as of the snapshot's block or earlier; a block's rows all go
+    /// out together, so the rest of that block's rows still pass.
+    pub fn on_published(&mut self, published: &Published, feed: &Feed) -> Option<ServerMessage> {
         let state = self.topics.get_mut(&published.topic)?;
         let Some(sent) = &mut state.sent else {
-            return snapshot_of(&published.topic, state, model);
+            return snapshot_of(&published.topic, state, feed);
         };
-        if published.tick.block_number <= sent.block_number {
+        let stale = match published.payload {
+            delta::Payload::TokenTick(_) => published.block_number <= sent.block_number,
+            _ => published.block_number <= sent.snapshot_block,
+        };
+        if stale {
             return None;
         }
         sent.seq += 1;
-        sent.block_number = published.tick.block_number;
+        sent.block_number = published.block_number;
         Some(ServerMessage {
             kind: Some(server_message::Kind::Delta(Delta {
                 topic: published.topic.clone(),
                 seq: sent.seq,
-                payload: Some(delta::Payload::TokenTick(published.tick.clone())),
+                payload: Some(published.payload.clone()),
             })),
         })
     }
 
     /// Fresh snapshots of every subscribed topic: for a client that fell too far behind to
     /// catch up from deltas.
-    pub fn resync(&mut self, model: &ReadModel) -> Vec<ServerMessage> {
+    pub fn resync(&mut self, feed: &Feed) -> Vec<ServerMessage> {
         self.topics
             .iter_mut()
             .filter_map(|(topic, state)| {
                 state.sent = None;
-                snapshot_of(topic, state, model)
+                snapshot_of(topic, state, feed)
             })
             .collect()
     }
 }
 
-/// The topic's snapshot from the read model, seq 0, if the token has a price yet.
-fn snapshot_of(topic: &str, state: &mut TopicState, model: &ReadModel) -> Option<ServerMessage> {
-    let address = topic.strip_prefix("token:")?;
-    let token = model.token(address)?.clone();
+/// The topic's snapshot, seq 0: the whole discovery feed, or the token's if it has a price yet.
+fn snapshot_of(topic: &str, state: &mut TopicState, feed: &Feed) -> Option<ServerMessage> {
+    let (block_number, payload) = if topic == DISCOVERY_TOPIC {
+        let discovery = feed.discovery().feed(&Filters::default());
+        (
+            discovery.block_number,
+            snapshot::Payload::Discovery(discovery),
+        )
+    } else {
+        let token = feed.model().token(topic.strip_prefix("token:")?)?.clone();
+        (token.block_number, snapshot::Payload::Token(token))
+    };
     state.sent = Some(Sent {
         seq: 0,
-        block_number: token.block_number,
+        block_number,
+        snapshot_block: block_number,
     });
     Some(ServerMessage {
         kind: Some(server_message::Kind::Snapshot(Snapshot {
             topic: topic.to_string(),
             seq: 0,
-            payload: Some(snapshot::Payload::Token(token)),
+            payload: Some(payload),
         })),
     })
 }
