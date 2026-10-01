@@ -10,6 +10,8 @@ import {
   Star,
   X,
 } from 'lucide-react'
+import { EngineStatusBar } from '../features/engine-status/EngineStatusBar'
+import { HowItWorks } from '../features/engine-status/HowItWorks'
 import { ConnectionStatus } from './ConnectionStatus'
 
 const routes = ['Discover', 'Portfolio', 'Trackers', 'Wallets', 'Settings']
@@ -161,9 +163,10 @@ function UtilityRail() {
         <button className="utility-button" type="button" aria-label="Open history">
           <History size={15} />
         </button>
+        <HowItWorks />
       </div>
       <div className="utility-rail__ticker" aria-label="Market status">
-        <span className="market-live"><span className="status-dot status-dot--green" aria-hidden="true" />Live</span>
+        <EngineStatusBar />
         <span className="ticker-item"><strong>BTC</strong><span>$63,241</span><span className="value-up">+1.24%</span></span>
         <span className="ticker-item"><strong>ETH</strong><span>$2,487.31</span><span className="value-down">−0.62%</span></span>
         <span className="ticker-item ticker-item--gas"><strong>Gas</strong><span className="value-up">0.21 Gwei</span></span>

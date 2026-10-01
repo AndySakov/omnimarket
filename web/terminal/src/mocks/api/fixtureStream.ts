@@ -10,6 +10,7 @@ import {
   EngineStatusSchema,
   TokenSnapshotSchema,
   TradeListSchema,
+  type EngineStatus,
   type TokenSnapshot,
 } from '../../api/generated/omnimarket/api/v1/market_pb'
 import {
@@ -19,7 +20,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from '../../api/generated/omnimarket/api/v1/stream_pb'
-import { topicKind } from '../../api/stream/topics'
+import { STATUS_TOPIC, topicKind } from '../../api/stream/topics'
 import { apiFixture } from '../fixtures/api'
 
 // Relative price moves, applied in turn on each tick. They sum to zero, so prices wander but don't drift.
@@ -59,6 +60,15 @@ export class FixtureStream {
         },
       }),
     ]
+    // A Base block every two seconds: the status topic moves with the heartbeat's head.
+    const statusCursor = this.topics.get(STATUS_TOPIC)
+    if (statusCursor && this.heartbeats % 2n === 0n) {
+      statusCursor.seq += 1n
+      out.push(server({
+        case: 'delta',
+        value: { topic: STATUS_TOPIC, seq: statusCursor.seq, payload: { case: 'status', value: statusAt(status, this.heartbeats) } },
+      }))
+    }
     for (const [topic, cursor] of this.topics) {
       if (!cursor.base) continue
       cursor.seq += 1n
@@ -124,6 +134,19 @@ function tickFor(base: TokenSnapshot, ticks: number) {
     thin: base.thin,
     blockNumber: base.blockNumber + BigInt(ticks),
     blockTimeMs: base.blockTimeMs + BigInt(ticks) * 2000n,
+  }
+}
+
+/** The engine's status `heartbeats` seconds after the fixture's: one block per two seconds. */
+function statusAt(base: EngineStatus, heartbeats: bigint): EngineStatus {
+  const blocks = heartbeats / 2n
+  return {
+    ...base,
+    headBlockNumber: base.headBlockNumber + blocks,
+    headBlockTimeMs: base.headBlockTimeMs + blocks * 2000n,
+    // A few shadow checks a block, all agreeing.
+    shadowChecks: base.shadowChecks + blocks * 3n,
+    uptimeMs: base.uptimeMs + heartbeats * 1000n,
   }
 }
 
