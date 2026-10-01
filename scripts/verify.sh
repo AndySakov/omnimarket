@@ -15,6 +15,7 @@ if [[ -f Cargo.toml ]]; then
   scripts/check-determinism.sh
   need python3
   python3 scripts/test_regression_check.py
+  python3 scripts/test_work.py
   ran=1
 fi
 
