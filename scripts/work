@@ -14,6 +14,8 @@ docs/agents/issue-tracker.md with REST calls, and applies CLAUDE.md's work order
   scripts/work open-pr <title> <body-file>   open a ready (non-draft) PR from the current branch
   scripts/work merge <pr>               merge with a merge commit, only once the gate has passed
   scripts/work labels                   create the labels this workflow uses (safe to rerun)
+  scripts/work reserve-d <title>        reserve the next free D-number in the ledger, and print it
+  scripts/work overlaps                 other branches and PRs touching the files this branch touches, and who holds them
 
 Labels: `wip` marks a claimed issue (frontend issues keep Jutin as assignee, so the label is the
 claim), `hold` is Temi's brake on an issue or PR, `needs-temi` marks work waiting on a signup or a
@@ -122,6 +124,22 @@ def labels(item):
 
 def assignees(item):
     return {a["login"] for a in item.get("assignees", [])}
+
+
+def current_branch():
+    return subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+
+def gh_all(path):
+    """Every item of a paginated REST list (100 a page)."""
+    items, page = [], 1
+    while True:
+        sep = "&" if "?" in path else "?"
+        batch = gh(f"{path}{sep}per_page=100&page={page}")
+        items += batch
+        if len(batch) < 100:
+            return items
+        page += 1
 
 
 def session_url():
@@ -380,7 +398,8 @@ def cmd_claim(args):
     if "pull_request" not in item and not assignees(item):
         gh(f"repos/{REPO}/issues/{n}/assignees", "POST", {"assignees": [me()]})
     note = " (the earlier claim lapsed: no claim or push in 2h)" if lapsed else ""
-    gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": f"Taking this{note}: {session_url()}"})
+    claim = f"Taking this{note}: {session_url()} (branch `{current_branch()}`)"
+    gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": claim})
     print(f"claimed #{n}{note}")
 
 
@@ -452,6 +471,129 @@ def cmd_labels(_args):
     print("labels ready")
 
 
+LEDGER_LABEL = "d-ledger"
+LEDGER_BODY = """Every D-entry number in docs/spec/decisions.md is reserved here first (docs/agents/process.md, "Coordination between workers"), so parallel
+sessions on any account never take the same one. Reserve with `scripts/work reserve-d "<title>"`:
+it takes the next number above everything on main, in open PRs and in this ledger, posts it here,
+and re-reads the ledger; if another comment claimed the same number first, it takes the next one.
+The earliest comment for a number holds it. Don't edit or delete comments here; a number reserved
+and never used is just a gap."""
+
+
+def d_numbers_in(text, prefix=""):
+    return {int(n) for n in re.findall(rf"(?m)^{re.escape(prefix)}## D(\d+)\b", text or "")}
+
+
+def ledger_issue():
+    found = gh(f"repos/{REPO}/issues?labels={LEDGER_LABEL}&state=open&per_page=10")
+    if found:
+        return found[0]["number"]
+    existing = {label["name"] for label in gh(f"repos/{REPO}/labels?per_page=100")}
+    if LEDGER_LABEL not in existing:
+        gh(f"repos/{REPO}/labels", "POST", {"name": LEDGER_LABEL, "color": "0e8a16", "description": "The D-number ledger (docs/agents/process.md)"})
+    issue = gh(f"repos/{REPO}/issues", "POST", {"title": "D-number ledger", "body": LEDGER_BODY, "labels": [LEDGER_LABEL]})
+    return issue["number"]
+
+
+def ledger_holders(issue):
+    """Each reserved number and the id of the earliest comment that reserved it."""
+    holders = {}
+    for c in gh_all(f"repos/{REPO}/issues/{issue}/comments"):
+        m = re.match(r"\s*D(\d+)\b", c["body"])
+        if m:
+            holders.setdefault(int(m.group(1)), c["id"])
+    return holders
+
+
+def taken_d_numbers(holders):
+    subprocess.run(["git", "fetch", "-q", "origin", "main"], capture_output=True)
+    main_log = subprocess.run(["git", "show", "origin/main:docs/spec/decisions.md"], capture_output=True, text=True).stdout
+    taken = d_numbers_in(main_log) | set(holders)
+    # This checkout's own entries, which GitHub doesn't know about until they're pushed.
+    if os.path.exists("docs/spec/decisions.md"):
+        taken |= d_numbers_in(open("docs/spec/decisions.md").read())
+    for pr in gh(f"repos/{REPO}/pulls?state=open&per_page=100"):
+        for f in gh(f"repos/{REPO}/pulls/{pr['number']}/files?per_page=100"):
+            if f["filename"] == "docs/spec/decisions.md":
+                taken |= d_numbers_in(f.get("patch"), prefix="+")
+    return taken
+
+
+def cmd_reserve_d(args):
+    if not args:
+        sys.exit('usage: scripts/work reserve-d "<the decision, in a few words>"')
+    title = " ".join(args)
+    issue = ledger_issue()
+    for _ in range(5):
+        holders = ledger_holders(issue)
+        n = max(taken_d_numbers(holders) | {0}) + 1
+        body = f"D{n} — {title} — {session_url()} (branch `{current_branch()}`)"
+        mine = gh(f"repos/{REPO}/issues/{issue}/comments", "POST", {"body": body})["id"]
+        if ledger_holders(issue).get(n) == mine:
+            print(f"D{n}")
+            return
+        print(f"work: D{n} went to an earlier reservation; trying the next", file=sys.stderr)
+    sys.exit("work: couldn't reserve a D-number after 5 tries; tell the orchestrator")
+
+
+# Files nearly every change appends to; an overlap here is expected and only needs main merged in.
+APPEND_ONLY = {"docs/spec/decisions.md", "docs/spec/verification.md", "CONTEXT.md"}
+STALE_BRANCH = timedelta(days=3)
+
+
+def changed_files(base, head):
+    data = gh(f"repos/{REPO}/compare/{base}...{head}", check=False)
+    if not data:
+        return [], None
+    pushed = parse_time(data["commits"][-1]["commit"]["committer"]["date"]) if data.get("commits") else None
+    return [f["filename"] for f in data.get("files", [])], pushed
+
+
+def claim_sessions():
+    """Branch -> session link, from the claim comments on everything labelled `wip`."""
+    sessions = {}
+    for item in gh(f"repos/{REPO}/issues?labels=wip&state=open&per_page=100"):
+        for c in gh(f"repos/{REPO}/issues/{item['number']}/comments?per_page=100"):
+            m = re.search(r"(https://claude\.ai/code/\S+).*?\(branch `([^`]+)`\)", c["body"])
+            if m:
+                sessions[m.group(2)] = (m.group(1), item["number"])
+    return sessions
+
+
+def cmd_overlaps(_args):
+    mine = current_branch()
+    subprocess.run(["git", "fetch", "-q", "origin", "main"], capture_output=True)
+    files = set()
+    for cmd in (["git", "diff", "--name-only", "origin/main...HEAD"], ["git", "diff", "--name-only", "HEAD"],
+                ["git", "diff", "--name-only", "--cached"]):
+        files |= set(subprocess.run(cmd, capture_output=True, text=True).stdout.split())
+    if not files:
+        print("no changes on this branch yet")
+        return
+    prs = {pr["head"]["ref"]: pr for pr in gh(f"repos/{REPO}/pulls?state=open&per_page=100")}
+    branches = {b["name"] for b in gh_all(f"repos/{REPO}/branches")} | set(prs)
+    sessions = claim_sessions()
+    found = False
+    for branch in sorted(branches - {"main", mine}):
+        pr = prs.get(branch)
+        if pr:
+            theirs = [f["filename"] for f in gh(f"repos/{REPO}/pulls/{pr['number']}/files?per_page=100")]
+            pushed = parse_time(pr["updated_at"])
+        else:
+            theirs, pushed = changed_files("main", branch)
+        shared = sorted(files & set(theirs))
+        if not shared or (pushed and pushed < now() - STALE_BRANCH):
+            continue
+        found = True
+        where = f"PR #{pr['number']} ({pr['user']['login']})" if pr else "no PR yet"
+        session, issue = sessions.get(branch, ("no claim comment names this branch", None))
+        print(f"{branch} · {where}" + (f" · works on #{issue}" if issue else "") + f" · {session}")
+        for f in shared:
+            print(f"    {f}" + ("  (append-only: merge main before you merge)" if f in APPEND_ONLY else ""))
+    if not found:
+        print(f"no overlaps: no other live branch or open PR touches this branch's {len(files)} files")
+
+
 COMMANDS = {
     "next": cmd_next,
     "prs": cmd_prs,
@@ -462,6 +604,8 @@ COMMANDS = {
     "open-pr": cmd_open_pr,
     "merge": cmd_merge,
     "labels": cmd_labels,
+    "reserve-d": cmd_reserve_d,
+    "overlaps": cmd_overlaps,
 }
 
 if __name__ == "__main__":
