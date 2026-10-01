@@ -2116,3 +2116,31 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Both Claude accounts act on GitHub as `AndySakov`, so GitHub alone can't tell their work apart; the claim comment's session link can.
 - When the build account's budget runs out, the orchestrator stops starting sessions, and Temi's watchdog (or Temi) reviews again.
 - When Jutin is back, frontend issues return to him one by one, as he takes them.
+
+---
+
+## D92 — Every acceptance criterion names the test that proves it, and CI checks it passed
+
+**Date:** 2026-10-01 · **Status:** Decided (process; #98)
+
+**Decision:** A PR body carries an "Acceptance criteria" table (`.github/pull_request_template.md`): one row per acceptance criterion of the issue it closes, quoting the criterion, and the tests that prove it in backticks, or `manual: <evidence>` where no test can. CI's `criteria` job checks the table:
+- **Every criterion has a row.** The criteria are the checkbox items under the closed issue's `## Acceptance criteria` heading. A row matches a criterion when its text is the same, ignoring case, runs of whitespace, surrounding quotes and a final full stop. A criterion with no row fails the job, and so does a row that quotes no criterion (usually a misquote).
+- **Every named test passed in this CI run.** The job reads `cargo test`'s output from the `verify` job (the workspace tests and the Kafka test) and the frontend's Vitest and Playwright JSON reports from the `frontend` job (`scripts/frontend-passed-tests.sh` turns them into the same `test <name> ... ok` lines). A name matches a passed test's full name or its trailing segments (`::` for Rust paths, ` > ` for frontend titles), so a test that doesn't exist, failed or was ignored fails the job. A backticked file path says where a test is and isn't checked.
+- **`manual:` rows are listed** in the job summary for the watchdog, which checks their evidence. A criterion moved to a follow-up issue (D90) is a `manual:` row naming that issue.
+- The parsing and checking live in the `criteria` crate (a binary the job builds), so `cargo test` covers them and mutation testing (D89) reaches them. The job reads the PR body and the issues through the REST API when it runs, so after editing the body, re-running the `criteria` job alone picks the edit up. A PR that closes no issue only has its named tests checked.
+- It joins `main`'s required checks once it has run green on two PRs (Temi changes branch protection). `scripts/work merge` doesn't require it until then.
+
+**Rejected:**
+- *Ticking the issue's checkboxes.* Nobody ticked them, and a tick proves nothing.
+- *Test names in the issue instead of the PR.* The tests don't exist when the issue is written.
+- *Checking that the named test exists by searching the source.* A test that exists but is ignored, or fails, would pass; the run's output shows what actually passed.
+- *A step inside the `verify` job.* It couldn't become a separate required check, and an edited PR body would mean re-running every test.
+- *Parsing JUnit XML from every runner.* `cargo test` has no stable JUnit output yet; libtest's plain lines and the frontend's JSON reports are already there.
+
+**Why:** PR bodies claimed criteria in prose, and the watchdog mapped each criterion to a test by hand. A criterion with no test could be claimed and merged. A job that fails on a missing row or a test that didn't pass makes the claim checkable, and leaves the watchdog to judge whether the test proves the criterion and to check the manual evidence.
+
+**Consequence:**
+- A criterion only Storybook, a live run or a doc can show needs a `manual:` row, and the watchdog is the only check on it.
+- Rewording a criterion in the issue after the PR is open fails the job until the row is updated.
+- Contract tests (`forge test`) aren't read yet: `contracts/` doesn't exist. When it does, its output needs adding to the job.
+- Whether `actions/download-artifact` finds the earlier attempt's test results when only the `criteria` job is re-run is **(verify)**. If it doesn't, re-run the whole workflow after editing the body.

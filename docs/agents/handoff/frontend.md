@@ -27,7 +27,7 @@ Run from `web/terminal/`:
 - **A new or changed visual baseline:** push the test, let CI's `frontend` job fail, download its `frontend-reports` artifact (`gh api repos/AndySakov/omnimarket/actions/artifacts?name=frontend-reports` → the run's ID → `gh api …/artifacts/<id>/zip > r.zip`), and commit the `-actual.png` as the baseline, in its own commit, with what changed visually in the message. Never update a baseline to hide a regression.
 - A commit that mixes `web/terminal/` with other paths (proto, docs) runs the backend's `verify.sh` in the hook; that's expected.
 
-The PR's "Acceptance criteria" table maps criteria to Vitest or Playwright test names, or to Storybook stories for the visual states. Under "Not verified", list what needs the live API.
+The PR's "Acceptance criteria" table maps criteria to Vitest or Playwright test titles (the test's own title, or `describe > title`), which CI's `criteria` job checks passed in the run (D92). A Storybook story for a visual state is a `manual:` row. Under "Not verified", list what needs the live API.
 
 ## Issue notes
 

@@ -5,7 +5,15 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? [['html', { open: 'never' }], ['line']] : 'list',
+  // CI's criteria job reads which tests passed from the JSON reports (D92). verify:pr runs Playwright
+  // once per suite, so each run writes its own file.
+  reporter: process.env.CI
+    ? [
+        ['html', { open: 'never' }],
+        ['line'],
+        ['json', { outputFile: `test-reports/playwright-${process.pid}.json` }],
+      ]
+    : 'list',
   outputDir: 'test-results',
   snapshotPathTemplate: '{snapshotDir}/{testFilePath}-snapshots/{arg}{ext}',
   expect: {

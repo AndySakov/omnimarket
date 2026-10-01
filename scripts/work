@@ -202,8 +202,10 @@ def pr_track(board, state):
 
 def describe_checks(state):
     shown = [f"{name}={state['checks'].get(name, 'missing')}" for name in GATE_CHECKS]
-    if "mutants" in state["checks"]:
-        shown.append(f"mutants={state['checks']['mutants']}")
+    # Reported, not yet gating: criteria (D92) joins GATE_CHECKS once it's a required check.
+    for name in ("criteria", "mutants"):
+        if name in state["checks"]:
+            shown.append(f"{name}={state['checks'][name]}")
     return " ".join(shown)
 
 

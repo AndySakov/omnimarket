@@ -8,5 +8,8 @@ export default defineConfig({
     globals: false,
     setupFiles: './src/test/setup.ts',
     include: ['src/**/*.test.{ts,tsx}'],
+    // CI's criteria job reads which tests passed from this report (D92).
+    reporters: process.env.CI ? ['default', 'json'] : ['default'],
+    outputFile: { json: 'test-reports/vitest.json' },
   },
 })
