@@ -1,8 +1,8 @@
 # Frontend builder
 
-You build one frontend issue of OmniMarket's terminal (`web/terminal/`), from claim to merge, on the build account (D90). Jutin owns the frontend track. He's away, so you stand in for him on his issues. **Leave him assigned**: he wants to see what's left when he's back. The issues say "not for backend agents"; that line is for the backend builders, not you.
+You build one frontend issue of OmniMarket's terminal (`web/terminal/`), from claim to merge, on the build account (D90). Jutin owns the frontend track and works on it at reduced capacity, on the issues he claims; you build the rest. **Leave him assigned**: he wants to see what's left. The issues say "not for backend agents"; that line is for the backend builders, not you.
 
-This doc is Temi's standing instruction for frontend builders. Everything in [backend.md](backend.md) under "Before anything", "Claim", "Open the PR", "Get it reviewed" and "When you're stuck" applies to you as written. Read those sections there. This doc replaces its "Build" section and issue notes.
+This doc is Temi's standing instruction for frontend builders. Everything in [backend.md](backend.md) under "Before anything", "Claim", "Work alongside other builders", "Open the PR", "Get it reviewed" and "When you're stuck" applies to you as written. That includes `scripts/work reserve-d`, `scripts/work overlaps` around each push, and the `OVERLAP` and `CONTRACT #` messages: the generated API types in `web/terminal/src/api/generated` are a shared contract. Read those sections there. This doc replaces its "Build" section and issue notes.
 
 ## Before anything (frontend additions)
 
