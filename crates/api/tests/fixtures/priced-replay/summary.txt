@@ -1,0 +1,19 @@
+head 52038895 0x47323ec651e2f49bb3cfa63cba5a99beca69453a240b64ee26ea38c9d1981ea0
+30 blocks, 3600 logs, 0 reorgs detected, digest 0b6659a101f5b7b2e24bc0a97aa614b86be04d0517384cd23967934861fb7a7c
+v2: 29 pairs tracked, 3 rejected, 21 verification calls (0 failed)
+v3: 125 pools tracked, 190 rejected, 782 bootstrap calls (0 bootstraps failed)
+1293 pool updates, digest f0015725bfc2da9cf77f7caa6bdcca28783c71123d716934d5eb3bffa4b68985
+888 trades (0 dropped with a failed read), digest 80d75da161363aaba2c7a50d7e851bb99fb1a4bfb7b921b3b02a9b98784d90fa
+shadow checks: 0 passed, 0 failed
+43 price updates, digest e9a8fce2e177d946af83d6ab01d8b3bb4e7a62d68b1d8ba6c4b882b686d051b0; 11 metadata calls, 0 supply calls (0 failed)
+coverage: 129 tokens seen, 80 with a quote-asset pool, 16 priced (14 thin), 0 without decimals
+  unquoted tokens trading against 0xb20A4Bd059F5914a2F8B9c18881c637f79efb7df: 30
+  unquoted tokens trading against 0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b: 7
+  unquoted tokens trading against 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf: 4
+  unquoted tokens trading against 0x31cF45b15c17BeFA20F8e031a935DaA398568e40: 1
+  unquoted tokens trading against 0x7fc57590c6DbF3E04d1d51Ae26ddc31042BBDC70: 1
+  unquoted tokens trading against 0x85E90a5430AF45776548ADB82eE4cD9E33B08077: 1
+  unquoted tokens trading against 0xA9B631ABcc4fd0bc766d7C0C8fCbf866e2bB0445: 1
+  unquoted tokens trading against 0xADF02dDe96aFA4c1d9c996a3b6274668e899CD16: 1
+  unquoted tokens trading against 0xADF20cC47aAa3d2Fa93Eb7fB78c7668a445ED8C0: 1
+  unquoted tokens trading against 0xADF2179077bd081C78Ef8e89AD9a18bB91b3Eb4c: 1
