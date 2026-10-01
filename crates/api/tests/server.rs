@@ -114,3 +114,42 @@ async fn a_websocket_subscriber_gets_a_snapshot_live_deltas_and_heartbeats() {
     let data: Vec<&String> = received.iter().filter(|m| *m != "heartbeat").collect();
     assert_eq!(data[..3], ["snapshot", "delta 1", "delta 2"]);
 }
+
+#[tokio::test]
+async fn rest_serves_the_discovery_feed_built_from_all_three_topics() {
+    use proto::pool::v1::{PoolState, PoolUpdate, V2Reserves, pool_state};
+    use proto::trade::v1::{Trade, trade};
+    let (shared, address) = start().await;
+    let pool = PoolUpdate {
+        chain_id: 8453,
+        pool: vec![0xc1; 20],
+        block_number: 1,
+        after: Some(PoolState {
+            state: Some(pool_state::State::V2(V2Reserves::default())),
+        }),
+        ..PoolUpdate::default()
+    };
+    shared.apply(engine::POOL_UPDATES_TOPIC, &pool.encode_to_vec());
+    let buy = Trade {
+        chain_id: 8453,
+        pool: vec![0xc1; 20],
+        venue: trade::Venue::UniswapV2.into(),
+        token: vec![0xab; 20],
+        side: trade::Side::Buy.into(),
+        block_number: 1,
+        block_timestamp: 1_700_000_002,
+        ..Trade::default()
+    };
+    shared.apply(engine::TRADES_TOPIC, &buy.encode_to_vec());
+    shared.apply_price(&price(2, 2.5));
+    let feed = http_get(&address, "/v1/discovery?list=new&max_age_ms=60000").await;
+    assert!(feed.starts_with("HTTP/1.1 200"), "{feed}");
+    assert!(
+        feed.contains(&format!(r#""address":"{TOKEN_HEX}""#)),
+        "{feed}"
+    );
+    assert!(feed.contains(r#""venue":"uniswap-v2""#), "{feed}");
+    assert!(feed.contains(r#""buys":"1""#), "{feed}");
+    let bad = http_get(&address, "/v1/discovery?list=hot").await;
+    assert!(bad.starts_with("HTTP/1.1 400"), "{bad}");
+}

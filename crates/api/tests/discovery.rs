@@ -374,3 +374,49 @@ fn the_rest_filters_parse_or_refuse() {
         None
     );
 }
+
+#[test]
+fn window_stats_count_their_window_and_price_change_from_its_open() {
+    let mut feed = Feed::default();
+    // A 5m window is 150 blocks, an hour 1800; rows publish as of block 1802.
+    feed.apply_price(&price(0xa1, 0xc1, 1, 1.0, 50_000.0))
+        .unwrap();
+    feed.apply_trade(&buy(0xa1, 0xc1, 1, 4, 0));
+    feed.apply_price(&price(0xa1, 0xc1, 1000, 2.0, 50_000.0))
+        .unwrap();
+    feed.apply_trade(&buy(0xa1, 0xc1, 1000, 10, 0));
+    feed.apply_price(&price(0xa1, 0xc1, 1700, 4.0, 50_000.0))
+        .unwrap();
+    feed.apply_trade(&buy(0xa1, 0xc1, 1700, 1, 0));
+    feed.apply_price(&price(0xa1, 0xc1, 1802, 4.0, 50_000.0))
+        .unwrap();
+    feed.apply_price(&price(0x42, 0x01, 1803, 1.0, 1e6))
+        .unwrap();
+    let row = feed.discovery().feed(&Filters::default()).rows[0].clone();
+    let s5 = row.stats_5m.unwrap();
+    // 5m: the trade at block 1700 (1 token at the $4 just priced); the price opened at $2.
+    assert_eq!((s5.volume_usd.as_str(), s5.buys), ("4", 1));
+    assert_eq!(s5.price_change_pct, "100");
+    // 1h: blocks 1000 and 1700; the block-1 trade aged out; the hour opened at $1.
+    let s1h = row.stats_1h.unwrap();
+    assert_eq!((s1h.volume_usd.as_str(), s1h.buys), ("24", 2));
+    assert_eq!(s1h.price_change_pct, "300");
+    // Since tracking began: everything.
+    let tracked = row.stats_tracked.unwrap();
+    assert_eq!((tracked.volume_usd.as_str(), tracked.buys), ("28", 3));
+    assert_eq!(tracked.price_change_pct, "300");
+    // The row is caused by the latest record about its token, and names its quote asset.
+    let lineage = row.lineage.unwrap();
+    assert_eq!(
+        lineage.caused_by,
+        vec![{
+            let mut id = vec![2, 0xa1, 1802u64 as u8];
+            id.resize(16, 0);
+            id
+        }]
+    );
+    assert_eq!(lineage.id.len(), 16);
+    let quote = row.quote_token.unwrap();
+    assert_eq!((quote.chain_id, quote.address), (8453, hex(&WETH)));
+    assert_eq!(row.pool, hex(&[0xc1; 20]));
+}
