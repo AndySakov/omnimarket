@@ -45,7 +45,7 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 ## CI pipeline
 
-Unit tests · mutation testing (D87) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
+Unit tests · mutation testing (D89) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
 CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh` on every commit that isn't frontend-only, so such a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
@@ -57,7 +57,7 @@ Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` aga
 
 CI also runs a Kafka service container (the same `apache/kafka` image as the local stack) for the input-log integration test, `cargo test -p sim --test kafka -- --ignored`. Locally it runs against `scripts/stack up`.
 
-**Mutation testing (D87).** `scripts/mutants.sh` runs cargo-mutants, which changes the code one small mutation at a time (a condition flipped, a return value replaced) and checks that some workspace test fails. A mutant no test catches is code the tests run but don't check.
+**Mutation testing (D89).** `scripts/mutants.sh` runs cargo-mutants, which changes the code one small mutation at a time (a condition flipped, a return value replaced) and checks that some workspace test fails. A mutant no test catches is code the tests run but don't check.
 - **Builds carry over.** Each worker is a persistent git worktree under `target/mutants/workers/` with its own target dir. Each run checks the workers out at a snapshot of the working tree, uncommitted changes included, so only changed crates rebuild.
 - **Results carry over.** A ledger skips mutants caught in earlier runs until `--fresh`.
 - **Diff mode.** `--diff origin/main` tests only mutants in code changed since `main`.

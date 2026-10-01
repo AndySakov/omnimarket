@@ -4,7 +4,18 @@ OmniMarket is a proof of concept (D85) for a multi-chain EVM trading terminal ba
 
 ## Current mode
 
-**Build mode**, since 2026-09-29. Work comes from GitHub issues, grouped by milestone; M0 is current. Pick up only issues with no open blockers.
+**Build mode**, since 2026-09-29. Work comes from GitHub issues. Current focus: the **demo sprint** (#62), with critical work on M0 and M1 ahead of it (D87). M0 is done.
+
+Take your next issue in this order. The first rule that yields an issue wins:
+
+1. **Stalled open PRs, whoever opened them.** Any open PR from this account with red CI, a merge conflict or a failed `watchdog/review`, oldest first, comes before new work (see Review gate). Skip one that another session claimed, or pushed to, in the last 2 hours. Sessions restart and share one GitHub account, so "your own PRs" can't be known.
+2. **`critical`, in any milestone.** Red CI on `main`; a bug that stops or corrupts the live read path (following, pool state, recording or replay); or a security problem. Oldest milestone first.
+3. **The demo sprint.** Open issues labelled `demo` and `backend`, lowest demo stage first (each issue's first line names its stage), then lowest number. If the one you'd take is blocked by M1 issues, follow that chain of blockers to the first M1 issue that is unblocked and untaken, and take it.
+4. **M1**, only when no demo issue is left to take.
+
+At every step, skip issues that are assigned (the `frontend` ones are Jutin's), claimed by an open PR, or blocked by an open issue. An issue whose closing PR is stalled is picked up through that PR, at rule 1. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. The queries and the claim step are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue).
+
+A bug that meets rule 2's bar gets the `critical` label, and a comment saying which part of the bar it meets. Temi can remove the label.
 
 ## Where things are
 
@@ -69,7 +80,7 @@ M0 creates the workspace and the commands. Until then there is nothing to run. O
 
 Run the real thing before claiming done, and say what you could not verify.
 
-Passing tests only show the code ran. To check that a change's tests would notice its code doing the wrong thing, run `scripts/mutants.sh --diff origin/main`: it lists the mutations of the changed code that no test catches (D87). CI's `mutants` workflow runs the same on every PR that touches Rust.
+Passing tests only show the code ran. To check that a change's tests would notice its code doing the wrong thing, run `scripts/mutants.sh --diff origin/main`: it lists the mutations of the changed code that no test catches (D89). CI's `mutants` workflow runs the same on every PR that touches Rust.
 
 ## When you change X, update Y
 
@@ -104,7 +115,7 @@ Passing tests only show the code ran. To check that a change's tests would notic
 
 `main` merges only when two checks pass on the PR's head commit: CI's `verify` and `watchdog/review` (D81). A separate watchdog session reviews every PR against its issue, the D-entries and the update table above, then posts `watchdog/review` with its findings as a PR comment. Branch protection enforces this for admins too.
 
-- After opening a PR or pushing to one, wait for the checks: `gh pr checks <n> --required --watch`. While you wait, you may start the next unblocked issue on a new branch off `main`.
+- After opening a PR or pushing to one, wait for the checks: `gh pr checks <n> --required --watch`. While you wait, you may start the next issue in the "Current mode" order on a new branch off `main`.
 - On `failure`, read the latest watchdog comment (`gh pr view <n> --comments`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
 - If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
 - Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself.

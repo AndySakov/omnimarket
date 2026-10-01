@@ -4,12 +4,17 @@
 mod calls;
 mod follower;
 mod http;
+mod retry;
+
+use std::time::Duration;
 
 use futures::future::LocalBoxFuture;
 use types::chain::{B256, Log};
 
-pub use calls::{CallRequest, spawn_call_worker};
-pub use follower::{FollowerConfig, Start, follow_head, spawn_head_follower};
+pub use calls::{
+    CallEndpoint, CallRequest, CallWorker, answer_calls, check_call_endpoint, spawn_call_worker,
+};
+pub use follower::{FollowerConfig, Start, check_block_endpoint, follow_head, spawn_head_follower};
 pub use http::HttpChain;
 
 /// Base's free public RPC (D17): HTTP only, `eth_getLogs` limited to 2,000 blocks a call, and
@@ -34,6 +39,14 @@ pub enum ChainError {
     Rpc(String),
     /// The node answered with something the engine can't use, such as a log with no index.
     Malformed(String),
+    /// Every attempt at `what` failed for `waited` with something that isn't the node's
+    /// answer (`last` is the latest): the endpoint is down, refusing calls, or rate limiting
+    /// without end (D88).
+    Unanswered {
+        what: &'static str,
+        waited: Duration,
+        last: String,
+    },
 }
 
 impl std::fmt::Display for ChainError {
@@ -41,6 +54,11 @@ impl std::fmt::Display for ChainError {
         match self {
             Self::Rpc(e) => write!(f, "rpc: {e}"),
             Self::Malformed(e) => write!(f, "malformed response: {e}"),
+            Self::Unanswered { what, waited, last } => write!(
+                f,
+                "{what} unanswered for {}s; last error: {last}",
+                waited.as_secs()
+            ),
         }
     }
 }

@@ -1,4 +1,4 @@
-# cargo-mutants settings (D87). Run it through scripts/mutants.sh, which reuses builds and
+# cargo-mutants settings (D89). Run it through scripts/mutants.sh, which reuses builds and
 # results across runs.
 
 profile = "mutants"

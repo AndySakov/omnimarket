@@ -92,7 +92,7 @@ Full milestone table with demos: [docs/build-plan.md](docs/build-plan.md). Live 
 cargo run -p engine -- follow --minutes 1 --check-every 5   # follow Base live on public RPC
 ```
 
-The engine reads blocks from Base's public endpoint and sends its pool reads to PublicNode's free one ([D82](docs/spec/decisions.md)). If PublicNode is down, the run reports failed verification calls and tracks no pools. Pass `--call-rpc` with another Base RPC URL.
+The engine reads blocks from Base's public endpoint and sends its pool reads to PublicNode's free one ([D82](docs/spec/decisions.md)). If either endpoint can't answer, `engine follow` exits with an error naming its flag, `--rpc` or `--call-rpc`: within about 8 seconds if it's down at the start, about a minute after it stops answering otherwise ([D88](docs/spec/decisions.md)). Pass that flag with another Base RPC URL. Base's own endpoint rate-limits calls too tightly for `--call-rpc`: a run against it stops with its rate-limit error.
 
 | Path | Role |
 |---|---|

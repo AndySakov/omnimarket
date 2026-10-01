@@ -1835,7 +1835,7 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D80 — On free RPC, Base is followed by polling, and pools are discovered as they appear or trade
 
-*(Amended by D82: `eth_call`s go to PublicNode's free endpoint.)*
+*(Amended by D82: `eth_call`s go to PublicNode's free endpoint. Amended by D88: a block endpoint that can't answer stops the run with an error naming `--rpc`.)*
 
 **Date:** 2026-09-30 · **Status:** Decided (from building M1, #37; dev and staging only, D17)
 
@@ -1878,6 +1878,8 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 ---
 
 ## D82 — On free RPC, the engine's eth_calls go to PublicNode
+
+*(Amended by D88: an outage such as PublicNode's `-32701` is retried rather than taken as the call's answer, and a call endpoint that can't answer stops `engine follow` with an error naming `--call-rpc`.)*
 
 **Date:** 2026-09-30 · **Status:** Decided (from building v3 pools, #39; dev and staging only, D17; amends D80)
 
@@ -1983,7 +1985,68 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
-## D87 — Mutation testing reuses its builds and results across runs
+## D87 — Work order: critical work first, then the demo sprint, then M1
+
+**Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
+
+**Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
+1. Stalled open PRs (red CI, a conflict or a failed `watchdog/review`), whoever opened them, oldest first. A claim on one lapses after 2 hours without a push.
+2. Issues labelled `critical`, in any milestone.
+3. Backend issues in the demo sprint (#62), lowest demo stage first. M1 issues in the blocking chain of the next demo issue count as demo work.
+4. The rest of M1, only when no demo issue is left to take.
+
+`critical` means red CI on `main`, a bug that stops or corrupts the live read path (following, pool state, recording or replay), or a security problem. An agent that applies the label says which part of the bar the issue meets. An issue is claimed by an assignee and a claim comment before the first commit, and it counts as taken once it has an assignee or an open PR that closes it. That lets several sessions pick work at the same time without a coordinator.
+
+**Rejected:**
+- *The demo sprint only, until it ships.* A stalled follower or a red `main` would wait behind features that depend on them. The demo shows the M0 and M1 engine, so a critical bug there breaks the demo too.
+- *A fixed share of sessions per track (e.g. one in three on M1).* Sessions don't see what the others picked, so nothing could enforce the share.
+- *Milestone order: finish M1, then M2.* It delays anything showable by weeks, and M1's open issues (#40, #41) don't affect the demo until replay mode (#88).
+
+**Why:** The demo is the priority, and the engine it runs on must stay correct. A written order lets every session choose the same way. Rule 1 covers every stalled PR, not only a session's own: sessions restart and share one GitHub account, so none can know which PRs it opened. Scoping it to "your own" left #57, the fix for the one critical bug (#46), unattended while #46 counted as taken.
+
+**Consequence:**
+- Non-critical M1 work waits until the demo sprint has no backend issue left to take. When the sprint reaches replay mode (#88), its chain pulls #42 forward, and through #42, #40 and #41. #46 is `critical`, since the follower stalls forever.
+- The sprint's scope and shortcuts are recorded separately (#74).
+- When the sprint ends, this entry gets an amendment note and CLAUDE.md's current mode returns to milestone order.
+
+---
+
+## D88 — An RPC endpoint that can't answer stops the run with an error naming its flag
+
+**Date:** 2026-09-30 · **Status:** Decided (from running the M1 demo; dev and staging, D17; amends D80 and D82)
+
+**Decision:**
+- **Check before the run.** Before anything else starts, `engine follow` asks its call endpoint for the latest block number, then makes one plain `eth_call` at that block (to the zero address, no data), which any node answers with empty bytes. A failure that isn't the node's answer is retried with the usual backoff for up to 5s. If nothing has answered by then, or the node answers the call with an error, the binary exits non-zero with an error that names `--call-rpc` and gives the endpoint's last error.
+- **An outage is not an answer.** PublicNode's `-32701 no available nodes found for platform base-rpc` joins rate limits and lagging nodes (#47) on the call worker's retry list, so it never reaches the core, or the input log, as a failed call.
+- **A limit during the run.** A call still unanswered 60s after its first attempt makes the call worker give up on the endpoint: it stops calling and reports the error, and the binary drops the core and exits non-zero with the same message. Until the core is gone the worker holds every call it hasn't answered, because `ChannelRpc` takes a dropped reply for a dead worker and panics.
+- **Each attempt is bounded.** An attempt gets the time left until its limit, at least 1s, and one that runs out counts as unanswered ("no reply within …s"). So an endpoint that takes the connection and never replies fails the check in 5s and stops a run 60s into its silence, like one that refuses.
+- **The block endpoint too.** The head follower (D80) gets the same check, on what one poll reads (the latest block number, that block's header and its logs), and the same 60s limit on each read during a run. Reading a height again when the node doesn't know its block's hash (#57) is bounded by the same 60s. When it gives up it returns the error, which ends the core's blocks; the core finishes what's in flight, and the binary exits non-zero with an error naming `--rpc`.
+
+**Found while running the demo:** On 2026-09-30 PublicNode answered every `eth_call` with `-32701`. The call worker handed that error to the core as the call's answer, as it does a revert, so `engine follow --minutes 1 --check-every 5` ran its full minute and printed 25 failed verification calls, 1,081 failed bootstraps and no pools tracked. The summary read as a broken engine. Pointing `--call-rpc` at Base's endpoint instead ran for more than 7 minutes on its rate limit (D82). A dead block endpoint was worse: the head follower retried every read forever and checked `--minutes` only between polls, so `engine follow --minutes 1 --rpc http://127.0.0.1:1` never ended and printed nothing.
+
+**Found in review (#61):** the limits were checked only when an attempt returned an error, and the HTTP client has no request timeout. A local listener that accepted connections and never replied kept `engine follow` running, silent, past 100s.
+
+**Rejected:**
+- *Exit non-zero when every call in a run failed.* It reports only after the whole run. It still records the outage as the chain's answers. And it can't tell an outage from real failed answers, such as reverts, or PublicNode's archive refusals after a stall.
+- *The check alone.* An endpoint that fails mid-run would still turn into failed calls, or, with its errors retried, hang the end of the run: the core finishes only once every call it made is answered.
+- *Retrying outages without a limit.* The same hang, with no end.
+- *A request timeout on the HTTP client instead of bounding attempts.* One fixed timeout can't fit both the 5s check and the 60s run limit, and it would leave the bound to one implementation, untested by the scripted endpoints the limits are tested on.
+- *A short limit, about 10s, in place of the check.* It would give up mid-run on a single rate-limit window (Base's is 30s, D82) or a brief outage. The check stops a dead endpoint sooner, before anything starts.
+- *Telling the core the endpoint is down (a third `CallResult`).* Which endpoint works is the I/O layer's business. The core can't act on it, and the input log would hold an outage as if the chain had said it.
+- *Dropping the core at once when the follower gives up, as when the call worker does.* Ending its blocks lets the core finish cleanly: the end of its blocks is recorded and its calls are answered, so the recording replays as a complete run. The call worker can't offer that, since the core can't finish without the answers it's waiting on.
+
+**Why:** Whoever runs the demo learns within seconds that the endpoint is at fault, not the engine, and the input log only ever holds what the chain answered.
+
+**Consequence:**
+- A dead endpoint, call or block, stops `engine follow` in about 8s; one that dies mid-run stops it about a minute after its first unanswered read. Either way the exit code is 1 and the error ends "Pass --call-rpc with another Base RPC URL." or "Pass --rpc with another Base RPC URL."
+- Base's own endpoint passes the check but can't keep up with a run's calls: with `--call-rpc https://mainnet.base.org`, a call went 64s without getting past the rate limit (`-32016`) and the run stopped after 152s with that error, where before it ran for over 7 minutes (verification.md). So it now fails the same clear way as a dead endpoint.
+- A run stopped mid-way prints the error, not a summary. When the call worker gave up, the recording ends with calls unanswered, like a crashed run's: replaying it reports the core waiting for an input. When the follower gave up, the recording is complete and replays.
+- The limit applies wherever chain I/O runs. In production, failover to the second provider (D16) should replace giving up; until it's built, the engine stops.
+- A long-running host gives up the same way. The always-on demo (#82) would exit on any upstream outage longer than 60s, and the free endpoints have them; a restart there means a new core instance, a cold bootstrap of every pool and a new recording. So #82 needs a supervisor with a restart policy, and probably a `--give-up-after` flag: 60s for the CLI, longer or off on the host.
+
+---
+
+## D89 — Mutation testing reuses its builds and results across runs
 
 **Date:** 2026-10-01 · **Status:** Decided (from the testing review; #94)
 
@@ -1997,7 +2060,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Found while measuring** (a 4-core container, 2026-09-30 and 2026-10-01):
 - cargo-mutants' default copies the tree for each job and builds the copy cold. With 3 jobs, each copy's first build took 800–900s under contention (123s alone), and 18 of about 400 mutants were done after 25 minutes.
 - With the harness, a worker's first build took 68.5s (`mutants` profile) and the next run's took about 1s. A second run over `venues/src/v2.rs` took 56s end to end, skipping the 19 of its 30 mutants already settled.
-- A fresh run over the whole workspace tested 650 mutants in 28.7 minutes on 2 workers: 372 caught, 93 missed, 2 timed out, 183 unviable. The ledger then held 555, so the next run tests only the 95 left.
+- A fresh run over the whole workspace at `e8a2fcd` tested 650 mutants in 28.7 minutes on 2 workers: 372 caught, 93 missed, 2 timed out, 183 unviable. The ledger then held 555, so the next run tests only the 95 left.
 
 **Rejected:**
 - *cargo-mutants' own tree copies (`--jobs N`).* Every run, and every job in it, starts from a cold build.

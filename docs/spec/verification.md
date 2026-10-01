@@ -89,6 +89,30 @@ No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at abo
 
 `eth_blockNumber` on `mainnet.base.org` at 10/s for 40s: none limited. PublicNode serves `eth_call` state 90 blocks back and refuses 100 back (HTTP 403, "archive requests require a personal token").
 
+**A run's calls on each endpoint (D88)**, `engine follow --minutes 1 --check-every 5`, 2026-09-30:
+
+| `--call-rpc` | Outcome |
+|---|---|
+| `base-rpc.publicnode.com` (default) | Exit 0 after 116s: 18 verification and 539 bootstrap calls, none failed; 26 v2 pairs and 91 v3 pools tracked; 133 shadow checks passed, none failed |
+| `mainnet.base.org` | Exit 1 after 152s: one call went 64s without getting past the rate limit (`-32016 over rate limit`), so the call worker gave up |
+| A local stand-in answering every `eth_call` with PublicNode's `-32701` | Exit 1 after 8s, at the check before the run |
+| The stand-in forwarding to PublicNode, then answering `-32701` from about 15s into the run | Exit 1 after 78s: 63s after the first refused call |
+
+The same for the block endpoint, `--rpc`, with the default `--call-rpc`:
+
+| `--rpc` | Outcome |
+|---|---|
+| `http://127.0.0.1:1` (nothing listening), `--minutes 1` | Before D88: still running when killed at 90s, having printed nothing. After: exit 1 after 8s, at the check before the run |
+| The stand-in forwarding to PublicNode, then answering every request `-32701` from about 17s into the run, `--minutes 3` | Exit 1 after 80s: the follower's `eth_blockNumber` went unanswered for 63s |
+
+An endpoint that accepts connections and never replies (D88, measured 2026-10-01):
+
+| Endpoint | Outcome |
+|---|---|
+| A local listener that never replies, as both `--rpc` and `--call-rpc`, `--minutes 1` | Before bounding attempts: still running, silent, past 100s (watchdog review of #61). After: exit 1 after 5s, at the call endpoint's check |
+| The same listener as `--rpc` only | Exit 1 after 6s, at the block endpoint's check |
+| The stand-in forwarding to PublicNode, then holding every `eth_call` open from about 15s into the run, as `--call-rpc`, `--minutes 3` | Exit 1 after 75s: a call had no reply for 60s |
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

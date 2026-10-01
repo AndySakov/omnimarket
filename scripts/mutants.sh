@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mutation testing (D87): cargo-mutants breaks the code one small change at a time and checks
+# Mutation testing (D89): cargo-mutants breaks the code one small change at a time and checks
 # that some test fails. A mutant no test notices is code the tests don't really check.
 #
 # Work carries over from one run to the next in two ways:

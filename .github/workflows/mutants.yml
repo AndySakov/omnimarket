@@ -1,6 +1,6 @@
 name: Mutants
 
-# Mutation testing (D87). Not a required check: it reports which mutants of the code no test
+# Mutation testing (D89). Not a required check: it reports which mutants of the code no test
 # catches, for the author and the watchdog to read.
 # - On a PR that touches Rust: only mutants in the PR's changed code, a fresh verdict.
 # - Nightly on main: every mutant not already caught. The ledger of caught mutants is cached
