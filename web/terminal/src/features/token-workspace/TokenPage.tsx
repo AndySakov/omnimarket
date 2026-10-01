@@ -1,0 +1,233 @@
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CandlestickChart,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  Clock3,
+  Copy,
+  Crosshair,
+  ExternalLink,
+  Eye,
+  Gauge,
+  Info,
+  LayoutGrid,
+  ListFilter,
+  Maximize2,
+  RefreshCw,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Star,
+  WalletCards,
+  Zap,
+} from 'lucide-react'
+import {
+  CandlestickSeries,
+  ColorType,
+  HistogramSeries,
+  createChart,
+  type UTCTimestamp,
+} from 'lightweight-charts'
+import type {
+  TokenCandle,
+  TokenMarketTab,
+  TokenOrder,
+  TokenPosition,
+  TokenTradeRow,
+  TokenWorkspaceFixture,
+  TokenWorkspaceState,
+  TopTrader,
+  TradeDraft,
+  TradeExecutionState,
+  TradePanelMode,
+  TradeQuoteState,
+} from '../../domains/market/tokenWorkspace'
+import { nativeAssetForChain } from '../../domains/market/tokenWorkspace'
+import { discoveryTokens } from '../../mocks/discoveryFixtures'
+import { tokenWorkspace } from '../../mocks/tokenWorkspaceFixtures'
+
+const intervals = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
+type ChartInterval = (typeof intervals)[number]
+const marketTabs: TokenMarketTab[] = ['Trades', 'Positions', 'Orders', 'Holders', 'Top Traders', 'Dev Token']
+
+type TokenPageProps = { tokenId?: string; state?: TokenWorkspaceState; onBack: () => void }
+
+export function TokenPage({ tokenId = tokenWorkspace.id, state = 'ready', onBack }: TokenPageProps) {
+  const [activeTokenId, setActiveTokenId] = useState(tokenId)
+  const [activeTab, setActiveTab] = useState<TokenMarketTab>('Trades')
+  const [activeInterval, setActiveInterval] = useState<ChartInterval>('5m')
+  const token = useMemo(() => getWorkspaceToken(activeTokenId), [activeTokenId])
+
+  if (state !== 'ready') return <TokenStatePanel state={state} onBack={onBack} />
+
+  return (
+    <main className="token-page" aria-label={`${token.name} token workspace`}>
+      <TokenWorkspaceHeader token={token} onBack={onBack} />
+      <div className="token-workspace">
+        <ContextRail activeTokenId={activeTokenId} onTokenChange={(id) => { setActiveTokenId(id); setActiveTab('Trades') }} />
+        <section className="token-decision-workspace" aria-label="Token analysis">
+          <TokenChartPanel token={token} activeInterval={activeInterval} onIntervalChange={setActiveInterval} />
+          <TokenMarketTabs activeTab={activeTab} onTabChange={setActiveTab} token={token} />
+        </section>
+        <TradePanel token={token} />
+      </div>
+    </main>
+  )
+}
+
+function getWorkspaceToken(tokenId: string): TokenWorkspaceFixture {
+  if (tokenId === tokenWorkspace.id) return tokenWorkspace
+  const source = discoveryTokens.find((candidate) => candidate.id === tokenId)
+  if (!source) return tokenWorkspace
+  const asset = nativeAssetForChain(source.chain)
+  return {
+    ...tokenWorkspace,
+    ...source,
+    address: `0x${source.id.replaceAll('-', '').slice(0, 4)}…${source.id.replaceAll('-', '').slice(-4)}`,
+    price: source.marketCap,
+    priceChange: source.marketCapChange,
+    fdv: source.marketCap,
+    volume24h: source.volume,
+    pair: `${source.symbol} / ${asset}`,
+    safetyNote: source.safety.state === 'passed' ? 'Sell simulation passed in the latest fixture snapshot.' : 'This fixture needs review before a trade can be prepared.',
+  }
+}
+
+function TokenWorkspaceHeader({ token, onBack }: { token: TokenWorkspaceFixture; onBack: () => void }) {
+  return (
+    <header className="token-workspace-header">
+      <div className="token-workspace-header__topline"><button className="back-button" type="button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /><span>Discover</span></button><span className="workspace-breadcrumb">Token workspace / fixture snapshot</span></div>
+      <div className="token-workspace-header__body">
+        <div className="token-identity"><div className="token-identity__avatar-wrap"><img className="token-identity__avatar" src={token.avatarSrc} alt="" /><span className="token-identity__chain-mark" aria-label={`${token.chain} network`}>{token.chain === 'Solana' ? 'S' : token.chain === 'BNB' ? 'B' : 'E'}</span></div><div className="token-identity__copy"><div className="token-identity__title-row"><h1>{token.name}</h1><span className="token-identity__symbol">{token.symbol}</span><button className="copy-button" type="button" aria-label={`Copy ${token.name} contract address`}><Copy size={14} aria-hidden="true" /></button><button className="icon-button icon-button--small" type="button" aria-label={`Open ${token.name} in a block explorer`}><ExternalLink size={14} aria-hidden="true" /></button></div><div className="token-identity__meta"><span className={`chain-label chain-label--${token.chain.toLowerCase()}`}><span className="chain-label__dot" />{token.chain}</span><span className="address-label">{token.address}</span><span className="freshness-label"><span className="status-dot status-dot--green" aria-hidden="true" />Updated 12s ago</span></div></div></div>
+        <div className="token-summary-metrics" aria-label="Token market summary" tabIndex={0}><Metric label="Price" value={token.price} change={token.priceChange} positive={!token.priceChange.startsWith('-')} emphasis /><Metric label="Liquidity" value={token.liquidity} change={token.liquidityChange} positive={!token.liquidityChange.startsWith('-')} /><Metric label="24h volume" value={token.volume24h} /><Metric label="Total fees" value="$0.44" /><Metric label="Total supply" value="1B" /><Metric label="B. curve" value="0.00%" tone="blue" /><Metric label="Total tax" value="1% / 1%" /></div>
+        <div className="token-header-actions"><button className="icon-button" type="button" aria-label="Open token alerts"><AlertTriangle size={15} aria-hidden="true" /></button><button className="watch-button" type="button" aria-label={`Add ${token.name} to watchlist`}><Star size={15} aria-hidden="true" /><span>Watch</span></button></div>
+      </div>
+      {token.provisional && <div className="token-banner token-banner--warning" role="status"><CircleAlert size={15} aria-hidden="true" /><span>Provisional market data. Confirm the address and liquidity before preparing a trade.</span></div>}
+    </header>
+  )
+}
+
+function Metric({ label, value, change, positive, emphasis, tone }: { label: string; value: string; change?: string; positive?: boolean; emphasis?: boolean; tone?: 'blue' }) {
+  return <div className={`token-metric ${emphasis ? 'token-metric--emphasis' : ''}`}><span className="token-metric__label">{label}</span><strong className={tone === 'blue' ? 'value-blue' : undefined}>{value}</strong>{change && <span className={positive ? 'value-up' : 'value-down'}>{change}</span>}</div>
+}
+
+function ContextRail({ activeTokenId, onTokenChange }: { activeTokenId: string; onTokenChange: (id: string) => void }) {
+  return (
+    <aside className="token-context-rail" aria-label="Token context">
+      <div className="context-rail__section context-rail__section--watch"><div className="context-rail__heading"><span>Watchlist</span><button type="button" aria-label="Add token to watchlist"><span aria-hidden="true">+</span></button></div><div className="context-rail__watch-card"><span className="status-dot status-dot--green" aria-hidden="true" /><div><strong>Market radar</strong><span>Live snapshot</span></div><ChevronDown size={14} aria-hidden="true" /></div></div>
+      <div className="context-rail__section context-rail__section--recent"><div className="context-rail__heading"><span>Recent discovery</span><span className="context-rail__count">{discoveryTokens.length}</span></div><div className="recent-token-list">{discoveryTokens.slice(0, 6).map((token) => <button className={`recent-token ${activeTokenId === token.id ? 'recent-token--active' : ''}`} key={token.id} type="button" onClick={() => onTokenChange(token.id)}><img src={token.avatarSrc} alt="" /><span className="recent-token__copy"><strong>{token.symbol}</strong><span>{token.name}</span></span><span className={token.marketCapChange.startsWith('-') ? 'value-down recent-token__change' : 'value-up recent-token__change'}>{token.marketCapChange}</span></button>)}</div></div>
+      <div className="context-rail__section context-rail__section--signals"><div className="context-rail__heading"><span>Signals</span><Gauge size={14} aria-hidden="true" /></div><Signal label="Liquidity" value="Healthy" tone="positive" /><Signal label="Holder concentration" value="Moderate" tone="warning" /><Signal label="Contract" value="Verified" tone="positive" /></div>
+      <div className="context-rail__footer"><span className="status-dot status-dot--blue" aria-hidden="true" />All context is fixture data</div>
+    </aside>
+  )
+}
+
+function Signal({ label, value, tone }: { label: string; value: string; tone: 'positive' | 'warning' }) {
+  return <div className="context-signal"><span>{label}</span><strong className={tone === 'positive' ? 'value-up' : 'value-amber'}>{value}</strong></div>
+}
+
+function TokenChartPanel({ token, activeInterval, onIntervalChange }: { token: TokenWorkspaceFixture; activeInterval: ChartInterval; onIntervalChange: (interval: ChartInterval) => void }) {
+  return (
+    <section className="token-chart-panel" aria-label="Token price chart">
+      <div className="chart-toolbar"><div className="chart-toolbar__title"><CandlestickChart size={15} aria-hidden="true" /><span>{token.pair}</span><span className="chart-toolbar__source"><span className="status-dot status-dot--green" aria-hidden="true" />Fixture · delayed</span></div><div className="chart-toolbar__controls"><div className="chart-intervals" role="tablist" aria-label="Chart interval">{intervals.map((interval) => <button className={`chart-interval ${activeInterval === interval ? 'chart-interval--active' : ''}`} key={interval} type="button" role="tab" aria-selected={activeInterval === interval} onClick={() => onIntervalChange(interval)}>{interval}</button>)}</div><button className="chart-control" type="button" aria-label="Toggle multi-chart layout"><LayoutGrid size={15} aria-hidden="true" /></button><button className="chart-control" type="button" aria-label="Toggle crosshair"><Crosshair size={15} aria-hidden="true" /></button><button className="chart-control" type="button" aria-label="Open chart settings"><Settings2 size={15} aria-hidden="true" /></button></div></div>
+      <div className="chart-subtoolbar"><span className="chart-subtoolbar__active">Price / MC</span><span>USD / SOL</span><span>Display <ChevronDown size={13} aria-hidden="true" /></span><span className="chart-subtoolbar__spacer" /><button type="button" aria-label="Search chart"><Search size={14} aria-hidden="true" /></button><button type="button" aria-label="Maximize chart"><Maximize2 size={14} aria-hidden="true" /></button></div>
+      <div className="chart-legend"><span className="chart-legend__price">{token.price}</span><span className="value-up">{token.priceChange}</span><span>High {token.price}</span><span>Low $0.42</span><span className="chart-legend__volume">Vol $8.2M</span></div>
+      <LightweightTokenChart token={token} />
+      <div className="chart-footer"><span><span className="status-dot status-dot--green" aria-hidden="true" />Streaming paused for foundation preview</span><span>Last update 12s ago</span></div>
+    </section>
+  )
+}
+
+function LightweightTokenChart({ token }: { token: TokenWorkspaceFixture }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!containerRef.current) return
+    const container = containerRef.current
+    const chart = createChart(container, { autoSize: true, layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#7d879b', attributionLogo: false }, grid: { vertLines: { color: 'rgba(32, 38, 50, 0.55)' }, horzLines: { color: 'rgba(32, 38, 50, 0.55)' } }, crosshair: { vertLine: { color: 'rgba(109, 124, 255, 0.35)' }, horzLine: { color: 'rgba(109, 124, 255, 0.35)' } }, rightPriceScale: { borderColor: '#202632', scaleMargins: { top: 0.08, bottom: 0.2 } }, timeScale: { borderColor: '#202632', timeVisible: true, secondsVisible: false } })
+    const candles = chart.addSeries(CandlestickSeries, { upColor: '#43d69a', downColor: '#ff6678', borderVisible: false, wickUpColor: '#43d69a', wickDownColor: '#ff6678' })
+    candles.setData(token.chart.candles.map((candle, index) => toChartCandle(candle, index)))
+    const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', color: 'rgba(67, 214, 154, 0.28)' })
+    volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    volume.setData(token.chart.volume.map((point, index) => ({ time: toChartTime(index), value: point.value, color: point.tone === 'up' ? 'rgba(67, 214, 154, 0.30)' : 'rgba(255, 102, 120, 0.26)' })))
+    chart.timeScale().fitContent()
+    return () => chart.remove()
+  }, [token])
+  return <div className="price-chart price-chart--lightweight" ref={containerRef} aria-label={`${token.name} candlestick price chart`} role="img" />
+}
+
+function toChartTime(index: number): UTCTimestamp { return Math.floor(Date.UTC(2026, 8, 30, 9, index * 15) / 1000) as UTCTimestamp }
+function toChartCandle(candle: TokenCandle, index: number) { return { time: toChartTime(index), open: candle.open, high: candle.high, low: candle.low, close: candle.close } }
+
+function TokenMarketTabs({ activeTab, onTabChange, token }: { activeTab: TokenMarketTab; onTabChange: (tab: TokenMarketTab) => void; token: TokenWorkspaceFixture }) {
+  return <section className="token-detail-panel" aria-label="Token market details"><div className="token-detail-toolbar"><div className="token-detail-tabs" role="tablist" aria-label="Token market views">{marketTabs.map((tab) => <button className={`token-detail-tab ${activeTab === tab ? 'token-detail-tab--active' : ''}`} key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => onTabChange(tab)}>{tab}{tab === 'Trades' && <span className="tab-count">{token.trades.length}</span>}{tab === 'Holders' && <span className="tab-count">{token.topHolders}</span>}</button>)}</div><div className="token-detail-actions"><button className="quiet-button" type="button"><RefreshCw size={14} aria-hidden="true" /> Refresh</button><button className="icon-button icon-button--small" type="button" aria-label="Filter market table"><ListFilter size={14} aria-hidden="true" /></button></div></div><div className="token-detail-content">{renderMarketTab(activeTab, token)}</div></section>
+}
+
+function renderMarketTab(tab: TokenMarketTab, token: TokenWorkspaceFixture) {
+  if (tab === 'Trades') return <TradesPanel rows={token.trades} />
+  if (tab === 'Positions') return <PositionsPanel rows={token.positions} />
+  if (tab === 'Orders') return <OrdersPanel rows={token.orders} />
+  if (tab === 'Holders') return <HoldersPanel token={token} />
+  if (tab === 'Top Traders') return <TopTradersPanel rows={token.topTraders} />
+  return <DevTokenPanel token={token} />
+}
+
+function TradesPanel({ rows }: { rows: TokenTradeRow[] }) {
+  return <MarketTable title="Trades" description="Latest observed activity for this pair." headers={['Age', 'Type', 'MC', 'Amount', 'Total USD', 'Gas', 'Trader', 'Tracking']} rows={rows.map((row) => [row.time, <span className={`activity-side activity-side--${row.side.toLowerCase()}`}><span className="status-dot" aria-hidden="true" />{row.side}</span>, row.marketCap, row.amount, row.value, row.gas, row.trader, <span className={row.tracking === 'Tracked' ? 'value-up' : 'muted-text'}>{row.tracking}</span>])} />
+}
+function PositionsPanel({ rows }: { rows: TokenPosition[] }) { return <MarketTable title="Open positions" description="Fixture positions observed across tracked wallets." headers={['Wallet', 'Side', 'Size', 'Entry', 'Unrealized PnL']} rows={rows.map((row) => [row.wallet, <span className="value-up">{row.side}</span>, row.size, row.entry, <span className="value-up">{row.pnl}</span>])} /> }
+function OrdersPanel({ rows }: { rows: TokenOrder[] }) { return <MarketTable title="Orders" description="Pending and recently completed fixture orders." headers={['Type', 'Side', 'Amount', 'Trigger', 'Status']} rows={rows.map((row) => [row.type, <span className={row.side === 'Buy' ? 'value-up' : 'value-down'}>{row.side}</span>, row.amount, row.trigger, <span className={row.status === 'Open' ? 'value-amber' : 'muted-text'}>{row.status}</span>])} /> }
+
+function HoldersPanel({ token }: { token: TokenWorkspaceFixture }) {
+  return <div className="simple-detail-panel"><div className="detail-panel-heading"><div><h2>Holder distribution</h2><p>{token.topHolders} across the latest snapshot.</p></div><span className="detail-panel__value">Top 10 · 24.8%</span></div><div className="distribution-bar" aria-label="Top holder distribution"><span style={{ width: '34%' }} /><span style={{ width: '22%' }} /><span style={{ width: '18%' }} /><span style={{ width: '26%' }} /></div><div className="distribution-legend"><span><i className="legend-dot legend-dot--blue" />Top holder 12.4%</span><span><i className="legend-dot legend-dot--green" />Top 2–5 22.1%</span><span><i className="legend-dot legend-dot--amber" />Top 6–10 18.4%</span><span><i className="legend-dot legend-dot--muted" />Other 47.1%</span></div><div className="holders-table"><div className="holders-table__head"><span>Wallet</span><span>Share</span><span>Balance</span><span>Label</span></div>{token.holderRows.map((holder) => <div className="holders-table__row" key={holder.id}><span className="mono-text">{holder.wallet}</span><strong>{holder.share}</strong><span>{holder.balance}</span><span className="muted-text">{holder.label}</span></div>)}</div></div>
+}
+function TopTradersPanel({ rows }: { rows: TopTrader[] }) { return <MarketTable title="Top traders" description="Highest-volume wallets in the current fixture window." headers={['Wallet', 'Volume', 'Realized PnL', 'Win rate']} rows={rows.map((row) => [row.wallet, row.volume, <span className={row.realizedPnl.startsWith('+') ? 'value-up' : 'value-down'}>{row.realizedPnl}</span>, row.winRate])} /> }
+function DevTokenPanel({ token }: { token: TokenWorkspaceFixture }) { return <div className="simple-detail-panel dev-token-panel"><div className="detail-panel-heading"><div><h2>Developer token activity</h2><p>Ownership and recent contract-level actions.</p></div><span className="evidence-badge evidence-badge--passed"><CircleCheck size={14} /> Verified</span></div><div className="dev-token-grid"><div><span>Wallet</span><strong className="mono-text">{token.developerToken.wallet}</strong></div><div><span>Balance</span><strong>{token.developerToken.balance}</strong></div><div><span>Supply share</span><strong>{token.developerToken.share}</strong></div><div><span>Last action</span><strong>{token.developerToken.lastAction}</strong></div></div></div> }
+
+function MarketTable({ title, description, headers, rows }: { title: string; description: string; headers: string[]; rows: ReactNode[][] }) {
+  return <div className="market-table-panel"><div className="detail-panel-heading"><div><h2>{title}</h2><p>{description}</p></div><span className="table-live"><span className="status-dot status-dot--green" aria-hidden="true" />Live fixture</span></div><div className="market-table-wrap"><table className="market-table"><thead><tr>{headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={`${title}-${rowIndex}`}>{row.map((cell, cellIndex) => <td key={`${title}-${rowIndex}-${cellIndex}`}>{cell}</td>)}</tr>)}</tbody></table></div></div>
+}
+
+function TradePanel({ token }: { token: TokenWorkspaceFixture }) {
+  const [draft, setDraft] = useState<TradeDraft>({ side: 'Buy', amount: '', asset: nativeAssetForChain(token.chain), quoteState: 'idle' })
+  const [mode, setMode] = useState<TradePanelMode>('Market')
+  const [executionState, setExecutionState] = useState<TradeExecutionState>('idle')
+  const [notice, setNotice] = useState('')
+  const presets = ['0.01', '0.1', '0.5', '1']
+  useEffect(() => {
+    if (draft.quoteState !== 'fresh') return
+    const expiry = window.setTimeout(() => {
+      setDraft((current) => current.quoteState === 'fresh' ? { ...current, quoteState: 'expired' } : current)
+    }, 18_000)
+    return () => window.clearTimeout(expiry)
+  }, [draft.quoteState])
+  function updateAmount(event: ChangeEvent<HTMLInputElement>) { const amount = event.target.value; setDraft((current) => ({ ...current, amount, quoteState: amount ? 'fresh' : 'idle' })); setExecutionState('idle'); setNotice('') }
+  function requestQuote() { if (!draft.amount || Number(draft.amount) <= 0) { setNotice('Enter an amount to request a fixture quote.'); setDraft((current) => ({ ...current, quoteState: 'error' })); return }; setNotice(''); setDraft((current) => ({ ...current, quoteState: 'loading' })); window.setTimeout(() => setDraft((current) => ({ ...current, quoteState: 'fresh' })), 420) }
+  function reviewTrade() { if (draft.quoteState !== 'fresh') { requestQuote(); return }; setExecutionState('review'); setNotice('') }
+  const receiveAmount = draft.amount ? (Number(draft.amount) * 2588).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'
+  const quoteStatus: Record<TradeQuoteState, string> = { idle: 'Enter an amount to get a quote', loading: 'Refreshing fixture quote…', fresh: 'Quote valid for 18s', expired: 'Quote expired · refresh to continue', error: 'Quote unavailable for this amount' }
+
+  return <aside className="trade-panel" aria-label="Trade panel">
+    <div className="trade-panel__header"><div><span className="panel-eyebrow">Trade workspace</span><h2>{token.symbol}</h2></div><span className="trade-panel__fixture"><span className="status-dot status-dot--blue" aria-hidden="true" />Mock only</span></div>
+    <div className="trade-preset-row"><div className="trade-layout-tabs" role="tablist" aria-label="Trade preset"><button className="trade-layout-tab trade-layout-tab--active" type="button" role="tab" aria-selected="true">P1</button><button className="trade-layout-tab" type="button" role="tab" aria-selected="false">P2</button><button className="trade-layout-tab" type="button" role="tab" aria-selected="false">P3</button></div><button className="wallet-compact" type="button"><WalletCards size={14} aria-hidden="true" /> 1 <ChevronDown size={13} aria-hidden="true" /></button></div>
+    <div className="trade-side-tabs" role="tablist" aria-label="Trade side">{(['Buy', 'Sell', 'Auto'] as const).map((side) => <button className={draft.side === side ? 'trade-side-tab trade-side-tab--active' : 'trade-side-tab'} key={side} type="button" role="tab" aria-selected={draft.side === side} onClick={() => { setDraft((current) => ({ ...current, side, quoteState: 'idle' })); setExecutionState('idle'); setNotice('') }}>{side}</button>)}</div>
+    <div className="trade-mode-tabs" role="tablist" aria-label="Trade mode">{(['Market', 'Limit', 'DCA', 'Advanced'] as TradePanelMode[]).map((item) => <button className={mode === item ? 'trade-mode-tab trade-mode-tab--active' : 'trade-mode-tab'} key={item} type="button" role="tab" aria-selected={mode === item} onClick={() => setMode(item)}>{item}{item === 'Limit' && <Info size={11} aria-hidden="true" />}</button>)}<span className="trade-balance">0 {draft.asset}</span></div>
+    <div className="trade-field"><div className="trade-field__label"><label htmlFor="trade-amount">Amount</label><span>{draft.asset}</span></div><div className="amount-input"><input id="trade-amount" inputMode="decimal" placeholder="0.00" value={draft.amount} onChange={updateAmount} aria-describedby="trade-balance" /><span>{draft.asset}</span><ChevronDown size={14} aria-hidden="true" /></div><div className="trade-presets" role="group" aria-label="Trade amount presets">{presets.map((preset) => <button type="button" key={preset} onClick={() => { setDraft((current) => ({ ...current, amount: preset, quoteState: 'fresh' })); setExecutionState('idle'); setNotice('') }}>{preset}</button>)}</div><span id="trade-balance" className="trade-helper">1 {draft.asset} ≈ 2,588 {token.symbol}</span></div>
+    <div className="trade-safety-row"><span><ShieldCheck size={13} aria-hidden="true" /> Safety checked</span><span>Impact &lt;0.1%</span></div>
+    <div className="quote-breakdown"><div><span>You receive</span><strong>~{receiveAmount} {token.symbol}</strong></div><div><span>Rate</span><span>1 {draft.asset} = 2,588 {token.symbol}</span></div><div><span>Price impact</span><span className="value-up">&lt;0.1%</span></div><div><span>Network fee</span><span>~$0.42</span></div></div>
+    <div className={`quote-status quote-status--${draft.quoteState}`}><span className={`status-dot ${draft.quoteState === 'fresh' ? 'status-dot--green' : draft.quoteState === 'error' ? 'status-dot--red' : 'status-dot--blue'}`} aria-hidden="true" />{quoteStatus[draft.quoteState]}{draft.quoteState === 'expired' && <button type="button" onClick={requestQuote}>Refresh</button>}</div>
+    <label className="strategy-toggle"><input type="checkbox" /><span>Advanced trading strategy</span><ChevronDown size={13} aria-hidden="true" /></label>
+    {notice && <p className="trade-notice" role="alert">{notice}</p>}
+    {executionState === 'review' ? <div className="trade-review" role="status"><div className="trade-review__title"><Check size={15} />Review ready</div><p>{draft.side} {draft.amount} {draft.asset} for approximately ~{receiveAmount} {token.symbol}. Signing is disabled in this foundation slice.</p><button className="button button--secondary" type="button" onClick={() => setExecutionState('idle')}>Edit draft</button></div> : <button className="button button--primary trade-review-button" type="button" onClick={reviewTrade}><Zap size={15} aria-hidden="true" />{draft.side === 'Sell' ? 'Review sell' : 'Review trade'}</button>}
+    <div className="trade-execution-note"><WalletCards size={14} aria-hidden="true" /><span>Connect a wallet in the execution phase to sign.</span></div>
+    <div className="trade-panel__footer"><span><Eye size={13} aria-hidden="true" /> Slippage 0.5%</span><span><Settings2 size={13} aria-hidden="true" /> Priority standard</span></div>
+  </aside>
+}
+
+function TokenStatePanel({ state, onBack }: { state: Exclude<TokenWorkspaceState, 'ready'>; onBack: () => void }) {
+  const content = { loading: { icon: <RefreshCw size={20} />, title: 'Loading token workspace', body: 'Keeping the chart, market tabs and trade panel stable while the snapshot arrives.' }, missing: { icon: <CircleAlert size={20} />, title: 'Token not found', body: 'This token is no longer available in the current market snapshot.' }, stale: { icon: <Clock3 size={20} />, title: 'Market data is stale', body: 'The last snapshot is older than the trade freshness window. Quotes are paused until it refreshes.' } }[state]
+  return <main className="token-page token-page--state" aria-label="Token workspace state"><button className="back-button" type="button" onClick={onBack}><ArrowLeft size={15} /> Back to Discover</button><div className={`token-state-panel token-state-panel--${state}`} role={state === 'missing' ? 'alert' : 'status'}><span className="token-state-panel__icon">{content.icon}</span><h1>{content.title}</h1><p>{content.body}</p>{state !== 'loading' && <button className="button button--secondary" type="button" onClick={onBack}>Return to Discover</button>}</div></main>
+}

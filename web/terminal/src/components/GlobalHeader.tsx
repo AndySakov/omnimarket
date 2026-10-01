@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState } from "react";
 import {
   BarChart3,
   ChevronDown,
@@ -9,29 +9,34 @@ import {
   Settings,
   Star,
   X,
-} from 'lucide-react'
+} from "lucide-react";
 
-const routes = ['Discover', 'Portfolio', 'Trackers', 'Wallets', 'Settings']
+const routes = ["Discover", "Portfolio", "Trackers", "Wallets", "Settings"];
 
 type GlobalHeaderProps = {
-  activeRoute: string
-  onNavigate: (route: string) => void
-}
+  activeRoute: string;
+  onNavigate: (route: string) => void;
+};
 
 export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   function handleNavigate(route: string) {
-    onNavigate(route)
-    setMobileMenuOpen(false)
+    onNavigate(route);
+    setMobileMenuOpen(false);
   }
 
   return (
     <header className="global-header">
       <div className="global-header__primary">
         <div className="global-header__identity">
-          <button className="brand" type="button" onClick={() => handleNavigate('Discover')}>
+          <button
+            className="brand"
+            type="button"
+            aria-label="OmniMarket home"
+            onClick={() => handleNavigate("Discover")}
+          >
             <span className="brand__mark" aria-hidden="true">
               <img src="/assets/omnimarket-logo.png" alt="" />
             </span>
@@ -41,10 +46,10 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
           <nav className="primary-nav" aria-label="Primary navigation">
             {routes.map((route) => (
               <button
-                className={`nav-link ${activeRoute === route ? 'nav-link--active' : ''}`}
+                className={`nav-link ${activeRoute === route ? "nav-link--active" : ""}`}
                 key={route}
                 type="button"
-                aria-current={activeRoute === route ? 'page' : undefined}
+                aria-current={activeRoute === route ? "page" : undefined}
                 onClick={() => handleNavigate(route)}
               >
                 {route}
@@ -57,7 +62,7 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
           <button
             className="icon-button mobile-control"
             type="button"
-            aria-label={searchOpen ? 'Close search' : 'Open search'}
+            aria-label={searchOpen ? "Close search" : "Open search"}
             aria-expanded={searchOpen}
             onClick={() => setSearchOpen((open) => !open)}
           >
@@ -69,14 +74,20 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
           <button className="button button--primary" type="button">
             Deposit
           </button>
-          <button className="icon-button" type="button" aria-label="Open favorites">
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="Open favorites"
+          >
             <Star size={17} />
           </button>
           <WalletMenu />
           <button
             className="icon-button mobile-control"
             type="button"
-            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-label={
+              mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"
+            }
             aria-expanded={mobileMenuOpen}
             onClick={() => setMobileMenuOpen((open) => !open)}
           >
@@ -89,14 +100,19 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
         <nav className="mobile-nav" aria-label="Mobile navigation">
           {routes.map((route) => (
             <button
-              className={`mobile-nav__link ${activeRoute === route ? 'mobile-nav__link--active' : ''}`}
+              className={`mobile-nav__link ${activeRoute === route ? "mobile-nav__link--active" : ""}`}
               key={route}
               type="button"
-              aria-current={activeRoute === route ? 'page' : undefined}
+              aria-current={activeRoute === route ? "page" : undefined}
               onClick={() => handleNavigate(route)}
             >
               <span>{route}</span>
-              {activeRoute === route && <span className="status-dot status-dot--blue" aria-hidden="true" />}
+              {activeRoute === route && (
+                <span
+                  className="status-dot status-dot--blue"
+                  aria-hidden="true"
+                />
+              )}
             </button>
           ))}
         </nav>
@@ -104,12 +120,14 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
 
       <UtilityRail />
     </header>
-  )
+  );
 }
 
 function SearchControl({ mobileOpen }: { mobileOpen: boolean }) {
   return (
-    <label className={`search-control ${mobileOpen ? 'search-control--mobile-open' : ''}`}>
+    <label
+      className={`search-control ${mobileOpen ? "search-control--mobile-open" : ""}`}
+    >
       <Search className="search-control__icon" size={16} aria-hidden="true" />
       <span className="sr-only">Search by token or contract address</span>
       <input placeholder="Search token or contract address" type="search" />
@@ -118,7 +136,7 @@ function SearchControl({ mobileOpen }: { mobileOpen: boolean }) {
         <span>K</span>
       </span>
     </label>
-  )
+  );
 }
 
 function ChainSelector() {
@@ -128,54 +146,90 @@ function ChainSelector() {
       <span>Base</span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>
-  )
+  );
 }
 
 function ConnectionStatus() {
   return (
-    <span className="connection-status" role="status" aria-label="Wallet connection status: connected">
+    <span
+      className="connection-status"
+      role="status"
+      aria-label="Wallet connection status: connected"
+    >
       <span className="status-dot status-dot--green" aria-hidden="true" />
       <span>Connected</span>
     </span>
-  )
+  );
 }
 
 function WalletMenu() {
   return (
     <button className="wallet-menu" type="button" aria-label="Open wallet menu">
-      <span className="wallet-avatar" aria-hidden="true">OM</span>
+      <span className="wallet-avatar" aria-hidden="true">
+        OM
+      </span>
       <span className="wallet-menu__details">
         <span className="wallet-menu__address">0x3a7e…9c21</span>
         <span className="wallet-menu__balance">$12,430.50</span>
       </span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>
-  )
+  );
 }
 
 function UtilityRail() {
   return (
     <div className="utility-rail">
       <div className="utility-rail__tools" aria-label="Terminal utilities">
-        <button className="utility-button" type="button" aria-label="Open terminal settings">
+        <button
+          className="utility-button"
+          type="button"
+          aria-label="Open terminal settings"
+        >
           <Settings size={15} />
         </button>
-        <button className="utility-button" type="button" aria-label="Open saved favorites">
+        <button
+          className="utility-button"
+          type="button"
+          aria-label="Open saved favorites"
+        >
           <Star size={15} />
         </button>
-        <button className="utility-button" type="button" aria-label="Open market activity">
+        <button
+          className="utility-button"
+          type="button"
+          aria-label="Open market activity"
+        >
           <BarChart3 size={15} />
         </button>
-        <button className="utility-button" type="button" aria-label="Open history">
+        <button
+          className="utility-button"
+          type="button"
+          aria-label="Open history"
+        >
           <History size={15} />
         </button>
       </div>
       <div className="utility-rail__ticker" aria-label="Market status">
-        <span className="market-live"><span className="status-dot status-dot--green" aria-hidden="true" />Live</span>
-        <span className="ticker-item"><strong>BTC</strong><span>$63,241</span><span className="value-up">+1.24%</span></span>
-        <span className="ticker-item"><strong>ETH</strong><span>$2,487.31</span><span className="value-down">−0.62%</span></span>
-        <span className="ticker-item ticker-item--gas"><strong>Gas</strong><span className="value-up">0.21 Gwei</span></span>
+        <span className="market-live">
+          <span className="status-dot status-dot--green" aria-hidden="true" />
+          Live
+        </span>
+        <span className="ticker-item">
+          <strong>BTC</strong>
+          <span>$63,241</span>
+          <span className="value-up">+1.24%</span>
+        </span>
+        <span className="ticker-item">
+          <strong>ETH</strong>
+          <span>$2,487.31</span>
+          <span className="value-down">−0.62%</span>
+        </span>
+        <span className="ticker-item ticker-item--gas">
+          <strong>Gas</strong>
+          <span className="value-up">0.21 Gwei</span>
+        </span>
       </div>
     </div>
-  )
+  );
 }

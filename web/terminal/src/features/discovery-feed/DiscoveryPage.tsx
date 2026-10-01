@@ -50,9 +50,10 @@ type DiscoverySurfaceState = 'ready' | 'loading' | 'empty' | 'error'
 
 type DiscoveryPageProps = {
   state?: DiscoverySurfaceState
+  onTokenOpen?: (token: DiscoveryToken) => void
 }
 
-export function DiscoveryPage({ state = 'ready' }: DiscoveryPageProps) {
+export function DiscoveryPage({ state = 'ready', onTokenOpen }: DiscoveryPageProps) {
   const [activeStream, setActiveStream] = useState<(typeof streams)[number]>('Top')
   const [activeTimeframe, setActiveTimeframe] = useState<(typeof timeframes)[number]>('5m')
   const [activeChain, setActiveChain] = useState<'All' | Chain>('All')
@@ -127,6 +128,7 @@ export function DiscoveryPage({ state = 'ready' }: DiscoveryPageProps) {
               tokens={visibleTokens}
               selectedTokenId={selectedTokenId}
               onSelect={setSelectedTokenId}
+              onOpen={onTokenOpen}
               onQuickBuy={handleQuickBuy}
             />
           )}
@@ -280,10 +282,11 @@ type TokenTableProps = {
   tokens: DiscoveryToken[]
   selectedTokenId: string | null
   onSelect: (id: string) => void
+  onOpen?: (token: DiscoveryToken) => void
   onQuickBuy: (token: DiscoveryToken) => void
 }
 
-function TokenTable({ tokens, selectedTokenId, onSelect, onQuickBuy }: TokenTableProps) {
+function TokenTable({ tokens, selectedTokenId, onSelect, onOpen, onQuickBuy }: TokenTableProps) {
   return (
     <div className="discovery-table-scroll">
       <table className="discovery-table">
@@ -307,6 +310,7 @@ function TokenTable({ tokens, selectedTokenId, onSelect, onQuickBuy }: TokenTabl
               index={index + 1}
               selected={selectedTokenId === token.id}
               onSelect={() => onSelect(token.id)}
+              onOpen={() => onOpen?.(token)}
               onQuickBuy={() => onQuickBuy(token)}
             />
           ))}
@@ -321,10 +325,11 @@ type TokenRowProps = {
   index: number
   selected: boolean
   onSelect: () => void
+  onOpen: () => void
   onQuickBuy: () => void
 }
 
-function TokenRow({ token, index, selected, onSelect, onQuickBuy }: TokenRowProps) {
+function TokenRow({ token, index, selected, onSelect, onOpen, onQuickBuy }: TokenRowProps) {
   return (
     <tr className={selected ? 'token-row token-row--selected' : 'token-row'}>
       <td data-label="Pair info">
@@ -333,7 +338,7 @@ function TokenRow({ token, index, selected, onSelect, onQuickBuy }: TokenRowProp
           <TokenAvatar src={token.avatarSrc} tone={token.avatarTone} />
           <div className="pair-cell__body">
             <div className="pair-cell__title">
-              <button className="token-name" type="button" onClick={onSelect}>{token.name}</button>
+              <button className="token-name" type="button" onClick={() => { onSelect(); onOpen() }}>{token.name}</button>
               <span className="token-symbol">{token.symbol}</span>
               <button className="copy-button" type="button" aria-label={`Copy ${token.name} address`}><Copy size={13} /></button>
             </div>
