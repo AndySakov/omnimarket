@@ -73,7 +73,7 @@
 .address-label, .mono-text, .token-metric strong, .trade-balance, .chart-legend, .trade-helper, .quote-breakdown, .market-table td, .market-table th { font-family: var(--omni-font-data); }
 .freshness-label { color: var(--omni-text-muted); }
 
-.token-summary-metrics { min-width: 0; justify-content: flex-end; gap: clamp(17px, 2.4vw, 34px); }
+.token-summary-metrics { min-width: 0; flex: 1 1 auto; justify-content: space-between; gap: clamp(10px, 1.2vw, 18px); }
 .token-metric { display: grid; min-width: 66px; gap: 3px; }
 .token-metric__label { color: var(--omni-text-subtle); font-size: var(--omni-type-caption); letter-spacing: 0.02em; white-space: nowrap; }
 .token-metric strong { color: var(--omni-text); font-size: var(--omni-type-data); font-weight: 680; white-space: nowrap; }
@@ -215,6 +215,13 @@
 
 @media (max-width: 1250px) and (min-width: 881px) {
   .token-workspace-header { padding-right: 20px; padding-left: 20px; }.token-workspace { padding-right: 20px; padding-left: 20px; }.token-summary-metrics { gap: 12px; }.token-metric { min-width: 58px; }.token-metric--emphasis strong { font-size: 18px; }.token-context-rail { width: 184px; flex-basis: 184px; }.trade-panel { width: 284px; flex-basis: 284px; }.token-identity { min-width: 228px; }
+}
+
+@media (max-width: 1500px) and (min-width: 881px) {
+  .token-workspace-header__body { display: grid; grid-template-columns: minmax(250px, auto) minmax(0, 1fr) auto; grid-template-rows: auto auto; row-gap: 12px; }
+  .token-identity { grid-column: 1; grid-row: 1; min-width: 0; }
+  .token-summary-metrics { grid-column: 1 / -1; grid-row: 2; width: 100%; justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
+  .token-header-actions { grid-column: 3; grid-row: 1; }
 }
 
 @media (max-width: 880px) {
