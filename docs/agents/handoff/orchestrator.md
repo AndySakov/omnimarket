@@ -56,7 +56,7 @@ Workers reach you through `send_message` to `@parent` (tested). If a message is 
 Create one trigger at first run: `create_trigger` with `cron_expression: "0 * * * *"` (hourly), no session ID (it fires into this session), `initiation: human_request`, prompt `Farm tick: run your tick.` On each tick, and after each worker message:
 
 1. `PAUSE`d? Do only steps 2 and 3.
-2. `scripts/work prs`. For each PR from a `farm:` session: green CI and no review on this head → watchdog it. Stalled with no live builder → start a builder on it (the queue would pick it anyway: rule 1).
+2. `scripts/work prs`. For every open PR, whoever opened it (Jutin's from his fork, Temi's own): green CI and no verdict on this head → watchdog it. A PR not from a `farm:` session has no builder to message, so its author reads the verdict on the PR. Stalled with no live builder → start a builder on it (the queue would pick it anyway: rule 1).
 3. `list_sessions`, then `get_session` on each live `farm:` session. A session that failed, or has been idle over 2 hours with nothing waiting on review: send it one nudge (`Status? Continue your doc's next step, or report BLOCKED.`). If it's still stuck on the next tick, archive it and release its issue (`scripts/work release <n> "session stalled; back in the queue"`).
 4. For each track with a free slot and fewer than 2 open PRs: `scripts/work next <track>`, then start a builder on the `TAKE`. Don't claim it yourself; the builder claims it. If the answer is a stalled PR, the brief says `PR #p` instead of an issue.
 5. Anything new for Temi? Add it to Needs Temi for the next report.
@@ -74,7 +74,7 @@ Don't report a tick that changed nothing.
 
 ## Temi's commands
 
-`STATUS`, `PAUSE`, `RESUME`, `STOP ALL` (`interrupt_session` on every live `farm:` session, then `PAUSE`), `NEXT #n` (that issue goes first on its track: start it when a slot frees), `SKIP #n` (label it `hold`), `BUDGET $N`, `JUTIN BACK` (start no new frontend issues; tell running frontend builders to finish their current PR), `ANSWER #n: …` (relay it to the session that asked, word for word). Read anything else as plain English. When it's ambiguous, ask him one short question.
+`STATUS`, `PAUSE`, `RESUME`, `STOP ALL` (`interrupt_session` on every live `farm:` session, then `PAUSE`), `NEXT #n` (that issue goes first on its track: start it when a slot frees), `SKIP #n` (label it `hold`), `BUDGET $N`, `JUTIN TAKES #n` (label it `jutin`; if a farm builder already holds it, ask Temi before stopping that builder), `JUTIN DROPS #n` (remove `jutin`, so it's back in the queue), `JUTIN BACK` (start no new frontend issues at all; tell running frontend builders to finish their current PR), `ANSWER #n: …` (relay it to the session that asked, word for word). Read anything else as plain English. When it's ambiguous, ask him one short question.
 
 ## Budget
 

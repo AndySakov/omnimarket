@@ -41,6 +41,7 @@ LABELS = {
     "wip": ("fbca04", "Claimed by an agent session (see its 'Taking this' comment)"),
     "hold": ("b60205", "Temi's brake: agents don't take or merge this"),
     "needs-temi": ("5319e7", "Waits on a signup or a decision only Temi can make"),
+    "jutin": ("1d76db", "Jutin is building this himself; agent sessions don't take it"),
 }
 
 
@@ -86,9 +87,28 @@ def closing_refs(body):
     return {int(n) for n in re.findall(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", body or "")}
 
 
+def working_refs(body):
+    """Issues an open PR works on: those it closes, and `Part of #n` (a slice that leaves the issue open)."""
+    return closing_refs(body) | {int(n) for n in re.findall(r"(?i)\bpart of\s+#(\d+)", body or "")}
+
+
 def milestone_number(issue):
     m = re.match(r"M(\d+)", (issue.get("milestone") or {}).get("title") or "")
     return int(m.group(1)) if m else 99
+
+
+def jutin_claims(n):
+    """Jutin's own claim (D93): his latest 'Taking this' or 'Dropping this' comment on the issue decides.
+    His comments come from his GitHub account, so no agent session can make or fake one by mistake."""
+    claimed = False
+    for c in gh(f"repos/{REPO}/issues/{n}/comments?per_page=100"):
+        if c["user"]["login"] != JUTIN:
+            continue
+        if re.match(r"(?i)\s*taking this", c["body"]):
+            claimed = True
+        elif re.match(r"(?i)\s*dropping this", c["body"]):
+            claimed = False
+    return claimed
 
 
 def stage(issue):
@@ -118,7 +138,7 @@ class Board:
         self.prs = gh(f"repos/{REPO}/pulls?state=open&per_page=100")
         self.closed_by = {}
         for pr in self.prs:
-            for n in closing_refs(pr.get("body")):
+            for n in working_refs(pr.get("body")):
                 self.closed_by.setdefault(n, pr["number"])
 
     def open_blockers(self, issue):
@@ -129,10 +149,12 @@ class Board:
         if "wip" in labels(issue):
             return "claimed (wip)"
         if n in self.closed_by:
-            return f"open PR #{self.closed_by[n]} closes it"
+            return f"open PR #{self.closed_by[n]} works on it"
         holders = assignees(issue) - ({JUTIN} if track == "frontend" else set())
         if holders:
             return "assigned to " + ", ".join(sorted(holders))
+        if issue.get("comments") and jutin_claims(n):
+            return "Jutin's (his 'Taking this' comment)"
         return None
 
     def unavailable(self, issue, track):
@@ -142,6 +164,8 @@ class Board:
             return "on hold"
         if "needs-temi" in tags:
             return "waits on Temi"
+        if "jutin" in tags:
+            return "Jutin's"
         taken = self.taken(issue, track)
         if taken:
             return taken

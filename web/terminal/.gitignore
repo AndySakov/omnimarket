@@ -5,3 +5,4 @@ playwright-report/
 test-results/
 playwright/.auth/
 storybook-static/
+dist-live/

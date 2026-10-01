@@ -53,7 +53,8 @@ Talk to the orchestrator in its session. It understands these, and plain English
 | `NEXT #84` | Makes #84 the next issue for its track, ahead of the queue |
 | `SKIP #97` | Labels it `hold` so no session takes it |
 | `BUDGET $120` | Tells it the credit left; it paces itself (see orchestrator.md) |
-| `JUTIN BACK` | Stops taking new frontend issues; frontend work goes back to Jutin |
+| `JUTIN TAKES #64` / `JUTIN DROPS #64` | Labels the issue `jutin`, so the farm leaves it to him, or releases it back to the queue |
+| `JUTIN BACK` | Stops taking new frontend issues at all; frontend work goes back to Jutin |
 | `ANSWER #85: …` | Your answer to a question a session raised; it relays it |
 
 From your phone, without logging in: label any issue or PR `hold`, and agents won't take or merge it. Remove the label to release it.
