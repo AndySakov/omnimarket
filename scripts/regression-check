@@ -1,0 +1,481 @@
+#!/usr/bin/env python3
+"""Proves a fix's regression test fails on main's code before the fix merges (D91).
+
+  scripts/regression-check [--base <ref>] [--head <ref>] [--summary <file>] [--fixes-bug <body-file>]
+
+It finds the Rust tests the PR adds or changes (between the merge base of <base> and <head>, and
+<head>), then runs them twice:
+- on <head>, where every one must pass;
+- on <base>'s code with the PR's tests put in: every file under a `tests/` directory (or named
+  `tests.rs`) from <head>, and in every other changed source file, <base>'s code with <head>'s
+  `#[cfg(test)]` items in place of <base>'s. That's what the watchdog did by hand: the PR's tests
+  on main's code. At least one test must fail there, or the tests don't show the bug.
+
+A test that doesn't build on <base>'s code (it calls something the fix adds) is reported, but it
+doesn't count as failing: it shows the API changed, not that the bug was there.
+
+--fixes-bug <body-file> makes the check apply only to a fix: when the PR body in <body-file> names
+no issue labelled `bug` with a closing keyword (`Fixes #n`, `Closes #n`, ...), it reports that and
+passes. Reading labels needs `gh` authenticated for the repository (GH_TOKEN in CI).
+
+Exits 0 when the check passes or doesn't apply, 1 when it fails, 2 on a usage or git error.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+REPO = os.environ.get("GITHUB_REPOSITORY", "AndySakov/omnimarket")
+# GitHub's closing keywords: https://docs.github.com/en/issues/tracking-your-work-with-issues/
+# using-issues/linking-a-pull-request-to-an-issue
+CLOSING_REF = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b", re.I)
+
+
+# --- Reading Rust source -------------------------------------------------------------------------
+
+
+def mask(text):
+    """`text` with the insides of comments, strings and char literals blanked to spaces, newlines
+    kept, so brace matching and regexes over it see only code. Positions are unchanged."""
+    out = list(text)
+    i, n = 0, len(text)
+
+    def blank(start, end):
+        for k in range(start, end):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            end = text.find("\n", i)
+            end = n if end < 0 else end
+            blank(i, end)
+            i = end
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            blank(i, j)
+            i = j
+        elif m := re.compile(r'(?:b|c)?r(#*)"').match(text, i):
+            if i and (text[i - 1].isalnum() or text[i - 1] == "_"):
+                i += 1
+                continue
+            close = '"' + m.group(1)
+            end = text.find(close, m.end())
+            end = n if end < 0 else end + len(close)
+            blank(m.end(), end - len(close))
+            i = end
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            blank(i + 1, j)
+            i = j + 1
+        elif c == "'":
+            # A char literal ('x', '\n', '\u{1F600}'), or else a lifetime ('a), left as is.
+            m = re.compile(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'").match(text, i)
+            if m:
+                blank(i + 1, m.end() - 1)
+                i = m.end()
+            else:
+                i += 1
+        else:
+            i += 1
+    return "".join(out)
+
+
+def block_end(masked, open_brace):
+    """The index just past the `}` matching the `{` at `open_brace`."""
+    depth = 0
+    for k in range(open_brace, len(masked)):
+        if masked[k] == "{":
+            depth += 1
+        elif masked[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return k + 1
+    return len(masked)
+
+
+ATTRS = r"((?:#\[(?:[^\[\]]|\[[^\[\]]*\])*\]\s*)+)"
+CFG_TEST_ITEM = re.compile(r"#\[cfg\(test\)\]")
+TEST_FN = re.compile(ATTRS + r"(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+(\w+)")
+TEST_ATTR = re.compile(r"#\[\s*(?:\w+::)*test\s*(?:\]|\()")
+MOD_BLOCK = re.compile(r"\bmod\s+(\w+)\s*\{")
+
+
+def item_end(masked, start):
+    """The end of the item starting at `start` (its attributes included): its block's closing
+    brace, or its `;` when one comes first."""
+    brace, semi = masked.find("{", start), masked.find(";", start)
+    # Skip the attributes' own brackets: `#[cfg(test)]` holds neither `{` nor `;`.
+    if brace >= 0 and (semi < 0 or brace < semi):
+        return block_end(masked, brace)
+    return len(masked) if semi < 0 else semi + 1
+
+
+def cfg_test_items(text):
+    """The (start, end) spans of `#[cfg(test)]` items, outermost only."""
+    masked, spans = mask(text), []
+    for m in CFG_TEST_ITEM.finditer(masked):
+        if spans and m.start() < spans[-1][1]:
+            continue
+        spans.append((m.start(), item_end(masked, m.start())))
+    return spans
+
+
+@dataclass
+class TestFn:
+    path: str  # the path inside its file: `tests::name`, or `name` at a file's top level
+    text: str  # attributes and body, to tell a changed test from an unchanged one
+    ignored: bool
+
+
+def test_fns(text, within=None):
+    """The test functions in `text`, keyed by their path inside the file. `within` limits them to
+    those spans (a source file's `#[cfg(test)]` items)."""
+    masked = mask(text)
+    mods = [(m.group(1), m.start(), block_end(masked, m.end() - 1)) for m in MOD_BLOCK.finditer(masked)]
+    found = {}
+    for m in TEST_FN.finditer(masked):
+        attrs = m.group(1)
+        if not TEST_ATTR.search(attrs):
+            continue
+        if within is not None and not any(s <= m.start() < e for s, e in within):
+            continue
+        brace = masked.find("{", m.end())
+        end = block_end(masked, brace) if brace >= 0 else m.end()
+        inner = [name for name, s, e in mods if s < m.start() < e]
+        path = "::".join(inner + [m.group(2)])
+        found[path] = TestFn(path, text[m.start() : end], re.search(r"#\[\s*ignore\b", attrs) is not None)
+    return found
+
+
+def splice(base_text, head_text):
+    """`base_text` with its `#[cfg(test)]` items replaced by `head_text`'s."""
+    kept, at = [], 0
+    for s, e in cfg_test_items(base_text):
+        kept.append(base_text[at:s])
+        at = e
+    kept.append(base_text[at:])
+    code = "".join(kept).rstrip() + "\n"
+    tests = [head_text[s:e] for s, e in cfg_test_items(head_text)]
+    return code + "".join("\n" + t + "\n" for t in tests)
+
+
+def is_test_file(path):
+    parts = Path(path).parts
+    return "tests" in parts[:-1] or parts[-1] == "tests.rs"
+
+
+# --- Git and cargo -------------------------------------------------------------------------------
+
+
+def git(*args, cwd=None, check=True):
+    done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if check and done.returncode != 0:
+        sys.exit(f"regression-check: git {' '.join(args)}: {done.stderr.strip()}")
+    return done.stdout
+
+
+def show(ref, path, cwd):
+    """`path`'s contents at `ref`, or None where it doesn't exist."""
+    done = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=cwd, capture_output=True, text=True)
+    return done.stdout if done.returncode == 0 else None
+
+
+@dataclass
+class Target:
+    """One cargo test target and the PR's tests in it."""
+
+    package: str
+    args: tuple  # cargo's target selection: ("--lib",), ("--bins",) or ("--test", name)
+    tests: dict = field(default_factory=dict)  # full test path -> (file, TestFn)
+
+    @property
+    def label(self):
+        return f"{self.package} {' '.join(self.args)}"
+
+
+def target_of(package_dir, path):
+    """The cargo target running `path`'s tests, and the module path cargo prefixes them with."""
+    rel = Path(path).relative_to(package_dir)
+    if rel.parts[0] == "tests":
+        if len(rel.parts) == 2:
+            return ("--test", rel.stem), []
+        if len(rel.parts) == 3 and rel.name == "main.rs":
+            return ("--test", rel.parts[1]), []
+        return None, []  # a helper module shared by test files
+    if rel.parts[0] != "src":
+        return None, []
+    inner = list(rel.parts[1:])
+    if inner in (["main.rs"],) or inner[0] == "bin":
+        return ("--bins",), []
+    if inner == ["lib.rs"]:
+        return ("--lib",), []
+    if inner[-1] == "mod.rs":
+        inner = inner[:-1]
+    else:
+        inner[-1] = Path(inner[-1]).stem
+    return ("--lib",), inner
+
+
+RESULT = re.compile(r"^test (\S+) \.\.\. (ok|FAILED|ignored)", re.M)
+
+
+def run_tests(tree, target, target_dir):
+    """Runs `target`'s tests in `tree`: {test path: "passes" | "fails"}, or None when it doesn't
+    build, with cargo's output."""
+    names = sorted({p.rsplit("::", 1)[-1] for p in target.tests})
+    cmd = ["cargo", "test", "-p", target.package, *target.args, "--", *names]
+    env = dict(os.environ, CARGO_TARGET_DIR=str(target_dir), RUST_BACKTRACE="0")
+    done = subprocess.run(cmd, cwd=tree, capture_output=True, text=True, env=env)
+    out = done.stdout + done.stderr
+    results = {m.group(1): m.group(2) for m in RESULT.finditer(done.stdout)}
+    if done.returncode != 0 and not results:
+        return None, out
+    status = {}
+    for path in target.tests:
+        if path in results:
+            status[path] = {"ok": "passes", "FAILED": "fails", "ignored": "ignored"}[results[path]]
+    return status, out
+
+
+# --- The check -----------------------------------------------------------------------------------
+
+
+def changed_tests(repo, merge_base, head):
+    """The PR's new or changed tests, by target, and the changed files main's tree needs."""
+    files = git("diff", "--no-renames", "--name-only", "--diff-filter=AM", merge_base, head, cwd=repo).split()
+    targets, test_files, source_files, skipped = {}, [], [], []
+    for path in files:
+        if is_test_file(path):
+            test_files.append(path)
+        elif path.endswith(".rs"):
+            source_files.append(path)
+        if not path.endswith(".rs"):
+            continue
+        new, old = show(head, path, repo), show(merge_base, path, repo)
+        within = None if is_test_file(path) else cfg_test_items(new)
+        old_within = None if old is None or is_test_file(path) else cfg_test_items(old)
+        new_tests = test_fns(new, within)
+        old_tests = {} if old is None else test_fns(old, old_within)
+        touched = [t for p, t in new_tests.items() if p not in old_tests or old_tests[p].text != t.text]
+        if not touched:
+            continue
+        owner = package_of(repo, head, path)
+        if owner is None:
+            skipped.extend(f"`{t.path}` in {path}: not in a cargo package" for t in touched)
+            continue
+        package, package_dir = owner
+        args, prefix = target_of(package_dir, path)
+        if args is None:
+            skipped.extend(f"`{t.path}` in {path}: not in a test target" for t in touched)
+            continue
+        target = targets.setdefault((package, args), Target(package, args))
+        for t in touched:
+            if t.ignored:
+                skipped.append(f"`{t.path}` in {path}: `#[ignore]`d")
+            else:
+                target.tests["::".join(prefix + [t.path])] = (path, t)
+    return [t for t in targets.values() if t.tests], test_files, source_files, skipped
+
+
+def package_of(repo, ref, path):
+    """The (package name, package dir) owning `path` at `ref`, or None."""
+    d = Path(path).parent
+    while True:
+        manifest = show(ref, (d / "Cargo.toml").as_posix(), repo)
+        if manifest is not None:
+            m = re.search(r'\[package\][^\[]*?^name\s*=\s*"([^"]+)"', manifest, re.M | re.S)
+            return (m.group(1), d) if m else None
+        if d == Path("."):
+            return None
+        d = d.parent
+
+
+def tests_on_main(base_tree, head, repo, test_files, source_files):
+    """Puts the PR's tests into `base_tree`, which holds main's code. Returns the source files whose
+    tests can't go in because main doesn't have the file, and for each spliced source file its
+    (main's text, spliced text)."""
+    missing, spliced = [], {}
+    for path in test_files:
+        dest = base_tree / path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(subprocess.run(["git", "show", f"{head}:{path}"], cwd=repo, capture_output=True).stdout)
+    for path in source_files:
+        dest = base_tree / path
+        if not dest.exists():
+            missing.append(path)
+            continue
+        original = dest.read_text()
+        spliced[path] = (original, splice(original, show(head, path, repo)))
+        dest.write_text(spliced[path][1])
+    return missing, spliced
+
+
+def run_on_main(base_tree, target, target_dir, spliced):
+    """run_tests on main's code. Returns (status, cargo output, source files whose test module
+    doesn't build there)."""
+    status, out = run_tests(base_tree, target, target_dir)
+    if status is not None or target.args[0] == "--test":
+        return status, out, set()
+    # One file's test module that doesn't build on main's code (it calls something main lacks)
+    # would hide every other file's tests in the crate: run each file's tests with only its own
+    # test module put in.
+    status, broken, outs = {}, set(), [out]
+    for file in sorted({f for f, _ in target.tests.values() if f in spliced}):
+        for path, (original, new) in spliced.items():
+            (base_tree / path).write_text(new if path == file else original)
+        one = Target(target.package, target.args, {k: v for k, v in target.tests.items() if v[0] == file})
+        on_file, file_out = run_tests(base_tree, one, target_dir)
+        outs.append(file_out)
+        if on_file is None:
+            broken.add(file)
+        else:
+            status.update(on_file)
+    for path, (_, new) in spliced.items():
+        (base_tree / path).write_text(new)
+    return status, "\n".join(outs), broken
+
+
+def check(repo, base, head, target_dir):
+    """Runs the check. Returns (passed, report in Markdown)."""
+    head_sha = git("rev-parse", "--verify", f"{head}^{{commit}}", cwd=repo).strip()
+    base_sha = git("rev-parse", "--verify", f"{base}^{{commit}}", cwd=repo).strip()
+    merge_base = git("merge-base", base_sha, head_sha, cwd=repo).strip()
+    targets, test_files, source_files, skipped = changed_tests(repo, merge_base, head_sha)
+    lines = [
+        "## Regression check",
+        "",
+        f"The PR's new or changed tests, on its head (`{head_sha[:10]}`) and on main's code "
+        f"(`{base_sha[:10]}`) with the PR's tests put in (D91).",
+        "",
+    ]
+    if not targets:
+        lines.append("**Fails:** the PR adds or changes no test that runs, so nothing shows the bug.")
+        lines += [f"- skipped {s}" for s in skipped]
+        return False, "\n".join(lines)
+
+    with tempfile.TemporaryDirectory(prefix="regression-check-") as tmp:
+        head_tree, base_tree = Path(tmp) / "head", Path(tmp) / "base"
+        git("worktree", "add", "--detach", str(head_tree), head_sha, cwd=repo)
+        git("worktree", "add", "--detach", str(base_tree), base_sha, cwd=repo)
+        try:
+            missing, spliced = tests_on_main(base_tree, head_sha, repo, test_files, source_files)
+            rows, logs = [], []
+            for target in targets:
+                # A target dir per tree: cargo's fingerprints name sources relative to the
+                # workspace root, so a shared one would reuse the head's test binaries on main's code.
+                on_head, head_out = run_tests(head_tree, target, target_dir / "head")
+                on_base, base_out, broken = run_on_main(base_tree, target, target_dir / "base", spliced)
+                if on_head is None:
+                    logs.append((f"{target.label} on the PR's head", head_out))
+                if on_base is None or broken or "fails" in on_base.values():
+                    logs.append((f"{target.label} on main's code", base_out))
+                for path, (file, _) in sorted(target.tests.items()):
+                    if file in missing:
+                        b = "absent: a new file"
+                    elif on_base is None or file in broken:
+                        b = "doesn't build"
+                    else:
+                        b = on_base.get(path, "didn't run")
+                    h = "doesn't build" if on_head is None else on_head.get(path, "didn't run")
+                    rows.append((target.label, path, b, h))
+        finally:
+            git("worktree", "remove", "--force", str(head_tree), cwd=repo, check=False)
+            git("worktree", "remove", "--force", str(base_tree), cwd=repo, check=False)
+
+    failing_on_main = [r for r in rows if r[2] == "fails"]
+    not_passing_on_head = [r for r in rows if r[3] != "passes"]
+    lines += ["| Target | Test | On main's code | On the PR |", "|---|---|---|---|"]
+    lines += [f"| {t} | `{p}` | {b} | {h} |" for t, p, b, h in rows]
+    lines.append("")
+    if not_passing_on_head:
+        verdict = "**Fails:** every new or changed test must pass on the PR's head. Not passing: " + ", ".join(
+            f"`{r[1]}`" for r in not_passing_on_head
+        )
+    elif not failing_on_main:
+        verdict = (
+            "**Fails:** none of the PR's new or changed tests fails on main's code. They pass there "
+            "too (or don't build there), so they don't show the bug the PR fixes."
+        )
+    else:
+        verdict = "**Passes:** failing on main's code: " + ", ".join(f"`{r[1]}`" for r in failing_on_main)
+    lines.append(verdict)
+    if skipped:
+        lines += ["", "Not run:"] + [f"- {s}" for s in skipped]
+    for title, out in logs:
+        lines += ["", f"<details><summary>cargo output: {title}</summary>", "", "```", excerpt(out), "```", "</details>"]
+    return not not_passing_on_head and bool(failing_on_main), "\n".join(lines)
+
+
+def excerpt(out):
+    """What a reader needs from cargo's output: each failing test's panic, and the errors when
+    something didn't build."""
+    parts = re.findall(r"^---- .*?(?=^---- |^failures:$)", out, re.M | re.S)
+    errors = re.findall(r"^error.*?(?=^\S|\Z)", out, re.M | re.S)
+    lines = "".join(parts + errors).strip().splitlines()
+    return "\n".join(lines[:80] + (["..."] if len(lines) > 80 else []))
+
+
+def fixed_bugs(body, labels_of):
+    """The issues `body` closes that are labelled `bug`. `labels_of(n)` returns issue n's labels."""
+    numbers = sorted({int(n) for n in CLOSING_REF.findall(body or "")})
+    return [n for n in numbers if "bug" in labels_of(n)]
+
+
+def gh_labels(n):
+    done = subprocess.run(
+        ["gh", "api", f"repos/{REPO}/issues/{n}", "--jq", "[.labels[].name]"], capture_output=True, text=True
+    )
+    if done.returncode != 0:
+        sys.exit(f"regression-check: reading issue #{n}'s labels: {done.stderr.strip()}")
+    return json.loads(done.stdout)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--base", default="origin/main", help="main's code (default origin/main)")
+    parser.add_argument("--head", default="HEAD", help="the PR's head (default HEAD)")
+    parser.add_argument("--summary", help="also append the report to this file ($GITHUB_STEP_SUMMARY)")
+    parser.add_argument("--fixes-bug", metavar="BODY_FILE", help="check only when this PR body fixes a bug")
+    parser.add_argument("--target-dir", help="cargo's target dir (default <repo>/target/regression-check)")
+    args = parser.parse_args()
+
+    repo = Path(git("rev-parse", "--show-toplevel").strip())
+    if args.fixes_bug is not None:
+        bugs = fixed_bugs(Path(args.fixes_bug).read_text(), gh_labels)
+        if not bugs:
+            report = "## Regression check\n\nNot a fix: the PR body closes no issue labelled `bug`. Nothing to check."
+            print(report)
+            if args.summary:
+                with open(args.summary, "a") as f:
+                    f.write(report + "\n")
+            return 0
+        print(f"regression-check: the PR fixes {', '.join(f'#{n}' for n in bugs)}", file=sys.stderr)
+
+    target_dir = Path(args.target_dir) if args.target_dir else repo / "target" / "regression-check"
+    passed, report = check(repo, args.base, args.head, target_dir.resolve())
+    print(report)
+    if args.summary:
+        with open(args.summary, "a") as f:
+            f.write(report + "\n")
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

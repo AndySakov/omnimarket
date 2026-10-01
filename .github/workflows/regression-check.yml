@@ -1,0 +1,60 @@
+name: Regression check
+
+# D91. On a PR that fixes a bug (its body closes an issue labelled `bug`), proves that the PR's new or
+# changed tests fail on main's code and pass on the PR's head: `scripts/regression-check`. On any
+# other PR it passes at once. The report is in the job summary.
+# `edited` re-runs it when the PR body starts or stops closing a bug.
+# workflow_dispatch replays it on any two commits, e.g. base 19e1874, head a09f080 (#57's fix).
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: main's code (a commit or ref)
+        required: true
+      head:
+        description: the fix (a commit or ref)
+        required: true
+
+concurrency:
+  group: regression-check-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  regression-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The merge base with main, and both trees, need the history.
+          fetch-depth: 0
+      # Installs the toolchain pinned in rust-toolchain.toml.
+      - run: rustup toolchain install
+      # The script builds each tree in its own target dir under target/regression-check.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          cache-directories: target/regression-check
+      - name: Check a fix's tests on main's code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BODY: ${{ github.event.pull_request.body }}
+          PR_BASE: ${{ github.base_ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+        run: |
+          if [[ $EVENT == pull_request ]]; then
+            printf '%s\n' "$BODY" > "$RUNNER_TEMP/body.md"
+            scripts/regression-check --base "origin/$PR_BASE" --head "$PR_HEAD" \
+              --fixes-bug "$RUNNER_TEMP/body.md" --summary "$GITHUB_STEP_SUMMARY"
+          else
+            scripts/regression-check --base "$BASE" --head "$HEAD" --summary "$GITHUB_STEP_SUMMARY"
+          fi
