@@ -18,3 +18,16 @@ test.describe('global header visual baselines', () => {
     await expect(page.locator('.global-header')).toHaveScreenshot('header-mobile-menu.png')
   })
 })
+
+test.describe('account menu visual baselines', () => {
+  test('guest account panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Continue as guest' }).click()
+    await page.getByRole('button', { name: /^Open account menu: guest/ }).click()
+    const panel = page.getByRole('dialog', { name: 'Account' })
+    await expect(panel.getByRole('status', { name: /^Shadow balances: Live\./ })).toBeVisible()
+
+    await expect(panel).toHaveScreenshot('account-panel-guest.png')
+  })
+})

@@ -10,6 +10,7 @@ import {
   Star,
   X,
 } from 'lucide-react'
+import { WalletMenu } from '../features/account/WalletMenu'
 import { ConnectionStatus } from './ConnectionStatus'
 
 const routes = ['Discover', 'Portfolio', 'Trackers', 'Wallets', 'Settings']
@@ -127,19 +128,6 @@ function ChainSelector() {
     <button className="context-control" type="button" aria-label="Select chain">
       <img className="chain-mark" src="/assets/chains/base.svg" alt="" />
       <span>Base</span>
-      <ChevronDown size={14} aria-hidden="true" />
-    </button>
-  )
-}
-
-function WalletMenu() {
-  return (
-    <button className="wallet-menu" type="button" aria-label="Open wallet menu">
-      <span className="wallet-avatar" aria-hidden="true">OM</span>
-      <span className="wallet-menu__details">
-        <span className="wallet-menu__address">0x3a7e…9c21</span>
-        <span className="wallet-menu__balance">$12,430.50</span>
-      </span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>
   )

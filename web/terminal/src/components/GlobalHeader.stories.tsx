@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
+import { SessionSchema } from '../api/generated/omnimarket/api/v1/trading_pb'
+import { apiFixture } from '../mocks/fixtures/api'
 import { withStream } from '../test/streamStory'
 import { GlobalHeader } from './GlobalHeader'
 
@@ -28,4 +30,8 @@ export const Reconnecting: Story = {
 
 export const Fixtures: Story = {
   decorators: [withStream('fixtures', 'open')],
+}
+
+export const SignedInAsGuest: Story = {
+  decorators: [withStream('fixtures', 'open', apiFixture(SessionSchema))],
 }

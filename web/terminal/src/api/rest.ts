@@ -23,7 +23,13 @@ import {
   type TokenSnapshot,
   type TradeList,
 } from './generated/omnimarket/api/v1/market_pb'
-import { QuoteRequestSchema, QuoteSchema, type Quote } from './generated/omnimarket/api/v1/trading_pb'
+import {
+  QuoteRequestSchema,
+  QuoteSchema,
+  SessionSchema,
+  type Quote,
+  type Session,
+} from './generated/omnimarket/api/v1/trading_pb'
 import type { CandleIntervalLabel } from './stream/topics'
 
 /** A non-2xx response, or a body that isn't the message the endpoint promises. */
@@ -125,6 +131,14 @@ export function createApiClient(options: ApiClientOptions) {
         from_ms: query.fromMs,
         to_ms: query.toMs,
       })}`, { signal })
+    },
+
+    /**
+     * Starts a guest demo account (#66, #85): no body, and the response's token is the session's
+     * bearer from then on. A Privy login will link through the same endpoint (#85).
+     */
+    createGuestSession(): Promise<Session> {
+      return request(SessionSchema, '/v1/session', { method: 'POST' })
     },
 
     /** A command: the request is built from the generated type, so it can't drift from the contract. */

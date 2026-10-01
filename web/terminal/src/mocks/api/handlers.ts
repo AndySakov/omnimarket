@@ -2,7 +2,7 @@
 // fixture, and the stream is a `FixtureStream` driven by a one-second timer per connection.
 // The browser uses them through `startFixtureWorker`; tests use them with `setupServer`.
 
-import { fromJsonString, toJsonString } from '@bufbuild/protobuf'
+import { fromJsonString, toJson, toJsonString } from '@bufbuild/protobuf'
 import { http, HttpResponse, ws, type RequestHandler, type WebSocketHandler } from 'msw'
 import {
   CandleSeriesSchema,
@@ -27,8 +27,10 @@ import {
 } from '../../api/generated/omnimarket/api/v1/automation_pb'
 import { ClientMessageSchema, ServerMessageSchema } from '../../api/generated/omnimarket/api/v1/stream_pb'
 import type { DataSource } from '../../api/source'
-import { apiFixtureJson } from '../fixtures/api'
+import { apiFixture, apiFixtureJson } from '../fixtures/api'
 import { FixtureStream } from './fixtureStream'
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 export type FixtureHandlerOptions = {
   /** How often the stream sends a heartbeat and price ticks. */
@@ -62,7 +64,11 @@ export function fixtureHandlers(
     http.get(`${api}/tokens/:chainId/:address`, json(TokenSnapshotSchema)),
     http.get(`${api}/trades`, json(TradeListSchema)),
     http.get(`${api}/candles`, json(CandleSeriesSchema)),
-    http.post(`${api}/session`, json(SessionSchema)),
+    // The fixture session's expiry is a fixed date that has passed; a new guest session gets a day
+    // from now, as the server would, so the terminal doesn't drop it as expired (#66).
+    http.post(`${api}/session`, () =>
+      HttpResponse.json(toJson(SessionSchema, { ...apiFixture(SessionSchema), expiresAtMs: BigInt(Date.now() + DAY_MS) })),
+    ),
     http.get(`${api}/account`, json(AccountSchema)),
     http.get(`${api}/positions`, json(PositionListSchema)),
     http.get(`${api}/history`, json(TradeHistorySchema)),
