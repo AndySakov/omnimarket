@@ -1,0 +1,116 @@
+{
+  "lineage": {
+    "id": "5qujo21gAApD+4Otucxyaw==",
+    "causedBy": [
+      "i6LIqkjNo0Z9cArgH1b7tA=="
+    ]
+  },
+  "receipts": [
+    {
+      "lineage": {
+        "id": "i6LIqkjNo0Z9cArgH1b7tA==",
+        "causedBy": [
+          "qSfLL4Clr/CrKfvLDpvwPA==",
+          "gsdvCaTBA2I++1IXvwjAoQ=="
+        ]
+      },
+      "tradeId": "t_01h9demo0001",
+      "accountId": "acct_guest_7f3a",
+      "mode": "EXECUTION_MODE_SHADOW",
+      "quoteId": "q_01h9demo0001",
+      "intentHash": "0xa7c3e9f1b5d2084c6e1a3f5b7d9c0e2f4a6b8d0c1e3f5a7b9d1c3e5f7a9b0c2d",
+      "demoIntent": true,
+      "chainId": "8453",
+      "tokenIn": {
+        "chainId": "8453",
+        "address": "0x4200000000000000000000000000000000000006",
+        "symbol": "WETH",
+        "name": "Wrapped Ether",
+        "decimals": 18
+      },
+      "tokenOut": {
+        "chainId": "8453",
+        "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "symbol": "NOVA",
+        "name": "NovaSet (fixture)",
+        "decimals": 18
+      },
+      "amountIn": "0.1",
+      "amountOut": "19871.2034",
+      "signedMinAmountOut": "16897.862895",
+      "minAmountOut": "16897.862895",
+      "fee": {
+        "feeBps": 100,
+        "amount": "0.001",
+        "token": {
+          "chainId": "8453",
+          "address": "0x4200000000000000000000000000000000000006",
+          "symbol": "WETH",
+          "name": "Wrapped Ether",
+          "decimals": 18
+        },
+        "valueUsd": "2.5"
+      },
+      "route": [
+        {
+          "pool": "0x1f2e3d4c5b6a79880716253443526170f0e1d2c3",
+          "venue": "uniswap-v3",
+          "poolFeeBps": 30,
+          "tokenIn": {
+            "chainId": "8453",
+            "address": "0x4200000000000000000000000000000000000006",
+            "symbol": "WETH",
+            "name": "Wrapped Ether",
+            "decimals": 18
+          },
+          "tokenOut": {
+            "chainId": "8453",
+            "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+            "symbol": "NOVA",
+            "name": "NovaSet (fixture)",
+            "decimals": 18
+          },
+          "amountIn": "0.099",
+          "amountOut": "19879.8387"
+        }
+      ],
+      "gasEstimateNative": "0.0000021",
+      "gasEstimateUsd": "0.00525",
+      "blockNumber": "36120450",
+      "steps": [
+        {
+          "step": "TRADE_STEP_QUOTE",
+          "startedAtMs": "1790000001000",
+          "finishedAtMs": "1790000001004",
+          "outcome": "OUTCOME_SUCCEEDED"
+        },
+        {
+          "step": "TRADE_STEP_BUILD",
+          "startedAtMs": "1790000001004",
+          "finishedAtMs": "1790000001006",
+          "outcome": "OUTCOME_SUCCEEDED"
+        },
+        {
+          "step": "TRADE_STEP_SIGN",
+          "startedAtMs": "1790000001006",
+          "finishedAtMs": "1790000001009",
+          "outcome": "OUTCOME_SUCCEEDED"
+        },
+        {
+          "step": "TRADE_STEP_SIMULATE",
+          "startedAtMs": "1790000001009",
+          "finishedAtMs": "1790000001151",
+          "outcome": "OUTCOME_SUCCEEDED"
+        },
+        {
+          "step": "TRADE_STEP_STOP_BEFORE_BROADCAST",
+          "startedAtMs": "1790000001151",
+          "finishedAtMs": "1790000001151",
+          "outcome": "OUTCOME_SUCCEEDED",
+          "detail": "shadow mode: not broadcast"
+        }
+      ],
+      "totalMs": "151"
+    }
+  ]
+}

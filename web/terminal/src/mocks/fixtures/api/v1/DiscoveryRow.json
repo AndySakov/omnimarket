@@ -1,0 +1,60 @@
+{
+  "lineage": {
+    "id": "ld0JEXbFYNUXAvmcl78qnw==",
+    "causedBy": [
+      "pJ8Wy4P5p8Rn14UKDDFbXw=="
+    ]
+  },
+  "token": {
+    "chainId": "8453",
+    "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+    "symbol": "NOVA",
+    "name": "NovaSet (fixture)",
+    "decimals": 18
+  },
+  "pool": "0x1f2e3d4c5b6a79880716253443526170f0e1d2c3",
+  "venue": "uniswap-v3",
+  "quoteToken": {
+    "chainId": "8453",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "decimals": 18
+  },
+  "poolCreatedBlock": "36120240",
+  "poolCreatedAtMs": "1789999580000",
+  "displayPriceUsd": "0.0124",
+  "marketCapUsd": "12400000",
+  "marketCapIsFdv": true,
+  "depthUsd": "184300.5",
+  "stats5m": {
+    "volumeUsd": "41250.75",
+    "buys": "212",
+    "sells": "97",
+    "priceChangePct": "6.4"
+  },
+  "stats1h": {
+    "volumeUsd": "386120.4",
+    "buys": "1248",
+    "sells": "594",
+    "priceChangePct": "28.6"
+  },
+  "statsTracked": {
+    "volumeUsd": "3601877.12",
+    "buys": "1248",
+    "sells": "594",
+    "priceChangePct": "412.5"
+  },
+  "safety": {
+    "verdict": "SAFETY_VERDICT_PASSED",
+    "buyTaxPct": "0",
+    "sellTaxPct": "0",
+    "checkedAtMs": "1789999820000"
+  },
+  "rank": 1,
+  "lists": [
+    "DISCOVERY_LIST_NEW",
+    "DISCOVERY_LIST_TRENDING"
+  ],
+  "blockNumber": "36120450"
+}

@@ -1,0 +1,20 @@
+{
+  "topic": "token:0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+  "seq": "42",
+  "tokenTick": {
+    "lineage": {
+      "id": "hkgnKv++sghewq3I7m+j5w==",
+      "causedBy": [
+        "Vbp0lHEi9FDKIZ/Ej+zo6Q=="
+      ]
+    },
+    "chainId": "8453",
+    "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+    "displayPriceUsd": "0.01252",
+    "displayPriceQuote": "0.000005008",
+    "marketCapUsd": "12520000",
+    "depthUsd": "184900",
+    "blockNumber": "36120451",
+    "blockTimeMs": "1790000002000"
+  }
+}
