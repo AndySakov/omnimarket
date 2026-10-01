@@ -47,7 +47,7 @@ Talk to the orchestrator in its session. It understands these, and plain English
 
 | You say | It does |
 |---|---|
-| `STATUS` | One screen: what's running (with a link to each session, since they don't show in your sidebar), open PRs and their gate state, merged since last report, what needs you |
+| `STATUS` | One screen: what's running (with a link to each session; they also show in your omnimarket sidebar group), open PRs and their gate state, merged since last report, what needs you |
 | `PAUSE` / `RESUME` | Stops starting sessions (running ones finish their current step) / starts again |
 | `STOP ALL` | Interrupts every running session and starts nothing new |
 | `NEXT #84` | Makes #84 the next issue for its track, ahead of the queue |

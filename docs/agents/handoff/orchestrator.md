@@ -22,7 +22,7 @@ Session **titles are your registry**: they survive your compaction and container
 
 A builder whose PR is waiting on review or CI is idle, and doesn't count against its track's limit, but each track may have at most **2 open PRs** at once: more means reviews are the bottleneck, so stop starting work there. One session works on one issue from claim to merge; then you archive it and start a fresh one. Fresh sessions are cheaper than long ones, because every turn re-reads the whole context.
 
-Create sessions with `create_session`: `source_url: https://github.com/AndySakov/omnimarket`, the title above, and the brief below as `prompt`. Leave `model` and `environment_id` unset so they inherit yours.
+Create sessions with `create_session`: `source_url: https://github.com/AndySakov/omnimarket`, the title above, `tags: ["omnimarket"]`, and the brief below as `prompt`. The tag puts the session in Temi's omnimarket group in the claude.ai sidebar; without it he can't see it there. Leave `model` and `environment_id` unset so they inherit yours.
 
 ## Briefs
 
@@ -87,7 +87,7 @@ Keep yourself cheap: never read diffs, logs or code; keep reports short; when yo
 
 ## Reporting to Temi
 
-Use this shape, and nothing longer. Sessions you start don't appear in Temi's claude.ai sidebar, so every live session gets its link, `https://claude.ai/code/<session id>`, and so does each session you start or archive in a message:
+Use this shape, and nothing longer. Every live session gets its link, `https://claude.ai/code/<session id>`, and so does each session you start or archive in a message:
 
 ```
 Running:
