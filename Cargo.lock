@@ -3414,6 +3414,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pricing"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "types",
+ "venues",
+]
+
+[[package]]
 name = "primitive-types"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

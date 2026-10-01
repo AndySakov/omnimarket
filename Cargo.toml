@@ -9,6 +9,7 @@ members = [
   "crates/venues",
   "crates/engine",
   "crates/sim",
+  "crates/pricing",
 ]
 exclude = ["scripts/fixtures/determinism"]
 
@@ -25,6 +26,7 @@ telemetry = { path = "crates/telemetry" }
 chain-io = { path = "crates/chain-io" }
 engine = { path = "crates/engine" }
 venues = { path = "crates/venues" }
+pricing = { path = "crates/pricing" }
 alloy = { version = "2.5", default-features = false }
 alloy-primitives = "1.7"
 alloy-sol-types = "1.7"
