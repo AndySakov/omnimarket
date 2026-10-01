@@ -45,7 +45,7 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 ## CI pipeline
 
-Unit tests · mutation testing (D89) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
+Unit tests · mutation testing (D89) · fix PRs' regression tests checked on `main`'s code (D92) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
 CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh` on every commit that isn't frontend-only, so such a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
@@ -53,7 +53,7 @@ The hook runs `scripts/verify-fast.sh` (D86). A commit whose staged files are al
 
 CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, a check that the TypeScript generated from `proto/omnimarket/api` isn't stale (`npm run api:check`, D91), the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
 
-Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, retrying when GitHub's release CDN answers with an error. CI caches `.tools/` keyed on `scripts/buf`, so it downloads buf only when the pinned version changes, so local runs and CI use the same binary with nothing installed globally.
+Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, retrying when GitHub's release CDN answers with an error, so local runs and CI use the same binary with nothing installed globally. CI caches `.tools/` keyed on `scripts/buf`, so it downloads buf only when the pinned version changes.
 
 CI also runs a Kafka service container (the same `apache/kafka` image as the local stack) for the input-log integration test, `cargo test -p sim --test kafka -- --ignored`. Locally it runs against `scripts/stack up`.
 
@@ -65,6 +65,16 @@ CI also runs a Kafka service container (the same `apache/kafka` image as the loc
 - **The baseline covers the workspace.** The script first checks that the unmutated workspace's tests pass, since cargo-mutants' own baseline covers only the mutated packages.
 
 The `mutants` workflow (`.github/workflows/mutants.yml`) runs it on PRs that touch Rust, for the changed code only, and nightly on `main`. The nightly run tests every mutant not already caught. Its ledger is cached per ISO week, so the week's first run tests everything again. The workers' target dirs are cached from `main`'s runs. Missed mutants appear in the job summary and the `mutants` artifact, and turn a PR's run red. It isn't a required check: it reports to the author and the watchdog.
+
+**Regression check (D92).** On a PR whose body closes an issue labelled `bug` with a closing keyword (`Fixes #n`, `Closes #n`, ...), the `regression-check` workflow (`.github/workflows/regression-check.yml`) runs `scripts/regression-check`. It finds the Rust tests the PR adds or changes since its merge base with `main`, and runs them on the PR's head, where all must pass, and on `main`'s code with the PR's tests put in, where at least one must fail.
+- **The PR's tests on `main`'s code.** A worktree of `main` gets the PR's version of every changed file under a `tests/` directory (or named `tests.rs`). In every other changed source file it keeps `main`'s code and takes the PR's `#[cfg(test)]` items in place of `main`'s. A source file `main` doesn't have can't take its tests, so they're reported as new.
+- **What counts.** A test that fails on `main`'s code proves the bug. One that doesn't build there (it calls something the fix adds) is reported but doesn't count. When one file's test module doesn't build on `main`'s code, each file's tests run with only its own module put in, so it can't hide the others. `#[ignore]`d tests don't run.
+- **The report** goes to the job summary: each test's result on both sides, the panics of the tests failing on `main`, and the build errors.
+- **Scope.** Rust tests run by `cargo test`. Contract tests (`forge`) and the terminal UI's tests aren't covered.
+- **Builds.** Each tree has its own target dir under `target/regression-check/` (cargo's fingerprints name sources relative to the workspace root, so a shared one would reuse the head's binaries on `main`'s code), cached by `rust-cache`.
+- **Replays.** `workflow_dispatch` takes any base and head commit; locally, `scripts/regression-check --base <ref> --head <ref>`. `scripts/test_regression_check.py`, run by `verify.sh`, checks the script on a throwaway repository.
+
+It isn't a required check yet. Once it has passed on two fix PRs, it joins `verify` and `watchdog/review` in branch protection.
 
 **Review gate (D81, D90).** Branch protection on `main` requires two status checks on a PR's head commit, for admins too: `verify` (the CI job) and `watchdog/review`. A separate watchdog agent session posts its verdict as a PR comment whose first line is ``## Watchdog reviewing `<sha>` `` (pending) or ``## Watchdog review: `<sha>` passes`` / ``fails …``. The `watchdog-status` workflow (`.github/workflows/watchdog-status.yml`), triggered by the comment, posts the matching `watchdog/review` status on that commit, linked to the comment, but only if it is still the PR's head and the comment comes from `AndySakov`. It never checks out PR code. A new push needs a new review. Builders merge with `scripts/work merge`, which also requires `frontend`. The protocol agents follow is in `CLAUDE.md`.
 
