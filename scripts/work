@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""The work queue for agent sessions, over GitHub's REST API only (D87, D90).
+
+Claude Code cloud sessions can't reach GitHub's GraphQL API, so `gh issue list`, `gh pr view` and
+`gh pr checks` fail there, while `gh api` (REST) works. This script answers the questions in
+docs/agents/issue-tracker.md with REST calls, and applies CLAUDE.md's work order in one place.
+
+  scripts/work next backend|frontend    what to take next, in CLAUDE.md's order, and why others were skipped
+  scripts/work prs                      open PRs: checks, mergeability, claims, stalled or not
+  scripts/work checks <pr>              one PR's head and checks; exits 0 only when it may merge
+  scripts/work show <n>                 an issue or PR: labels, assignees, body, comments
+  scripts/work claim <n>                claim an issue or PR for this session
+  scripts/work release <n> <reason>     give a claim back
+  scripts/work open-pr <title> <body-file>   open a ready (non-draft) PR from the current branch
+  scripts/work merge <pr>               merge with a merge commit, only once the gate has passed
+  scripts/work labels                   create the labels this workflow uses (safe to rerun)
+
+Labels: `wip` marks a claimed issue (frontend issues keep Jutin as assignee, so the label is the
+claim), `hold` is Temi's brake on an issue or PR, `needs-temi` marks work waiting on a signup or a
+decision only Temi can make.
+"""
+
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+
+# Piping into `head` ends quietly instead of with a BrokenPipeError traceback.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+JUTIN = "jutin0852"
+# The GitHub identity every agent session acts as, on Temi's Claude account and the build account (D90).
+AGENT_LOGINS = {"AndySakov"}
+# Checks that make a PR stalled when they fail, and that must pass before a merge.
+GATE_CHECKS = ("verify", "frontend", "watchdog/review")
+CLAIM_LAPSE = timedelta(hours=2)
+LABELS = {
+    "wip": ("fbca04", "Claimed by an agent session (see its 'Taking this' comment)"),
+    "hold": ("b60205", "Temi's brake: agents don't take or merge this"),
+    "needs-temi": ("5319e7", "Waits on a signup or a decision only Temi can make"),
+}
+
+
+def repo():
+    url = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True).stdout
+    m = re.search(r"github\.com[:/]([^/]+/[^/.\s]+)", url)
+    return m.group(1) if m else "AndySakov/omnimarket"
+
+
+REPO = repo()
+
+
+def gh(path, method="GET", fields=None, check=True):
+    cmd = ["gh", "api", "-X", method, path]
+    for key, value in (fields or {}).items():
+        values = value if isinstance(value, list) else [value]
+        for v in values:
+            flag = "-F" if isinstance(v, bool) else "-f"
+            cmd += [flag, f"{key}{'[]' if isinstance(value, list) else ''}={str(v).lower() if isinstance(v, bool) else v}"]
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    if out.returncode != 0:
+        if check:
+            sys.exit(f"work: gh api {method} {path} failed: {out.stderr.strip() or out.stdout.strip()}")
+        return None
+    return json.loads(out.stdout) if out.stdout.strip() else None
+
+
+def now():
+    return datetime.now(timezone.utc)
+
+
+def parse_time(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def section_refs(body, heading):
+    """Issue numbers under a `## <heading>` section, up to the next heading."""
+    m = re.search(rf"^##\s+{heading}\s*$(.*?)(?=^##\s|\Z)", body or "", re.M | re.S | re.I)
+    return [int(n) for n in re.findall(r"#(\d+)", m.group(1))] if m else []
+
+
+def closing_refs(body):
+    return {int(n) for n in re.findall(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", body or "")}
+
+
+def milestone_number(issue):
+    m = re.match(r"M(\d+)", (issue.get("milestone") or {}).get("title") or "")
+    return int(m.group(1)) if m else 99
+
+
+def stage(issue):
+    m = re.search(r"Demo stage (\d)", issue.get("body") or "")
+    return int(m.group(1)) if m else 9
+
+
+def labels(item):
+    return {label["name"] for label in item.get("labels", [])}
+
+
+def assignees(item):
+    return {a["login"] for a in item.get("assignees", [])}
+
+
+def session_url():
+    sid = os.environ.get("CLAUDE_CODE_REMOTE_SESSION_ID", "")
+    return f"https://claude.ai/code/session_{sid.removeprefix('cse_')}" if sid else "a local session"
+
+
+class Board:
+    """Open issues and PRs, read once."""
+
+    def __init__(self):
+        everything = gh(f"repos/{REPO}/issues?state=open&per_page=100")
+        self.issues = {i["number"]: i for i in everything if "pull_request" not in i}
+        self.prs = gh(f"repos/{REPO}/pulls?state=open&per_page=100")
+        self.closed_by = {}
+        for pr in self.prs:
+            for n in closing_refs(pr.get("body")):
+                self.closed_by.setdefault(n, pr["number"])
+
+    def open_blockers(self, issue):
+        return [n for n in section_refs(issue.get("body"), "Blocked by") if n in self.issues]
+
+    def taken(self, issue, track):
+        n = issue["number"]
+        if "wip" in labels(issue):
+            return "claimed (wip)"
+        if n in self.closed_by:
+            return f"open PR #{self.closed_by[n]} closes it"
+        holders = assignees(issue) - ({JUTIN} if track == "frontend" else set())
+        if holders:
+            return "assigned to " + ", ".join(sorted(holders))
+        return None
+
+    def unavailable(self, issue, track):
+        """Why an issue can't be taken now, or None."""
+        tags = labels(issue)
+        if "hold" in tags:
+            return "on hold"
+        if "needs-temi" in tags:
+            return "waits on Temi"
+        taken = self.taken(issue, track)
+        if taken:
+            return taken
+        blockers = self.open_blockers(issue)
+        if blockers:
+            return "blocked by " + ", ".join(f"#{b}" for b in blockers)
+        return None
+
+
+def pr_state(pr):
+    """Head, checks, mergeability and claim of one PR, for `prs`, `checks`, `next` and `merge`."""
+    n, sha = pr["number"], pr["head"]["sha"]
+    full = gh(f"repos/{REPO}/pulls/{n}")
+    runs = gh(f"repos/{REPO}/commits/{sha}/check-runs?per_page=100")["check_runs"]
+    statuses = gh(f"repos/{REPO}/commits/{sha}/status")["statuses"]
+    checks = {}
+    for run in runs:
+        checks[run["name"]] = run["conclusion"] or run["status"]
+    for status in statuses:
+        checks[status["context"]] = status["state"]
+    files = [f["filename"] for f in gh(f"repos/{REPO}/pulls/{n}/files?per_page=100")]
+    pushed = parse_time(gh(f"repos/{REPO}/commits/{sha}")["commit"]["committer"]["date"])
+    claims = [
+        c for c in gh(f"repos/{REPO}/issues/{n}/comments?per_page=100")
+        if re.match(r"(?i)\s*(taking this|claiming)", c["body"])
+    ]
+    claimed = parse_time(claims[-1]["created_at"]) if claims else None
+    failing = [name for name in GATE_CHECKS if checks.get(name) in ("failure", "error", "timed_out", "startup_failure")]
+    conflict = full["mergeable"] is False or full.get("mergeable_state") == "dirty"
+    recent = max(t for t in (pushed, claimed) if t) > now() - CLAIM_LAPSE
+    return {
+        "number": n,
+        "title": pr["title"],
+        "author": pr["user"]["login"],
+        "sha": sha,
+        "created": pr["created_at"],
+        "checks": checks,
+        "failing": failing,
+        "conflict": conflict,
+        "mergeable": full["mergeable"],
+        "frontend_only": bool(files) and all(f.startswith("web/terminal/") for f in files),
+        "recent": recent,
+        "labels": labels(pr),
+        "closes": sorted(closing_refs(pr.get("body"))),
+        "draft": pr.get("draft", False),
+    }
+
+
+def pr_track(board, state):
+    """A PR belongs to the frontend track if it closes a `frontend` issue (#75 closes a backend-labelled
+    issue but touches proto/ too, so the issue's track decides) or touches only web/terminal/."""
+    for n in state["closes"]:
+        issue = board.issues.get(n)
+        if issue and "frontend" in labels(issue):
+            return "frontend"
+    return "frontend" if state["frontend_only"] else "backend"
+
+
+def describe_checks(state):
+    shown = [f"{name}={state['checks'].get(name, 'missing')}" for name in GATE_CHECKS]
+    if "mutants" in state["checks"]:
+        shown.append(f"mutants={state['checks']['mutants']}")
+    return " ".join(shown)
+
+
+def cmd_prs(_args):
+    for pr in sorted(Board().prs, key=lambda p: p["created_at"]):
+        s = pr_state(pr)
+        stalled = s["failing"] or s["conflict"]
+        flags = []
+        if s["failing"]:
+            flags.append("failing: " + ", ".join(s["failing"]))
+        if s["conflict"]:
+            flags.append("merge conflict")
+        if s["draft"]:
+            flags.append("draft")
+        if "hold" in s["labels"]:
+            flags.append("hold")
+        flags.append("active <2h" if s["recent"] else "idle >2h")
+        side = "frontend" if s["frontend_only"] else "backend"
+        print(f"#{s['number']} [{side}] {s['title']}")
+        print(f"    {s['author']} · head {s['sha'][:7]} · {describe_checks(s)}")
+        print(f"    {'STALLED' if stalled else 'ok'} · " + " · ".join(flags))
+
+
+def cmd_checks(args):
+    if not args:
+        sys.exit("usage: scripts/work checks <pr>")
+    s = pr_state(gh(f"repos/{REPO}/pulls/{int(args[0])}"))
+    print(f"#{s['number']} head {s['sha']}")
+    for name in GATE_CHECKS:
+        print(f"  {name}: {s['checks'].get(name, 'missing')}")
+    for name, value in sorted(s["checks"].items()):
+        if name not in GATE_CHECKS:
+            print(f"  {name}: {value} (not gating)")
+    print(f"  mergeable: {s['mergeable']}{' (conflict)' if s['conflict'] else ''}")
+    ready = all(s["checks"].get(name) == "success" for name in GATE_CHECKS) and not s["conflict"]
+    print("READY TO MERGE" if ready else "NOT READY")
+    sys.exit(0 if ready else 1)
+
+
+def cmd_next(args):
+    if not args or args[0] not in ("backend", "frontend"):
+        sys.exit("usage: scripts/work next backend|frontend")
+    track = args[0]
+    board = Board()
+    skipped = []
+
+    # Rule 1: stalled PRs from the agent accounts, oldest first, on this track's side.
+    for pr in sorted(board.prs, key=lambda p: p["created_at"]):
+        if pr["user"]["login"] not in AGENT_LOGINS:
+            continue
+        s = pr_state(pr)
+        if pr_track(board, s) != track or not (s["failing"] or s["conflict"]):
+            continue
+        if "hold" in s["labels"]:
+            skipped.append(f"PR #{s['number']}: on hold")
+        elif s["recent"]:
+            skipped.append(f"PR #{s['number']}: stalled, but claimed or pushed in the last 2h")
+        else:
+            why = ", ".join(s["failing"] + (["merge conflict"] if s["conflict"] else []))
+            return report(f"PR #{s['number']} {s['title']} (rule 1, stalled: {why})", skipped)
+
+    candidates = []
+    if track == "backend":
+        # Rule 2: critical, oldest milestone first.
+        critical = [i for i in board.issues.values() if "critical" in labels(i)]
+        critical.sort(key=lambda i: (milestone_number(i), i["number"]))
+        candidates += [(i, "rule 2, critical") for i in critical]
+    # Rule 3: the demo sprint, lowest stage first.
+    demo = [i for i in board.issues.values() if {"demo", track} <= labels(i)]
+    demo.sort(key=lambda i: (stage(i), i["number"]))
+    candidates += [(i, f"rule 3, demo stage {stage(i)}") for i in demo]
+    if track == "backend":
+        # Rule 4: M1.
+        m1 = [i for i in board.issues.values() if (i.get("milestone") or {}).get("title") == "M1"]
+        candidates += [(i, "rule 4, M1") for i in sorted(m1, key=lambda i: i["number"])]
+
+    seen = set()
+    for issue, rule in candidates:
+        if issue["number"] in seen:
+            continue
+        seen.add(issue["number"])
+        why = board.unavailable(issue, track)
+        if not why:
+            return report(f"#{issue['number']} {issue['title']} ({rule})", skipped)
+        skipped.append(f"#{issue['number']}: {why}")
+        # Rule 3: a demo issue blocked by M1 work pulls the first free M1 issue in its chain.
+        if rule.startswith("rule 3") and why.startswith("blocked by") and track == "backend":
+            pick = first_free_m1(board, board.open_blockers(issue), set())
+            if pick:
+                return report(f"#{pick['number']} {pick['title']} (rule 3, M1 blocker of #{issue['number']})", skipped)
+    report(None, skipped)
+
+
+def first_free_m1(board, numbers, visited):
+    for n in numbers:
+        if n in visited or n not in board.issues:
+            continue
+        visited.add(n)
+        issue = board.issues[n]
+        if (issue.get("milestone") or {}).get("title") != "M1":
+            continue
+        if not board.unavailable(issue, "backend"):
+            return issue
+        found = first_free_m1(board, board.open_blockers(issue), visited)
+        if found:
+            return found
+    return None
+
+
+def report(pick, skipped):
+    print(f"TAKE {pick}" if pick else "NOTHING TO TAKE: tell the orchestrator what is blocked, and on what")
+    if skipped:
+        print("skipped:")
+        for line in skipped:
+            print(f"  {line}")
+
+
+def cmd_show(args):
+    if not args:
+        sys.exit("usage: scripts/work show <n>")
+    n = int(args[0])
+    item = gh(f"repos/{REPO}/issues/{n}")
+    kind = "PR" if "pull_request" in item else "issue"
+    milestone = (item.get("milestone") or {}).get("title") or "-"
+    print(f"{kind} #{n} [{item['state']}] {item['title']}")
+    print(f"labels: {', '.join(sorted(labels(item))) or '-'} · assignees: {', '.join(sorted(assignees(item))) or '-'} · milestone: {milestone}")
+    if kind == "PR":
+        pr = gh(f"repos/{REPO}/pulls/{n}")
+        print(f"branch: {pr['head']['ref']} · head {pr['head']['sha'][:7]} · draft: {pr['draft']} · merged: {pr['merged']}")
+    print("\n" + (item.get("body") or "").strip())
+    for c in gh(f"repos/{REPO}/issues/{n}/comments?per_page=100"):
+        print(f"\n--- {c['user']['login']} · {c['created_at']} · {c['html_url']}\n{c['body'].strip()}")
+
+
+def me():
+    return gh("user")["login"]
+
+
+def cmd_claim(args):
+    if not args:
+        sys.exit("usage: scripts/work claim <n>")
+    n = int(args[0])
+    item = gh(f"repos/{REPO}/issues/{n}")
+    is_pr = "pull_request" in item
+    lapsed = is_pr and "wip" in labels(item) and not pr_state(gh(f"repos/{REPO}/pulls/{n}"))["recent"]
+    refusal = claim_refusal(is_pr, "wip" in labels(item), not lapsed)
+    if refusal:
+        sys.exit(f"work: #{n} {refusal}; pick again")
+    gh(f"repos/{REPO}/issues/{n}/labels", "POST", {"labels": ["wip"]})
+    if "pull_request" not in item and not assignees(item):
+        gh(f"repos/{REPO}/issues/{n}/assignees", "POST", {"assignees": [me()]})
+    note = " (the earlier claim lapsed: no claim or push in 2h)" if lapsed else ""
+    gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": f"Taking this{note}: {session_url()}"})
+    print(f"claimed #{n}{note}")
+
+
+def claim_refusal(is_pr, has_wip, claim_is_recent):
+    """Why a claim must be refused, or None. A PR's claim lapses after 2h without a claim or push,
+    the same rule `next` applies (CLAUDE.md rule 1); an issue's claim lapses only by `release`."""
+    if not has_wip:
+        return None
+    if is_pr and not claim_is_recent:
+        return None
+    return "is already claimed (wip)"
+
+
+def cmd_release(args):
+    if len(args) < 2:
+        sys.exit("usage: scripts/work release <n> <reason>")
+    n, reason = int(args[0]), " ".join(args[1:])
+    gh(f"repos/{REPO}/issues/{n}/labels/wip", "DELETE", check=False)
+    login = me()
+    item = gh(f"repos/{REPO}/issues/{n}")
+    if login in assignees(item):
+        gh(f"repos/{REPO}/issues/{n}/assignees", "DELETE", {"assignees": [login]})
+    gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": f"Releasing: {reason}"})
+    print(f"released #{n}")
+
+
+def cmd_open_pr(args):
+    if len(args) != 2:
+        sys.exit("usage: scripts/work open-pr <title> <body-file>")
+    title, body_file = args
+    body = open(body_file).read()
+    if not re.search(r"(?i)\b(closes|fixes|part of)\s+#\d+", body):
+        sys.exit("work: the body needs a 'Closes #<n>' (or 'Part of #<n>') line")
+    branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+    if branch in ("main", "HEAD"):
+        sys.exit("work: open PRs from a task branch, not main")
+    pr = gh(f"repos/{REPO}/pulls", "POST", {"title": title, "head": branch, "base": "main", "body": body, "draft": False})
+    print(f"opened #{pr['number']}: {pr['html_url']}")
+
+
+def cmd_merge(args):
+    if not args:
+        sys.exit("usage: scripts/work merge <pr>")
+    n = int(args[0])
+    pr = gh(f"repos/{REPO}/pulls/{n}")
+    s = pr_state(pr)
+    held = [m for m in s["closes"] if "hold" in labels(gh(f"repos/{REPO}/issues/{m}"))]
+    problems = [f"{name} is {s['checks'].get(name, 'missing')}" for name in GATE_CHECKS if s["checks"].get(name) != "success"]
+    if s["conflict"]:
+        problems.append("merge conflict")
+    if "hold" in s["labels"] or held:
+        problems.append("on hold")
+    if s["draft"]:
+        problems.append("draft")
+    if problems:
+        sys.exit(f"work: not merging #{n}: " + "; ".join(problems))
+    gh(f"repos/{REPO}/pulls/{n}/merge", "PUT", {"merge_method": "merge", "sha": s["sha"]})
+    for m in s["closes"]:
+        gh(f"repos/{REPO}/issues/{m}/labels/wip", "DELETE", check=False)
+    print(f"merged #{n} at {s['sha'][:7]}")
+
+
+def cmd_labels(_args):
+    existing = {label["name"] for label in gh(f"repos/{REPO}/labels?per_page=100")}
+    for name, (color, description) in LABELS.items():
+        if name not in existing:
+            gh(f"repos/{REPO}/labels", "POST", {"name": name, "color": color, "description": description})
+            print(f"created {name}")
+    print("labels ready")
+
+
+COMMANDS = {
+    "next": cmd_next,
+    "prs": cmd_prs,
+    "checks": cmd_checks,
+    "show": cmd_show,
+    "claim": cmd_claim,
+    "release": cmd_release,
+    "open-pr": cmd_open_pr,
+    "merge": cmd_merge,
+    "labels": cmd_labels,
+}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        sys.exit(__doc__)
+    COMMANDS[sys.argv[1]](sys.argv[2:])

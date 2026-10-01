@@ -18,6 +18,11 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    // Cloud sessions that can't download Playwright's pinned Chromium point this at a preinstalled one
+    // (.claude/hooks/session-start.sh). Visual baselines still come from CI's Chromium.
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
+      : {},
   },
   webServer: {
     command: 'npm run preview -- --host 127.0.0.1',

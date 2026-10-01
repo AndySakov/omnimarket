@@ -45,7 +45,7 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 ## CI pipeline
 
-Unit tests · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
+Unit tests · mutation testing (D89) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
 CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh` on every commit that isn't frontend-only, so such a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
@@ -57,7 +57,18 @@ Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` aga
 
 CI also runs a Kafka service container (the same `apache/kafka` image as the local stack) for the input-log integration test, `cargo test -p sim --test kafka -- --ignored`. Locally it runs against `scripts/stack up`.
 
-**Review gate (D81).** Branch protection on `main` requires two status checks on a PR's head commit, for admins too: `verify` (the CI job) and `watchdog/review`. A separate watchdog agent session posts `watchdog/review` as a commit status (`pending` while it reviews, then `success` or `failure`) with its findings as a PR comment. A new push needs a new review. The protocol agents follow is in `CLAUDE.md`.
+**Mutation testing (D89).** `scripts/mutants.sh` runs cargo-mutants, which changes the code one small mutation at a time (a condition flipped, a return value replaced) and checks that some workspace test fails. A mutant no test catches is code the tests run but don't check.
+- **Builds carry over.** Each worker is a persistent git worktree under `target/mutants/workers/` with its own target dir. Each run checks the workers out at a snapshot of the working tree, uncommitted changes included, so only changed crates rebuild.
+- **Results carry over.** A ledger skips mutants caught in earlier runs until `--fresh`.
+- **Cleaning up.** The workers are git worktrees, so `--clean` removes them with `git worktree remove`, rather than leaving entries behind as `cargo clean` does.
+- **Diff mode.** `--diff origin/main` tests only mutants in code changed since `main`.
+- **The baseline covers the workspace.** The script first checks that the unmutated workspace's tests pass, since cargo-mutants' own baseline covers only the mutated packages.
+
+The `mutants` workflow (`.github/workflows/mutants.yml`) runs it on PRs that touch Rust, for the changed code only, and nightly on `main`. The nightly run tests every mutant not already caught. Its ledger is cached per ISO week, so the week's first run tests everything again. The workers' target dirs are cached from `main`'s runs. Missed mutants appear in the job summary and the `mutants` artifact, and turn a PR's run red. It isn't a required check: it reports to the author and the watchdog.
+
+**Review gate (D81, D90).** Branch protection on `main` requires two status checks on a PR's head commit, for admins too: `verify` (the CI job) and `watchdog/review`. A separate watchdog agent session posts its verdict as a PR comment whose first line is ``## Watchdog reviewing `<sha>` `` (pending) or ``## Watchdog review: `<sha>` passes`` / ``fails …``. The `watchdog-status` workflow (`.github/workflows/watchdog-status.yml`), triggered by the comment, posts the matching `watchdog/review` status on that commit, linked to the comment, but only if it is still the PR's head and the comment comes from `AndySakov`. It never checks out PR code. A new push needs a new review. Builders merge with `scripts/work merge`, which also requires `frontend`. The protocol agents follow is in `CLAUDE.md`.
+
+**Cloud agent sessions (D90).** Claude Code cloud sessions can't reach GitHub's GraphQL API or write commit statuses, so `scripts/work` does the agents' GitHub reads and writes over REST, and the gate's status comes from the workflow above. A `SessionStart` hook (`.claude/hooks/session-start.sh`, cloud sessions only) starts dockerd, installs the git hooks, fetches buf, npm deps and Playwright's Chromium (falling back to the container's preinstalled one through `PLAYWRIGHT_CHROMIUM_PATH`), and warms the cargo build in the background; a cold `verify.sh` takes about 3.5 minutes there. The build account's environment needs network access to Base's RPC endpoints (`mainnet.base.org`, `base-rpc.publicnode.com`) for live runs.
 
 ## Production cloud (D51)
 
