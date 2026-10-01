@@ -69,7 +69,10 @@ fn run_check(body: &str, issues_dir: &str, outputs: &[&str]) -> Result<ExitCode,
         println!("This PR closes no issue, so only the tests its table names are checked.\n");
     }
     for c in closed.iter().filter(|c| c.criteria.is_empty()) {
-        println!("#{} has no `## Acceptance criteria` checkboxes.\n", c.issue);
+        println!(
+            "#{} has no checkboxes under an \"Acceptance criteria\" heading.\n",
+            c.issue
+        );
     }
     let report = check(&closed, &rows, &passed);
     print!("{}", report.summary());

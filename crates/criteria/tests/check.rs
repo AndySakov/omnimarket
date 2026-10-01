@@ -405,3 +405,19 @@ fn a_quoted_criterion_matches_with_its_full_stop_inside_or_outside_the_quotes() 
         assert_eq!(report.problems, vec![], "{quoted}");
     }
 }
+
+#[test]
+fn a_proof_cell_with_a_multi_byte_character_near_its_start_still_reads() {
+    for cell in ["Both → `t`", "Shown — `t`"] {
+        let body = pr_body(&format!("| A D-entry records it | {cell} |"));
+        assert_eq!(pr_rows(&body)[0].proof, tests(&["t"]), "{cell}");
+    }
+}
+
+#[test]
+fn the_criteria_heading_counts_at_any_level_but_not_as_plain_text() {
+    let body = "### Acceptance criteria\n\n- [ ] Under a third-level heading\n";
+    assert_eq!(issue_criteria(body), vec!["Under a third-level heading"]);
+    let body = "Acceptance criteria follow.\n\n- [ ] Not under a heading\n";
+    assert!(issue_criteria(body).is_empty());
+}

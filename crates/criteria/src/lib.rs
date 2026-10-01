@@ -2,7 +2,7 @@
 //! in its CI run (D95). The `criteria` binary does the file reading; everything here is a pure
 //! function of the texts it's given.
 //!
-//! - An issue's criteria are the checkbox items under its `## Acceptance criteria` heading.
+//! - An issue's criteria are the checkbox items under its "Acceptance criteria" heading.
 //! - A PR's table sits under the same heading: one row per criterion, quoting it, and a cell naming
 //!   the tests that prove it (in backticks) or `manual: <evidence>`.
 //! - Passed tests are the `test <name> ... ok` lines of libtest output. CI writes the frontend's
@@ -11,8 +11,8 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-/// The heading both an issue and a PR body put their criteria under.
-const SECTION: &str = "## acceptance criteria";
+/// The heading both an issue and a PR body put their criteria under, at any level.
+const SECTION: &str = "acceptance criteria";
 
 /// The closing keywords GitHub recognises, longest first so `closes` isn't read as `close`.
 const CLOSING_KEYWORDS: [&str; 9] = [
@@ -126,10 +126,14 @@ impl Report {
 /// The lines under the body's `## Acceptance criteria` heading, up to the next heading.
 fn section(body: &str) -> Vec<&str> {
     let mut lines = body.lines().map(|l| l.trim_end_matches('\r'));
-    if !lines
-        .by_ref()
-        .any(|l| l.trim().to_lowercase().starts_with(SECTION))
-    {
+    if !lines.by_ref().any(|l| {
+        is_heading(l)
+            && l.trim()
+                .trim_start_matches('#')
+                .trim()
+                .to_lowercase()
+                .starts_with(SECTION)
+    }) {
         return Vec::new();
     }
     lines.take_while(|l| !is_heading(l)).collect()
@@ -256,7 +260,11 @@ fn split_cells(line: &str) -> Vec<String> {
 /// that looks like a file path (`crates/x/tests/y.rs`) says where a test is, not which.
 fn read_proof(cell: &str) -> Proof {
     let trimmed = cell.trim();
-    if trimmed.len() >= 7 && trimmed[..7].eq_ignore_ascii_case("manual:") {
+    // `get` rather than slicing: byte 7 can fall inside a character like `→`.
+    if trimmed
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("manual:"))
+    {
         let evidence = trimmed[7..].trim();
         if evidence.is_empty() {
             return Proof::None;
