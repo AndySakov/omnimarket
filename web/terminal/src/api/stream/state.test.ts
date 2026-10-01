@@ -270,6 +270,21 @@ describe('per-topic merging', () => {
   })
 })
 
+describe('account order status', () => {
+  it('ignores a status for an order the client hasn\'t seen', () => {
+    const account = apiFixture(AccountSnapshotSchema)
+    const state = snapshot(markSubscribed(initialStreamState(), 'account'), 'account', 1n, { case: 'account', value: account })
+    const { state: next } = delta(state, 'account', 2n, {
+      case: 'orderStatus',
+      value: create(OrderStatusSchema, { orderId: 'order_unknown', state: OrderStatus_State.FILLED }),
+    })
+    expect(next.account?.orders).toBe(state.account?.orders)
+    expect(next.account?.orders.order_unknown).toBeUndefined()
+    // The delta still counts: the next seq applies.
+    expect(next.topics.account).toEqual({ phase: 'live', seq: 2n })
+  })
+})
+
 describe('stream errors', () => {
   it('marks the topic unavailable and drops its data', () => {
     const state = apply(liveToken(), {

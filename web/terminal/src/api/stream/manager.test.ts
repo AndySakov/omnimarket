@@ -138,6 +138,57 @@ describe('reconnect', () => {
     expect(manager.store.getState().connection).toBe('open')
   })
 
+  it('starts counting failures afresh once a connection works, so a long session never drifts to unavailable', () => {
+    const { manager, sockets } = setup({ initialBackoffMs: 100, unavailableAfterAttempts: 3 })
+    manager.start()
+    for (let i = 0; i < 3; i += 1) {
+      sockets.latest().acceptConnection()
+      sockets.latest().push({ case: 'heartbeat', value: { serverTimeMs: 1n, headBlockNumber: 1n } })
+      sockets.latest().drop()
+      expect(manager.store.getState().connection).toBe('reconnecting')
+      vi.advanceTimersByTime(100)
+    }
+    sockets.latest().acceptConnection()
+    sockets.latest().push({ case: 'heartbeat', value: { serverTimeMs: 1n, headBlockNumber: 1n } })
+    sockets.latest().drop()
+    expect(manager.store.getState().connection).toBe('reconnecting')
+  })
+
+  it('counts a server that accepts and closes at once as failing', () => {
+    const { manager, sockets } = setup({ initialBackoffMs: 100, maxBackoffMs: 100, unavailableAfterAttempts: 3 })
+    manager.start()
+    for (let i = 0; i < 3; i += 1) {
+      sockets.latest().acceptConnection()
+      sockets.latest().drop()
+      vi.advanceTimersByTime(100)
+    }
+    expect(manager.store.getState().connection).toBe('unavailable')
+    expect(sockets.sockets).toHaveLength(4)
+  })
+
+  it('counts a socket that can\'t be created as a failed attempt, and keeps retrying', () => {
+    const onProtocolError = vi.fn()
+    let attempts = 0
+    const manager = new StreamManager({
+      url: 'ws://api.test/v1/stream',
+      createSocket: () => {
+        attempts += 1
+        throw new Error('blocked')
+      },
+      initialBackoffMs: 100,
+      maxBackoffMs: 100,
+      unavailableAfterAttempts: 2,
+      onProtocolError,
+    })
+    manager.start()
+    expect(manager.store.getState().connection).toBe('reconnecting')
+    vi.advanceTimersByTime(100)
+    expect(manager.store.getState().connection).toBe('unavailable')
+    vi.advanceTimersByTime(100)
+    expect(attempts).toBe(3)
+    manager.stop()
+  })
+
   it('stop closes the socket and doesn\'t reconnect', () => {
     const { manager, sockets } = setup()
     manager.start()

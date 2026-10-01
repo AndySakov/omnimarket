@@ -153,8 +153,9 @@ export class StreamManager {
     try {
       socket = this.createSocket(this.url)
     } catch (error) {
+      // A URL the browser refuses counts as a failed attempt, so it escalates like any other.
       this.onProtocolError(error)
-      this.scheduleRetry()
+      this.recordFailure()
       return
     }
     this.socket = socket
@@ -167,7 +168,6 @@ export class StreamManager {
 
   private handleOpen(socket: SocketLike): void {
     if (socket !== this.socket) return
-    this.failures = 0
     this.setConnection('open')
     this.store.setState(markAllResubscribing)
     for (const topic of this.wanted.keys()) this.sendSubscribe(topic)
@@ -183,6 +183,9 @@ export class StreamManager {
       this.onProtocolError(error)
       return
     }
+    // The server answered, so the connection works: the next drop starts the backoff afresh.
+    // Not on open, or a server that accepts and closes at once would never show unavailable.
+    this.failures = 0
     if (message.kind.case === 'heartbeat') {
       if (this.store.getState().connection === 'stale') this.setConnection('open')
       this.armLivenessTimers()
@@ -204,6 +207,10 @@ export class StreamManager {
     this.socket = undefined
     this.clearLivenessTimers()
     if (!this.running) return
+    this.recordFailure()
+  }
+
+  private recordFailure(): void {
     this.failures += 1
     this.setConnection(this.failures >= this.unavailableAfterAttempts ? 'unavailable' : 'reconnecting')
     this.scheduleRetry()
