@@ -164,3 +164,49 @@ fn unknown_topics_and_bad_frames_get_errors() {
     assert!(parse_topic("token:0xabababababababababababababababababababag").is_none());
     assert!(parse_topic(&format!("token:{TOKEN_HEX}")).is_some());
 }
+
+#[test]
+fn the_snapshot_names_its_quote_token_carries_lineage_and_prices_the_main_pool() {
+    let mut feed = Feed::default();
+    let mut quote = price(1, 3000.0);
+    quote.token = vec![0x42; 20];
+    quote.metadata.as_mut().unwrap().symbol = Some("WETH".into());
+    feed.apply_price(&quote).unwrap();
+    let mut update = price(2, 2.0);
+    update.pools.insert(
+        0,
+        PoolPrice {
+            pool: vec![0xee; 20],
+            quote_token: vec![0x77; 20],
+            price_usd: 1.5,
+            ..PoolPrice::default()
+        },
+    );
+    feed.apply_price(&update).unwrap();
+
+    let model = feed.model();
+    let addresses: Vec<&String> = model.token_addresses().collect();
+    assert_eq!(
+        addresses,
+        ["0x4242424242424242424242424242424242424242", TOKEN_HEX]
+    );
+    let token = model.token(TOKEN_HEX).unwrap();
+    // The quote token has its own price, so it's named; the other pool's quote isn't.
+    assert_eq!(token.quote_token.as_ref().unwrap().symbol, "WETH");
+    let unknown = token.pools[0].quote_token.as_ref().unwrap();
+    assert_eq!(
+        unknown.address,
+        "0x7777777777777777777777777777777777777777"
+    );
+    assert_eq!(unknown.chain_id, 8453);
+    // The main pool's price, not the first pool's.
+    assert_eq!(token.main_pool_price_usd, "2");
+    let lineage = token.lineage.as_ref().unwrap();
+    assert_eq!(lineage.id.len(), 16);
+    assert_eq!(lineage.caused_by, [vec![2u8; 16]]);
+    let heartbeat = api::heartbeat(7, model);
+    let Some(server_message::Kind::Heartbeat(beat)) = heartbeat.kind else {
+        panic!("not a heartbeat")
+    };
+    assert_eq!((beat.server_time_ms, beat.head_block_number), (7, 2));
+}
