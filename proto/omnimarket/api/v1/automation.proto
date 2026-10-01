@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package omnimarket.api.v1;
+
+import "omnimarket/api/v1/common.proto";
+import "omnimarket/api/v1/market.proto";
+import "omnimarket/api/v1/trading.proto";
+import "omnimarket/lineage/v1/lineage.proto";
+
+// The demo's order types (#86); the full catalogue is D37's.
+enum OrderKind {
+  ORDER_KIND_UNSPECIFIED = 0;
+  // Buy when the display price is at or below the level.
+  ORDER_KIND_LIMIT_BUY = 1;
+  // Sell a share of the position when the display price is at or above the level.
+  ORDER_KIND_TAKE_PROFIT = 2;
+  // Sell a share of the position when the display price is at or below the level.
+  ORDER_KIND_STOP_LOSS = 3;
+}
+
+// Where an order fires: a USD display price, or a percent from the position's average entry.
+message OrderLevel {
+  oneof level {
+    string price_usd = 1;
+    // "-3" is 3% below entry; "10" is 10% above.
+    string pct_from_entry = 2;
+  }
+}
+
+// `POST /v1/orders`.
+message PlaceOrderRequest {
+  string client_request_id = 1;
+  uint64 chain_id = 2;
+  string token = 3;
+  OrderKind kind = 4;
+  OrderLevel level = 5;
+  // For a limit buy: the amount of `spend_token` to spend.
+  string spend_amount = 6;
+  string spend_token = 7;
+  // For a take-profit or stop-loss: the share of the position to sell, in percent.
+  string sell_pct = 8;
+  // Stops default to on (D60); unset takes the kind's default.
+  optional bool exit_guarantee = 9;
+  // Unset: the situation default at firing time (D27).
+  optional uint32 slippage_bps = 10;
+  // Zero: no expiry.
+  uint64 expires_at_ms = 11;
+}
+
+// `PATCH /v1/orders/{order_id}`, e.g. dragging its line on the chart. Unset fields stay as they
+// are.
+message UpdateOrderRequest {
+  string client_request_id = 1;
+  string order_id = 2;
+  OrderLevel level = 3;
+  optional string sell_pct = 4;
+  optional bool exit_guarantee = 5;
+}
+
+// `DELETE /v1/orders/{order_id}`.
+message CancelOrderRequest {
+  string client_request_id = 1;
+  string order_id = 2;
+}
+
+// A trigger order (#86). Orders are the user's standing instruction; each firing makes at most
+// one trade (D35).
+message Order {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string order_id = 2;
+  string account_id = 3;
+  TokenRef token = 4;
+  OrderKind kind = 5;
+  ExecutionMode mode = 6;
+  OrderLevel level = 7;
+  // The level as a USD price, resolved from `pct_from_entry` when set that way; the chart line.
+  string level_price_usd = 8;
+  string spend_amount = 9;
+  TokenRef spend_token = 10;
+  string sell_pct = 11;
+  bool exit_guarantee = 12;
+  // Set when the user chose it.
+  optional uint32 slippage_bps = 13;
+  uint64 expires_at_ms = 14;
+  uint64 created_at_ms = 15;
+  OrderStatus status = 16;
+}
+
+// An order's state, also sent alone on the `account` topic when it changes.
+message OrderStatus {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  string order_id = 2;
+  State state = 3;
+  // Firings so far; the next firing ID hashes the order ID with this count (D35).
+  uint64 firing_count = 4;
+  string last_firing_id = 5;
+  // Why it failed, when it did.
+  string detail = 6;
+  uint64 updated_at_ms = 7;
+
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_OPEN = 1;
+    // Fired; waiting on the trade's outcome. Further crossings are ignored (D35).
+    STATE_FIRING = 2;
+    STATE_FILLED = 3;
+    STATE_FAILED = 4;
+    STATE_CANCELLED = 5;
+    STATE_EXPIRED = 6;
+  }
+}
+
+// `GET /v1/orders`.
+message OrderList {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  repeated Order orders = 2;
+}
+
+// One activation of a trigger order (D35), checked on a canonical block, never provisional
+// state (D77). Natural key: the firing ID.
+message Firing {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  // hash(order ID, per-order firing count), 0x hex.
+  string firing_id = 2;
+  string order_id = 3;
+  uint64 firing_count = 4;
+  string level_price_usd = 5;
+  // The display price that crossed the level.
+  string display_price_usd = 6;
+  uint64 block_number = 7;
+  uint64 block_time_ms = 8;
+  // The trade it made, once execution accepts it.
+  string trade_id = 9;
+}
+
+// "Why did this fire?" (#87): the chain from the swap that moved the price to the receipt,
+// assembled from lineage. `GET /v1/firings/{firing_id}/explanation` and
+// `GET /v1/trades/{trade_id}/explanation`; a manual trade has no firing and starts at the route.
+message FiringExplanation {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  // Empty for a manual trade.
+  string firing_id = 2;
+  string trade_id = 3;
+  // The swap that moved the price.
+  Trade moving_trade = 4;
+  PoolChange pool_change = 5;
+  PriceChange price_change = 6;
+  Firing firing = 7;
+  RouteDecision route_decision = 8;
+  Simulation simulation = 9;
+  TradeReceipt receipt = 10;
+  // Every step in order, with its time and lineage ID, so the drawer can lay out the timeline.
+  repeated Step steps = 11;
+
+  // The pool's state before and after the moving swap.
+  message PoolChange {
+    string pool = 1;
+    string price_before_usd = 2;
+    string price_after_usd = 3;
+    string depth_before_usd = 4;
+    string depth_after_usd = 5;
+  }
+
+  message PriceChange {
+    string display_price_before_usd = 1;
+    string display_price_after_usd = 2;
+    string level_price_usd = 3;
+  }
+
+  // The route chosen and the ones it beat (a D53 decision record).
+  message RouteDecision {
+    Candidate chosen = 1;
+    repeated Candidate alternatives = 2;
+  }
+
+  message Candidate {
+    repeated RouteLeg route = 1;
+    string amount_out = 2;
+    string gas_estimate_usd = 3;
+    // Why it lost, empty for the chosen one.
+    string rejected_because = 4;
+  }
+
+  message Simulation {
+    uint64 block_number = 1;
+    bool succeeded = 2;
+    string amount_out = 3;
+    string revert_reason = 4;
+    bool in_memory = 5;
+  }
+
+  message Step {
+    Kind kind = 1;
+    uint64 at_ms = 2;
+    // The record this step is, so it can be looked up (D53).
+    bytes lineage_id = 3;
+    string summary = 4;
+  }
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_CHAIN_EVENT = 1;
+    KIND_POOL_UPDATE = 2;
+    KIND_PRICE_UPDATE = 3;
+    KIND_TRIGGER_CHECK = 4;
+    KIND_ROUTE_DECISION = 5;
+    KIND_SIMULATION = 6;
+    KIND_RECEIPT = 7;
+  }
+}

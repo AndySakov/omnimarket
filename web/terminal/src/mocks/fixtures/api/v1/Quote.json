@@ -1,0 +1,74 @@
+{
+  "lineage": {
+    "id": "oR2iO0v1XxHrmCA8GdSKjQ==",
+    "causedBy": [
+      "sysr4ga4TQHp5/Ltiu8ZVg==",
+      "pJ8Wy4P5p8Rn14UKDDFbXw=="
+    ]
+  },
+  "quoteId": "q_01h9demo0001",
+  "clientRequestId": "c-quote-0001",
+  "chainId": "8453",
+  "blockNumber": "36120450",
+  "expiresAtMs": "1790000004000",
+  "tokenIn": {
+    "chainId": "8453",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "decimals": 18
+  },
+  "tokenOut": {
+    "chainId": "8453",
+    "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+    "symbol": "NOVA",
+    "name": "NovaSet (fixture)",
+    "decimals": 18
+  },
+  "amountIn": "0.1",
+  "amountOut": "19879.8387",
+  "minAmountOut": "16897.862895",
+  "priceImpactPct": "0.4",
+  "price": "198798.387",
+  "fee": {
+    "feeBps": 100,
+    "amount": "0.001",
+    "token": {
+      "chainId": "8453",
+      "address": "0x4200000000000000000000000000000000000006",
+      "symbol": "WETH",
+      "name": "Wrapped Ether",
+      "decimals": 18
+    },
+    "valueUsd": "2.5"
+  },
+  "slippage": {
+    "bps": 1500,
+    "reason": "new pair: 15%"
+  },
+  "route": [
+    {
+      "pool": "0x1f2e3d4c5b6a79880716253443526170f0e1d2c3",
+      "venue": "uniswap-v3",
+      "poolFeeBps": 30,
+      "tokenIn": {
+        "chainId": "8453",
+        "address": "0x4200000000000000000000000000000000000006",
+        "symbol": "WETH",
+        "name": "Wrapped Ether",
+        "decimals": 18
+      },
+      "tokenOut": {
+        "chainId": "8453",
+        "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "symbol": "NOVA",
+        "name": "NovaSet (fixture)",
+        "decimals": 18
+      },
+      "amountIn": "0.099",
+      "amountOut": "19879.8387"
+    }
+  ],
+  "gasEstimateNative": "0.0000021",
+  "gasEstimateUsd": "0.00525"
+}

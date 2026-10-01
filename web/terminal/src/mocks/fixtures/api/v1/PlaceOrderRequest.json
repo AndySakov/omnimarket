@@ -1,0 +1,10 @@
+{
+  "clientRequestId": "c-order-0001",
+  "chainId": "8453",
+  "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+  "kind": "ORDER_KIND_STOP_LOSS",
+  "level": {
+    "pctFromEntry": "-3"
+  },
+  "sellPct": "100"
+}

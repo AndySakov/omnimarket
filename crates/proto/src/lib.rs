@@ -36,3 +36,13 @@ pub mod sim {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.sim.v1.rs"));
     }
 }
+
+/// The API contract v0 between the backend and both UIs (D62, D91).
+pub mod api {
+    // The WebSocket envelope's oneofs hold whole snapshots; boxing them would only change the
+    // generated types, not the wire, and the API server isn't on the hot path.
+    #[allow(clippy::large_enum_variant)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.api.v1.rs"));
+    }
+}

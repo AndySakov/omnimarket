@@ -1,0 +1,38 @@
+{
+  "lineage": {
+    "id": "wtjkmiZzCbQ6azfmuvsRBw==",
+    "causedBy": [
+      "1tZTe8eaZNc5bDRxiIkcgA==",
+      "oR2iO0v1XxHrmCA8GdSKjQ=="
+    ]
+  },
+  "tradeId": "t_01h9demo0001",
+  "clientRequestId": "c-trade-0001",
+  "accountId": "acct_guest_7f3a",
+  "mode": "EXECUTION_MODE_SHADOW",
+  "state": "STATE_RUNNING",
+  "steps": [
+    {
+      "step": "TRADE_STEP_QUOTE",
+      "startedAtMs": "1790000001000",
+      "finishedAtMs": "1790000001004",
+      "outcome": "OUTCOME_SUCCEEDED"
+    },
+    {
+      "step": "TRADE_STEP_BUILD",
+      "startedAtMs": "1790000001004",
+      "finishedAtMs": "1790000001006",
+      "outcome": "OUTCOME_SUCCEEDED"
+    },
+    {
+      "step": "TRADE_STEP_SIGN",
+      "startedAtMs": "1790000001006",
+      "finishedAtMs": "1790000001009",
+      "outcome": "OUTCOME_SUCCEEDED"
+    },
+    {
+      "step": "TRADE_STEP_SIMULATE",
+      "startedAtMs": "1790000001009"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package omnimarket.api.v1;
+
+// Encoding conventions for the whole package (D91), on the wire as proto3 JSON:
+// - Amounts, prices, USD values and percentages are decimal strings: base 10, no exponent, no
+//   rounding, e.g. "0.000012345". Token amounts are in whole-token units (already divided by the
+//   token's decimals). Clients parse them into an exact decimal type, never a float.
+// - Addresses and hashes are lowercase 0x-prefixed hex strings.
+// - Times are Unix milliseconds (`*_ms`); chain times come from the block, not a wall clock.
+// - Every record the server sends carries `omnimarket.lineage.v1.Lineage` (D53, D71). Its bytes
+//   are base64 in JSON. Requests carry a client-chosen `client_request_id` instead: the server
+//   derives the request's lineage ID from it, and a repeat with the same ID is the same request.
+
+// A token, as the UI names and scales it.
+message TokenRef {
+  uint64 chain_id = 1;
+  string address = 2;
+  string symbol = 3;
+  string name = 4;
+  uint32 decimals = 5;
+}
+
+// One hop of a route: a swap through one pool.
+message RouteLeg {
+  string pool = 1;
+  // The pool's venue, e.g. "uniswap-v2", "uniswap-v3", "aerodrome".
+  string venue = 2;
+  // The pool's swap fee in basis points (a v3 fee tier of 0.3% is 30).
+  uint32 pool_fee_bps = 3;
+  TokenRef token_in = 4;
+  TokenRef token_out = 5;
+  string amount_in = 6;
+  string amount_out = 7;
+}
+
+// Our fee on a trade (D68).
+message Fee {
+  uint32 fee_bps = 1;
+  string amount = 2;
+  TokenRef token = 3;
+  string value_usd = 4;
+}
+
+// Shadow everywhere outside real-funds demos (D5). The UI labels every shadow amount.
+enum ExecutionMode {
+  EXECUTION_MODE_UNSPECIFIED = 0;
+  // Quoted, built, signed and simulated against live state; never broadcast.
+  EXECUTION_MODE_SHADOW = 1;
+  EXECUTION_MODE_LIVE = 2;
+}

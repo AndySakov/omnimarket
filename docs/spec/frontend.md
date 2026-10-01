@@ -49,6 +49,45 @@ Things this backend's design makes cheap to show:
 - **Types generated** from the Protobuf schemas (D41) for TypeScript, so frontend and backend can't drift.
 - **Mock server:** replays recorded data (D54) through the real API shape, so the terminal can be built and demoed before the backend is live.
 
+### Contract v0 (D91)
+
+The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` (token references, route legs, fees), `market.proto`, `trading.proto`, `automation.proto` and `stream.proto` (the WebSocket envelope). The proto comments are the field-level reference.
+
+**Encoding.** proto3 JSON on the wire:
+- Amounts, prices, USD values and percentages are **decimal strings**, exact, with no exponent. Token amounts are in whole-token units; percentages in percent (`"-3"` is −3%); slippage and fees in basis points. The UI parses them into `decimal.js` and formats only at the edge.
+- Addresses and hashes are lowercase `0x` hex strings. Lineage IDs are 16 bytes, base64 in JSON.
+- Times are Unix milliseconds. 64-bit integers (times, block numbers, counts, chain IDs) travel as JSON strings and are `bigint` in TypeScript.
+- Every record carries `lineage` (D53, D71). Requests carry a client-chosen `client_request_id` instead; a repeat with the same ID is the same request, so a retried trade never fills twice.
+- Shadow records say so: `mode` is `EXECUTION_MODE_SHADOW` on accounts, receipts, positions and orders, and the UI labels them.
+
+**REST (v0, served by #78 and the issues it unblocks).**
+
+| Request | Response | Issue |
+|---|---|---|
+| `GET /v1/status` | `EngineStatus` | #79 |
+| `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=` | `DiscoveryFeed` | #81 |
+| `GET /v1/tokens/{chain_id}/{address}` | `TokenSnapshot` | #76 |
+| `GET /v1/trades?chain_id=&token=&limit=` | `TradeList` | #77 |
+| `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` | `CandleSeries` | #80 |
+| `POST /v1/session` | `Session` (guest, or linked to a Privy login) | #85 |
+| `GET /v1/account` | `Account` | #85 |
+| `GET /v1/positions` | `PositionList` | #85 |
+| `GET /v1/history` | `TradeHistory` | #85 |
+| `POST /v1/quotes` (`QuoteRequest`) | `Quote` | #83 |
+| `POST /v1/trades` (`TradeRequest`) | `TradeStatus` | #84 |
+| `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` | #84 |
+| `GET /v1/orders` | `OrderList` | #86 |
+| `POST /v1/orders` (`PlaceOrderRequest`) | `Order` | #86 |
+| `PATCH /v1/orders/{order_id}` (`UpdateOrderRequest`) | `Order` | #86 |
+| `DELETE /v1/orders/{order_id}` (`CancelOrderRequest`) | `Order` | #86 |
+| `GET /v1/firings/{firing_id}/explanation`, `GET /v1/trades/{trade_id}/explanation` | `FiringExplanation` | #87 |
+
+Account requests send the session token as `Authorization: Bearer <session_token>`. A Privy user signs the quote's `intent_typed_data` and sends the signature in `TradeRequest`; a guest's intent is signed by the server, in shadow mode only.
+
+**WebSocket.** One connection; the client sends `ClientMessage` (subscribe, unsubscribe) and receives `ServerMessage` (snapshot, delta, heartbeat, error). Each subscribed topic gets one snapshot, then deltas numbered by `seq`; a gap means resubscribe. Deltas replace the record with the same key; trades append. A heartbeat comes every second, and three missed mark the data stale. The topics and their messages are in [data.md](data.md#api-topics-websocket).
+
+**Generated types and fixtures.** `npm run api:generate` in `web/terminal/` runs `buf generate` (protobuf-es v2) into `src/api/generated`, which is committed; `npm run api:check` fails CI's `frontend` job when it's stale. `src/mocks/fixtures/api/v1/<Message>.json` holds one canonical proto3 JSON fixture per message, for MSW handlers and stories (`apiFixture(Schema)` parses one); `src/api/contract.test.ts` checks every message has one, and that records carry lineage and amounts are decimal strings.
+
 ## Open questions (Jutin's call, noted for alignment)
 
 1. Charting library (TradingView Advanced Charts vs Lightweight Charts vs custom).
