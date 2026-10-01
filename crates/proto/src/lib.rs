@@ -2,8 +2,11 @@
 //! only compiles them.
 
 pub mod lineage {
+    // pbjson's generated serde code borrows where clippy would not.
+    #[allow(clippy::useless_borrows_in_formatting)]
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.lineage.v1.rs"));
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.lineage.v1.serde.rs"));
     }
 }
 
@@ -53,8 +56,10 @@ pub mod sim {
 pub mod api {
     // The WebSocket envelope's oneofs hold whole snapshots; boxing them would only change the
     // generated types, not the wire, and the API server isn't on the hot path.
-    #[allow(clippy::large_enum_variant)]
+    // pbjson's generated serde code borrows where clippy would not.
+    #[allow(clippy::large_enum_variant, clippy::useless_borrows_in_formatting)]
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.api.v1.rs"));
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.api.v1.serde.rs"));
     }
 }

@@ -19,7 +19,14 @@ fn main() {
     ];
     let descriptors = protox::compile(files, [root]).expect("proto/ compiles");
     prost_build::Config::new()
-        .compile_fds(descriptors)
+        .compile_fds(descriptors.clone())
         .expect("prost generates Rust from proto/");
+    // The API contract travels as proto3 JSON (D91), so its messages, and the lineage they
+    // carry, also get serde implementations of that mapping.
+    pbjson_build::Builder::new()
+        .register_descriptors(&prost::Message::encode_to_vec(&descriptors))
+        .expect("pbjson reads the descriptors")
+        .build(&[".omnimarket.api", ".omnimarket.lineage"])
+        .expect("pbjson generates serde for the API");
     println!("cargo:rerun-if-changed={root}");
 }
