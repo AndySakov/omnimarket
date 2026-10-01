@@ -8,12 +8,12 @@ OmniMarket is a proof of concept (D85) for a multi-chain EVM trading terminal ba
 
 Take your next issue in this order. The first rule that yields an issue wins:
 
-1. **Stalled open PRs, whoever opened them.** Any open PR from this account with red CI, a merge conflict or a failed `watchdog/review`, oldest first, comes before new work (see Review gate). Skip one that another session claimed, or pushed to, in the last 2 hours. Sessions restart and share one GitHub account, so "your own PRs" can't be known.
+1. **Stalled open PRs, whoever opened them.** Any open PR from this account with red CI, a merge conflict or a failed `watchdog/review`, oldest first, comes before new work (see Review gate). Skip one that another session claimed, or pushed to, in the last 2 hours. Sessions restart and share one GitHub account (Temi's and the build account's sessions both act as `AndySakov`, D90), so "your own PRs" can't be known.
 2. **`critical`, in any milestone.** Red CI on `main`; a bug that stops or corrupts the live read path (following, pool state, recording or replay); or a security problem. Oldest milestone first.
 3. **The demo sprint.** Open issues labelled `demo` and `backend`, lowest demo stage first (each issue's first line names its stage), then lowest number. If the one you'd take is blocked by M1 issues, follow that chain of blockers to the first M1 issue that is unblocked and untaken, and take it.
 4. **M1**, only when no demo issue is left to take.
 
-At every step, skip issues that are assigned (the `frontend` ones are Jutin's), claimed by an open PR, or blocked by an open issue. An issue whose closing PR is stalled is picked up through that PR, at rule 1. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. The queries and the claim step are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue).
+At every step, skip issues that are assigned, labelled `wip`, `hold` or `needs-temi`, claimed by an open PR, or blocked by an open issue. The `frontend` issues are Jutin's; while he's away, only the build account's frontend builder takes them, leaving him assigned (D90). An issue whose closing PR is stalled is picked up through that PR, at rule 1. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. `scripts/work next backend|frontend` applies this order, and `scripts/work claim <n>` claims; the queries behind them are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue). Build-account sessions follow [docs/agents/handoff/](docs/agents/handoff/README.md).
 
 A bug that meets rule 2's bar gets the `critical` label, and a comment saying which part of the bar it meets. Temi can remove the label.
 
@@ -113,19 +113,20 @@ Passing tests only show the code ran. To check that a change's tests would notic
 
 ## Review gate
 
-`main` merges only when two checks pass on the PR's head commit: CI's `verify` and `watchdog/review` (D81). A separate watchdog session reviews every PR against its issue, the D-entries and the update table above, then posts `watchdog/review` with its findings as a PR comment. Branch protection enforces this for admins too.
+`main` merges only when two checks pass on the PR's head commit: CI's `verify` and `watchdog/review` (D81). A separate watchdog session reviews every PR against its issue, the D-entries and the update table above, and posts its verdict as a PR comment whose first line is ``## Watchdog review: `<sha>` passes`` (or `fails …`). The `watchdog-status` workflow turns that line into the `watchdog/review` status on that commit (D90). Branch protection enforces this for admins too.
 
-- After opening a PR or pushing to one, wait for the checks: `gh pr checks <n> --required --watch`. While you wait, you may start the next issue in the "Current mode" order on a new branch off `main`.
-- On `failure`, read the latest watchdog comment (`gh pr view <n> --comments`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
+- After opening a PR or pushing to one, wait for the checks: `scripts/work checks <n>` (in cloud sessions `gh pr checks` fails: GraphQL is blocked there). While you wait, you may start the next issue in the "Current mode" order on a new branch off `main`.
+- On `failure`, read the latest watchdog comment (`scripts/work show <n>`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
 - If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
-- Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself.
-- If `watchdog/review` hasn't appeared 30 minutes after a push, tell Temi. The watchdog may be down.
+- Once `verify`, `frontend` and `watchdog/review` pass on the head, the builder merges with `scripts/work merge <n>` (a merge commit). It refuses anything short of that, and anything labelled `hold`.
+- Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself, and no watchdog verdict comment unless you are the watchdog.
+- If `watchdog/review` hasn't appeared 30 minutes after CI goes green on a push, tell Temi (build-account sessions tell the orchestrator). The watchdog may be down.
 
 ## Agent skills
 
 ### Issue tracker
 
-GitHub Issues on `AndySakov/omnimarket`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+GitHub Issues on `AndySakov/omnimarket`, via the `gh` CLI, or `scripts/work` where GraphQL is blocked (cloud sessions). See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
