@@ -18,6 +18,9 @@ const NO_NODES: &str = "server returned an error response: error code -32701: no
 enum Calls {
     /// Every attempt fails as PublicNode's did.
     Down,
+    /// Every attempt is accepted and never answered, as by an endpoint that holds the
+    /// connection open.
+    Hangs,
     /// Every attempt is rate limited until this long after the endpoint is made, then answered.
     RateLimitedFor(Duration),
     /// The node answers every call with this.
@@ -63,6 +66,7 @@ impl CallEndpoint for Endpoint {
             self.attempts.set(self.attempts.get() + 1);
             match &self.calls {
                 Calls::Down => Err(ChainError::Rpc(NO_NODES.into())),
+                Calls::Hangs => std::future::pending().await,
                 Calls::RateLimitedFor(period) if self.made.elapsed() < *period => {
                     Err(ChainError::Rpc("over rate limit".into()))
                 }
@@ -93,7 +97,9 @@ fn check(endpoint: impl FnOnce() -> Endpoint) -> (Result<(), ChainError>, Durati
     det::run_simulated(async {
         let endpoint = endpoint();
         let start = Instant::now();
-        let result = check_call_endpoint(&endpoint).await;
+        let result = tokio::time::timeout(Duration::from_secs(300), check_call_endpoint(&endpoint))
+            .await
+            .expect("the check never gave up on the endpoint");
         (result, start.elapsed())
     })
 }
@@ -127,6 +133,20 @@ fn an_endpoint_failing_every_call_fails_the_check_within_8s() {
     );
 }
 
+// indexer.md: "Each attempt is bounded too, so an endpoint that takes the connection and never
+// replies counts as unanswered."
+#[test]
+fn an_endpoint_that_never_replies_fails_the_check_within_8s() {
+    let (result, took) = check(|| Endpoint::new(Calls::Hangs));
+    assert!(
+        (Duration::from_secs(5)..=Duration::from_secs(8)).contains(&took),
+        "{took:?}"
+    );
+    let (what, last) = unanswered(result);
+    assert_eq!(what, "eth_call");
+    assert!(last.starts_with("no reply"), "{last}");
+}
+
 // indexer.md: "The node answering the check's call with an error fails the check at once."
 #[test]
 fn an_endpoint_answering_the_check_with_an_error_fails_it_at_once() {
@@ -154,15 +174,34 @@ fn an_endpoint_answering_the_check_with_an_error_fails_it_at_once() {
 // sees one dropped."
 #[test]
 fn an_endpoint_failing_every_call_mid_run_stops_the_worker_holding_its_calls() {
+    let (what, last) = stop_the_worker_holding_its_calls(Calls::Down);
+    assert_eq!((what, last), ("eth_call", format!("rpc: {NO_NODES}")));
+}
+
+// indexer.md: "Each attempt is bounded too, so an endpoint that takes the connection and never
+// replies counts as unanswered."
+#[test]
+fn an_endpoint_that_never_replies_mid_run_stops_the_worker_holding_its_calls() {
+    let (what, last) = stop_the_worker_holding_its_calls(Calls::Hangs);
+    assert_eq!(what, "eth_call");
+    assert!(last.starts_with("no reply"), "{last}");
+}
+
+/// Runs the worker against `calls` until it gives up, checks it gave up within 60 to 68s and
+/// held every call until the core was gone, and returns what went unanswered and its last error.
+fn stop_the_worker_holding_its_calls(calls: Calls) -> (&'static str, String) {
     det::run_simulated(async {
-        let endpoint = Endpoint::new(Calls::Down);
+        let endpoint = Endpoint::new(calls);
         let (requests, receiver) = mpsc::unbounded_channel();
         let (report, gave_up) = oneshot::channel();
         let mut answers: Vec<_> = (1..=3).map(|block| send(&requests, block)).collect();
         let start = Instant::now();
 
         let core = async {
-            let error = gave_up.await.expect("the worker reports why it gave up");
+            let error = tokio::time::timeout(Duration::from_secs(300), gave_up)
+                .await
+                .expect("the worker never gave up on the endpoint")
+                .expect("the worker reports why it gave up");
             let waited = start.elapsed();
             let attempts = endpoint.attempts.get();
             // A call made after the worker gave up is held too, and nothing is attempted.
@@ -183,15 +222,15 @@ fn an_endpoint_failing_every_call_mid_run_stops_the_worker_holding_its_calls() {
             (Duration::from_secs(60)..=Duration::from_secs(68)).contains(&waited),
             "{waited:?}"
         );
-        let ChainError::Unanswered { what, last, .. } = error else {
-            panic!("expected the endpoint to go unanswered, got {error:?}");
-        };
-        assert_eq!((what, last), ("eth_call", format!("rpc: {NO_NODES}")));
         // With the core gone, the worker has returned and let the calls go.
         for answer in &mut answers {
             assert_eq!(answer.try_recv(), Err(TryRecvError::Closed));
         }
-    });
+        match error {
+            ChainError::Unanswered { what, last, .. } => (what, last),
+            other => panic!("expected the endpoint to go unanswered, got {other:?}"),
+        }
+    })
 }
 
 // indexer.md: "The 60s rides out a rate-limit window (Base's is 30s, D82) or a brief outage."

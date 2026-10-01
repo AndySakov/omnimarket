@@ -20,7 +20,13 @@ pub(crate) const CHECK_LIMIT: Duration = Duration::from_secs(5);
 /// Long enough to ride out a rate-limit window (Base's is 30s, D82) or a brief outage.
 pub(crate) const ANSWER_LIMIT: Duration = Duration::from_secs(60);
 
+/// The least time any attempt gets, even one that starts after the limit, so an endpoint
+/// answering again just then still can.
+const MIN_ATTEMPT: Duration = Duration::from_secs(1);
+
 /// Retries `call` with backoff until it succeeds, or until it has been failing for `limit`.
+/// Each attempt is bounded too, by the time left until `limit` (at least `MIN_ATTEMPT`): an
+/// endpoint that takes the connection and never replies would otherwise hold it forever.
 pub(crate) async fn retry_for<'a, T>(
     what: &'static str,
     limit: Duration,
@@ -29,20 +35,22 @@ pub(crate) async fn retry_for<'a, T>(
     let first = Instant::now();
     let mut backoff = FIRST_BACKOFF;
     loop {
-        match call().await {
-            Ok(value) => return Ok(value),
-            Err(error) if first.elapsed() >= limit => {
-                return Err(ChainError::Unanswered {
-                    what,
-                    waited: first.elapsed(),
-                    last: error.to_string(),
-                });
-            }
-            Err(error) => {
-                tracing::warn!(%error, ?backoff, "{what} failed; retrying");
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(MAX_BACKOFF);
-            }
+        let start = Instant::now();
+        let give_up_at = (first + limit).max(start + MIN_ATTEMPT);
+        let error = match tokio::time::timeout_at(give_up_at, call()).await {
+            Ok(Ok(value)) => return Ok(value),
+            Ok(Err(error)) => error.to_string(),
+            Err(_) => format!("no reply within {}s", start.elapsed().as_secs()),
+        };
+        if first.elapsed() >= limit {
+            return Err(ChainError::Unanswered {
+                what,
+                waited: first.elapsed(),
+                last: error,
+            });
         }
+        tracing::warn!(%error, ?backoff, "{what} failed; retrying");
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(MAX_BACKOFF);
     }
 }

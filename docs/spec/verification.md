@@ -105,6 +105,14 @@ The same for the block endpoint, `--rpc`, with the default `--call-rpc`:
 | `http://127.0.0.1:1` (nothing listening), `--minutes 1` | Before D88: still running when killed at 90s, having printed nothing. After: exit 1 after 8s, at the check before the run |
 | The stand-in forwarding to PublicNode, then answering every request `-32701` from about 17s into the run, `--minutes 3` | Exit 1 after 80s: the follower's `eth_blockNumber` went unanswered for 63s |
 
+An endpoint that accepts connections and never replies (D88, measured 2026-10-01):
+
+| Endpoint | Outcome |
+|---|---|
+| A local listener that never replies, as both `--rpc` and `--call-rpc`, `--minutes 1` | Before bounding attempts: still running, silent, past 100s (watchdog review of #61). After: exit 1 after 5s, at the call endpoint's check |
+| The same listener as `--rpc` only | Exit 1 after 6s, at the block endpoint's check |
+| The stand-in forwarding to PublicNode, then holding every `eth_call` open from about 15s into the run, as `--call-rpc`, `--minutes 3` | Exit 1 after 75s: a call had no reply for 60s |
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

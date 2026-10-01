@@ -221,28 +221,34 @@ fn a_block_reorged_out_between_header_and_logs_does_not_stall_the_follower() {
 }
 
 /// A node that answers for `answers` polls, its head one block further each time, then fails
-/// every read the way a dead endpoint does.
+/// every read the way a dead endpoint does: refusing it, or, with `hangs`, taking it and never
+/// replying.
 struct DyingChain {
     answers: usize,
+    hangs: bool,
     polls: Cell<usize>,
     died_at: Cell<Option<Instant>>,
 }
 
 impl DyingChain {
-    fn new(answers: usize) -> Self {
+    fn new(answers: usize, hangs: bool) -> Self {
         Self {
             answers,
+            hangs,
             polls: Cell::new(0),
             died_at: Cell::new(None),
         }
     }
 
-    fn dead(&self) -> Result<(), ChainError> {
+    async fn dead(&self) -> Result<(), ChainError> {
         if self.polls.get() <= self.answers {
             return Ok(());
         }
         if self.died_at.get().is_none() {
             self.died_at.set(Some(Instant::now()));
+        }
+        if self.hangs {
+            std::future::pending::<()>().await;
         }
         Err(ChainError::Rpc(
             "error sending request: connection refused".into(),
@@ -254,14 +260,14 @@ impl ChainReader for DyingChain {
     fn latest_number(&self) -> LocalBoxFuture<'_, Result<u64, ChainError>> {
         Box::pin(async move {
             self.polls.set(self.polls.get() + 1);
-            self.dead()?;
+            self.dead().await?;
             Ok(10 + self.polls.get() as u64)
         })
     }
 
     fn header(&self, number: u64) -> LocalBoxFuture<'_, Result<Option<Header>, ChainError>> {
         Box::pin(async move {
-            self.dead()?;
+            self.dead().await?;
             Ok(Some(Header {
                 number,
                 hash: hash(b'a', number),
@@ -277,32 +283,50 @@ impl ChainReader for DyingChain {
         _topics: &'a [B256],
     ) -> LocalBoxFuture<'a, Result<Vec<Log>, ChainError>> {
         Box::pin(async move {
-            self.dead()?;
+            self.dead().await?;
             Ok(Vec::new())
         })
     }
 }
 
+/// The last error a node that died `hangs` (or refused) leaves.
+fn last_error(hangs: bool) -> &'static str {
+    if hangs {
+        "no reply"
+    } else {
+        "connection refused"
+    }
+}
+
 // indexer.md: "The check before a run reads what one poll reads, retried for up to 5s each, so
 // a dead endpoint stops `engine follow` within about 8s, before Kafka or the core start."
+// Also: "Each attempt is bounded too, so an endpoint that takes the connection and never
+// replies counts as unanswered."
 #[test]
 fn a_dead_block_endpoint_fails_the_check_within_8s() {
     let topics = [B256::repeat_byte(9)];
-    let (result, took) = det::run_simulated(async {
-        let chain = DyingChain::new(0);
-        let start = Instant::now();
-        let result = check_block_endpoint(&chain, &topics).await;
-        (result, start.elapsed())
-    });
-    assert!(
-        (Duration::from_secs(5)..=Duration::from_secs(8)).contains(&took),
-        "{took:?}"
-    );
-    let Err(ChainError::Unanswered { what, last, .. }) = result else {
-        panic!("expected the endpoint to go unanswered, got {result:?}");
-    };
-    assert_eq!(what, "latest block number");
-    assert!(last.contains("connection refused"), "{last}");
+    for hangs in [false, true] {
+        let (result, took) = det::run_simulated(async {
+            let chain = DyingChain::new(0, hangs);
+            let start = Instant::now();
+            let result = tokio::time::timeout(
+                Duration::from_secs(300),
+                check_block_endpoint(&chain, &topics),
+            )
+            .await
+            .expect("the check never gave up on a dead endpoint");
+            (result, start.elapsed())
+        });
+        assert!(
+            (Duration::from_secs(5)..=Duration::from_secs(8)).contains(&took),
+            "hangs {hangs}: {took:?}"
+        );
+        let Err(ChainError::Unanswered { what, last, .. }) = result else {
+            panic!("expected the endpoint to go unanswered, got {result:?}");
+        };
+        assert_eq!(what, "latest block number");
+        assert!(last.contains(last_error(hangs)), "{last}");
+    }
 
     let working = ScriptedChain::with(fork(b'a', b'a', 10..=10), vec![10]);
     det::run_simulated(async { check_block_endpoint(&working, &topics).await }).unwrap();
@@ -313,38 +337,41 @@ fn a_dead_block_endpoint_fails_the_check_within_8s() {
 // core has finished what's in flight."
 #[test]
 fn a_block_endpoint_that_dies_mid_run_stops_the_follower_after_60s() {
-    let chain = DyingChain::new(3);
-    let (result, blocks) = det::run_simulated(async {
-        let config = FollowerConfig {
-            poll: Duration::from_millis(500),
-            topics: vec![B256::repeat_byte(9)],
-            start: Start::At(10),
-            run_for: Some(Duration::from_secs(600)),
-        };
-        let (sender, mut receiver) = mpsc::channel(64);
-        let result = tokio::time::timeout(
-            Duration::from_secs(300),
-            follow_head(&chain, &config, &sender),
-        )
-        .await
-        .expect("the follower never gave up on a dead endpoint");
-        drop(sender);
-        let mut blocks = Vec::new();
-        while let Some(block) = receiver.recv().await {
-            blocks.push(block);
-        }
-        (result, blocks)
-    });
+    for hangs in [false, true] {
+        let chain = DyingChain::new(3, hangs);
+        let (result, blocks) = det::run_simulated(async {
+            let config = FollowerConfig {
+                poll: Duration::from_millis(500),
+                topics: vec![B256::repeat_byte(9)],
+                start: Start::At(10),
+                run_for: Some(Duration::from_secs(600)),
+            };
+            let (sender, mut receiver) = mpsc::channel(64);
+            let result = tokio::time::timeout(
+                Duration::from_secs(300),
+                follow_head(&chain, &config, &sender),
+            )
+            .await
+            .expect("the follower never gave up on a dead endpoint");
+            drop(sender);
+            let mut blocks = Vec::new();
+            while let Some(block) = receiver.recv().await {
+                blocks.push(block);
+            }
+            (result, blocks)
+        });
 
-    let Err(ChainError::Unanswered { what, waited, .. }) = result else {
-        panic!("expected the endpoint to go unanswered, got {result:?}");
-    };
-    assert_eq!(what, "latest block number");
-    assert!(
-        (Duration::from_secs(60)..=Duration::from_secs(68)).contains(&waited),
-        "{waited:?}"
-    );
-    // Every block from before the endpoint died, in order: nothing skipped.
-    let numbers: Vec<u64> = blocks.iter().map(|b| b.number).collect();
-    assert_eq!(numbers, [10, 11, 12, 13]);
+        let Err(ChainError::Unanswered { what, waited, last }) = result else {
+            panic!("expected the endpoint to go unanswered, got {result:?}");
+        };
+        assert_eq!(what, "latest block number");
+        assert!(last.contains(last_error(hangs)), "{last}");
+        assert!(
+            (Duration::from_secs(60)..=Duration::from_secs(68)).contains(&waited),
+            "hangs {hangs}: {waited:?}"
+        );
+        // Every block from before the endpoint died, in order: nothing skipped.
+        let numbers: Vec<u64> = blocks.iter().map(|b| b.number).collect();
+        assert_eq!(numbers, [10, 11, 12, 13]);
+    }
 }
