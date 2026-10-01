@@ -182,6 +182,82 @@ mod tests {
         assert_eq!(big_endian(0x01ff), vec![0x01, 0xff]);
     }
 
+    // pool_update.proto: unsigned integers are big-endian without leading zeros, and a tick's
+    // liquidity_net is 16 bytes, two's complement, big-endian. A pool not yet initialized has
+    // `initialized` false and its price fields unset. The expected bytes are written out here,
+    // not computed with this module's helpers.
+    #[test]
+    fn updates_go_on_the_wire_as_pool_update_proto_says() {
+        use alloy_primitives::U256;
+        use proto::pool::v1::pool_state::State;
+        use proto::pool::v1::{V2Reserves, V3State as WireV3, V3Tick};
+
+        let wire_after = |after: PoolState| {
+            PoolUpdate::new(
+                8453,
+                Address::repeat_byte(9),
+                (5, B256::ZERO, 3),
+                None,
+                after,
+            )
+            .to_proto()
+            .after
+            .and_then(|state| state.state)
+        };
+
+        assert_eq!(
+            wire_after(PoolState::V2(Reserves {
+                reserve0: 0,
+                reserve1: 0x01_0000,
+            })),
+            Some(State::V2(V2Reserves {
+                reserve0: vec![],
+                reserve1: vec![0x01, 0x00, 0x00],
+            }))
+        );
+
+        assert_eq!(
+            wire_after(PoolState::V3(V3State {
+                price: Some(Price {
+                    sqrt_price_x96: U256::from(1u64) << 96,
+                    tick: -7,
+                }),
+                liquidity: 1_000,
+                ticks: vec![(-60, TickLiquidity { gross: 5, net: -5 })],
+            })),
+            Some(State::V3(WireV3 {
+                initialized: true,
+                // 2^96: a one and twelve zero bytes.
+                sqrt_price_x96: vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                tick: -7,
+                liquidity: vec![0x03, 0xe8],
+                ticks: vec![V3Tick {
+                    tick: -60,
+                    liquidity_gross: vec![5],
+                    liquidity_net: vec![
+                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                        0xff, 0xff, 0xff, 0xfb,
+                    ],
+                }],
+            }))
+        );
+
+        assert_eq!(
+            wire_after(PoolState::V3(V3State {
+                price: None,
+                liquidity: 0,
+                ticks: vec![],
+            })),
+            Some(State::V3(WireV3 {
+                initialized: false,
+                sqrt_price_x96: vec![],
+                tick: 0,
+                liquidity: vec![],
+                ticks: vec![],
+            }))
+        );
+    }
+
     #[test]
     fn the_same_event_gives_the_same_ids() {
         let event = (5, B256::repeat_byte(1), 3);

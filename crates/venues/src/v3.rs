@@ -440,7 +440,7 @@ pub mod answers {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::address;
+    use alloy_primitives::{Bytes, address, b256, hex};
 
     use super::*;
 
@@ -454,6 +454,61 @@ mod tests {
             BASE.pool_address(WETH, USDC, 500),
             address!("d0b53d9277642d899df5c87a3966a349a798f224")
         );
+    }
+
+    /// The factory's `PoolCreated` for the WETH/USDC 0.05% pool, in block 3,620,407 (log 13),
+    /// read with eth_getLogs on 2026-10-01. Real, so it checks the event's signature and
+    /// layout against the deployed factory, not against this crate's own encoder.
+    fn base_pool_created() -> Log {
+        Log {
+            address: BASE.factory,
+            topics: vec![
+                b256!("783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118"),
+                b256!("0000000000000000000000004200000000000000000000000000000000000006"),
+                b256!("000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913"),
+                b256!("00000000000000000000000000000000000000000000000000000000000001f4"),
+            ],
+            data: Bytes::from_static(&hex!(
+                "000000000000000000000000000000000000000000000000000000000000000a"
+                "000000000000000000000000d0b53d9277642d899df5c87a3966a349a798f224"
+            )),
+            log_index: 13,
+            transaction_hash: b256!(
+                "edb1f442fbc11aa4c0b46d4301ffd50304bc39f6abf125636088c227af75e6e6"
+            ),
+        }
+    }
+
+    #[test]
+    fn a_pool_created_from_base_decodes_to_its_pool() {
+        let created = base_pool_created();
+        assert!(is_pool_created(&created));
+        assert_eq!(
+            decode_pool_created(&created),
+            Some(Created {
+                pool: address!("d0b53d9277642d899df5c87a3966a349a798f224"),
+                token0: WETH,
+                token1: USDC,
+                fee: 500,
+                tick_spacing: 10,
+            })
+        );
+    }
+
+    #[test]
+    fn a_pool_event_is_not_a_pool_creation() {
+        // Swap's topic, keccak-256 of its signature, computed outside this crate.
+        let swap = Log {
+            topics: vec![b256!(
+                "c42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+            )],
+            ..base_pool_created()
+        };
+        assert!(!is_pool_created(&swap));
+        assert!(!is_pool_created(&Log {
+            topics: vec![],
+            ..base_pool_created()
+        }));
     }
 
     fn price(tick: i32) -> Price {

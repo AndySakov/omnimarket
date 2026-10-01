@@ -155,11 +155,17 @@ impl Node {
                 .collect();
             return Some(v3::answers::populated_ticks(&ticks));
         }
-        if let Some(&(token0, token1, fee)) = self.fakes.get(&target) {
-            let pool = Pool::new(target, token0, token1, fee, 60);
-            return identity_answer(&pool, data);
-        }
-        let pool = pools.get(&target)?;
+        // A fake answers every view call a pool does, so only its CREATE2 address gives it away.
+        let fake;
+        let pool = match self.fakes.get(&target) {
+            Some(&(token0, token1, fee)) => {
+                let mut pool = Pool::new(target, token0, token1, fee, 60);
+                pool.apply(v3::Event::Initialize(price(0)));
+                fake = pool;
+                &fake
+            }
+            None => pools.get(&target)?,
+        };
         if let Some(answer) = identity_answer(pool, data) {
             return Some(answer);
         }
@@ -363,6 +369,7 @@ fn final_state(updates: &[PoolUpdate], pool: Address) -> Option<(Option<Price>, 
 fn bootstraps_a_pool_seen_mid_life_and_follows_it() {
     let (blocks, node) = world(scenario(), Some(2));
     let truth = node.truth[&104].clone();
+    let calls = node.calls.clone();
     let run = run(EngineConfig::base(), blocks, node);
 
     // Discovered with its full tick table as of block 100, then three events on top.
@@ -378,15 +385,133 @@ fn bootstraps_a_pool_seen_mid_life_and_follows_it() {
     };
     assert_eq!(discovered.ticks.len(), 4);
     assert_eq!(discovered.liquidity, 1_007);
+    assert_eq!(discovered.price, Some(price(-30)));
 
     let held = final_state(&run.updates, old_pool()).unwrap();
     let chain = &truth[&old_pool()];
     assert_eq!(held, (chain.price, chain.liquidity));
+
+    // The factory's own PoolCreated makes the new pool known at once, empty, so its events
+    // apply on top of it: no read, so no discovered update.
+    let new: Vec<&PoolUpdate> = run
+        .updates
+        .iter()
+        .filter(|u| u.pool == new_pool())
+        .collect();
+    assert_eq!(new.len(), 2);
+    assert!(new.iter().all(|u| u.before.is_some()));
     let held_new = final_state(&run.updates, new_pool()).unwrap();
     assert_eq!(held_new, (Some(price(5)), 9));
 
     assert_eq!(run.summary.stats.pools_tracked, 2);
     assert_eq!(run.summary.stats.pools_rejected, 1);
+    // Every call was the old pool's read (identity with the fake's, words, ticks).
+    assert_eq!(calls.get(), 3);
+    assert_eq!(run.summary.stats.bootstrap_calls, 3);
+}
+
+// A pool is read at the block it was first seen in, so the read already holds that block's
+// events: applying them again would count them twice. Events in later blocks, arriving while
+// the read is in flight, are applied on top of it once it completes.
+#[test]
+fn events_in_the_read_block_are_already_read_and_later_ones_wait_for_it() {
+    let (blocks, node) = world(
+        vec![
+            vec![
+                (old_pool(), swap(-30, 1_007)),
+                (
+                    old_pool(),
+                    v3::Event::Mint {
+                        lower: -120,
+                        upper: 120,
+                        amount: 50,
+                    },
+                ),
+            ],
+            vec![(
+                old_pool(),
+                v3::Event::Mint {
+                    lower: -60,
+                    upper: 60,
+                    amount: 5,
+                },
+            )],
+            vec![(
+                old_pool(),
+                v3::Event::Burn {
+                    lower: -600,
+                    upper: 600,
+                    amount: 100,
+                },
+            )],
+            vec![],
+            vec![],
+            vec![],
+        ],
+        None,
+    );
+    let truth = node.truth[&105][&old_pool()].clone();
+    // Each of the read's three calls takes longer than a block, so blocks 101 and 102 arrive
+    // while it's in flight.
+    let run = run_with(EngineConfig::base(), blocks, move |call: EthCall| {
+        (Duration::from_secs(3), node.answer(&call))
+    });
+
+    let old: Vec<&PoolUpdate> = run
+        .updates
+        .iter()
+        .filter(|u| u.pool == old_pool())
+        .collect();
+    let blocks: Vec<u64> = old.iter().map(|u| u.block_number).collect();
+    assert_eq!(blocks, [100, 101, 102]);
+    let PoolState::V3(discovered) = &old[0].after else {
+        panic!("v3 pool")
+    };
+    // Both of block 100's events are in the read: 1,007 + 50.
+    assert_eq!(discovered.liquidity, 1_057);
+    assert_eq!(
+        final_state(&run.updates, old_pool()),
+        Some((truth.price, truth.liquidity))
+    );
+}
+
+// A pool's tick spacing divides its ticks into bitmap words. An answer of zero can't be a real
+// pool's, and reading words for it would divide by zero, so the pool is rejected.
+#[test]
+fn a_pool_answering_tick_spacing_zero_is_rejected() {
+    let (blocks, mut node) = world(vec![vec![(old_pool(), swap(-30, 1_007))], vec![]], None);
+    for truth in node.truth.values_mut() {
+        truth.get_mut(&old_pool()).unwrap().tick_spacing = 0;
+    }
+    let run = run(EngineConfig::base(), blocks, node);
+    assert_eq!(run.summary.stats.pools_rejected, 1);
+    assert_eq!(run.summary.stats.pools_tracked, 0);
+    assert!(run.updates.is_empty());
+}
+
+// Only the factory's PoolCreated makes a pool known without a read. The same event from any
+// other contract is ignored, even when it names a real pool.
+#[test]
+fn a_pool_created_log_from_another_contract_is_ignored() {
+    let (mut blocks, node) = world(vec![vec![(old_pool(), swap(-30, 1_007))], vec![]], None);
+    let mut forged = pool_created(TOKEN_A, TOKEN_B, 3000, 60, old_pool());
+    forged.address = FORGED;
+    forged.log_index = 9;
+    blocks[0].1.logs.insert(0, forged);
+    let run = run(EngineConfig::base(), blocks, node);
+
+    let old: Vec<&PoolUpdate> = run
+        .updates
+        .iter()
+        .filter(|u| u.pool == old_pool())
+        .collect();
+    assert_eq!(old.len(), 1);
+    // Read, not taken from the forged event: discovered with its full tick table.
+    assert_eq!(old[0].before, None);
+    let PoolState::V3(discovered) = &old[0].after else {
+        panic!("v3 pool")
+    };
+    assert_eq!(discovered.ticks.len(), 4);
 }
 
 #[test]
@@ -468,6 +593,7 @@ fn a_one_tick_spacing_pool_reads_its_words_in_batches() {
     let run = run(EngineConfig::base(), blocks, node);
     // One identity call, then 6,932 words at 500 per call; no ticks to read.
     assert_eq!(calls.get(), 1 + 14);
+    assert_eq!(run.summary.stats.bootstrap_calls, 1 + 14);
     assert_eq!(run.summary.stats.pools_tracked, 1);
 }
 
