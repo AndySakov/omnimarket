@@ -33,11 +33,11 @@ Automatic rollback all the way to L1 finality, stored in three tiers: hot (engin
 A known pool is recorded from its creation event, metadata only. An active pool has full in-memory state and is priced and routed. Pools qualify as active by base-asset pairing and a liquidity floor, or by being new (D11).
 
 **Trade record**:
-One Swap on a tracked pool, as a fact: the token against its quote asset, side, amounts and execution price in base units, with no USD (D97).
+One Swap on a tracked pool, as a fact: the token against its quote asset, side, amounts and execution price in base units, with no USD (D102).
 _Avoid_: swap (that's the log), fill (that's ours)
 
 **Quote asset**:
-The token a trade or price is expressed in: on Base, USDC, USDT or WETH, in that order of preference (D18, D97).
+The token a trade or price is expressed in: on Base, USDC, USDT or WETH, in that order of preference (D18, D102).
 
 **Snapshot**:
 A periodic dump of all active pool state, stamped with its block. Recovery loads a snapshot, then replays Kafka updates since that block (D40).

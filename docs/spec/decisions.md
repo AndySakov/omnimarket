@@ -2306,7 +2306,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
-## D97 — Trade records: one per Swap, quoted by a preference list, priced in base units
+## D102 — Trade records: one per Swap, quoted by a preference list, priced in base units
 
 **Date:** 2026-10-01 · **Status:** Decided (#77)
 

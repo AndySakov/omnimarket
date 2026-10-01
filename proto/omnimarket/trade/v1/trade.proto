@@ -4,7 +4,7 @@ package omnimarket.trade.v1;
 
 import "omnimarket/lineage/v1/lineage.proto";
 
-// One Swap on a tracked pool, on `trades.<chain>`, keyed by pool (#77, D97). Natural key:
+// One Swap on a tracked pool, on `trades.<chain>`, keyed by pool (#77, D102). Natural key:
 // (chain, block hash, log index). Caused by the chain event at the same key. A pure fact from
 // the log: no USD (the API adds it from the display price at the trade's block) and no
 // `tx.from` (an extra read per transaction).

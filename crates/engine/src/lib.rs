@@ -22,7 +22,7 @@ pub const INPUT_TOPIC: &str = "inputs.base";
 /// Base's pool updates, before and after (D12, D41), keyed by pool.
 pub const POOL_UPDATES_TOPIC: &str = "pool-updates.base";
 
-/// Base's trade records, one per Swap on a tracked pool (D97), keyed by pool.
+/// Base's trade records, one per Swap on a tracked pool (D102), keyed by pool.
 pub const TRADES_TOPIC: &str = "trades.base";
 
 /// First topics of the logs M1 follows: Uniswap v2 and v3 pool events.

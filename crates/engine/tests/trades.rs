@@ -1,4 +1,4 @@
-//! Trade records (#77, D97): one per Swap on a tracked pool, with the token, its quote asset,
+//! Trade records (#77, D102): one per Swap on a tracked pool, with the token, its quote asset,
 //! side and execution price right whichever of the pool's tokens is the quote, and the same
 //! stream on replay.
 

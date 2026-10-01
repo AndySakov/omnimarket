@@ -37,7 +37,7 @@ enum Seen {
 
 pub(crate) struct V2Pools {
     deployment: Deployment,
-    /// Trade records' quote assets, most preferred first (D97).
+    /// Trade records' quote assets, most preferred first (D102).
     quote_assets: Vec<Address>,
     pairs: BTreeMap<Address, Pair>,
     /// Pairs seen trading before we knew them (D80), with their `Sync`s and `Swap`s in order,

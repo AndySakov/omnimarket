@@ -13,7 +13,7 @@ use crate::trades::Trade;
 use crate::v2::V2Pools;
 use crate::v3::V3Pools;
 
-/// Base's quote assets (D18, D97): the reference stablecoins, then the native token, so a
+/// Base's quote assets (D18, D102): the reference stablecoins, then the native token, so a
 /// WETH/USDC trade is WETH against USDC. Symbols read from each contract, 2026-10-01.
 pub const BASE_QUOTE_ASSETS: [types::chain::Address; 3] = [
     // USDC
@@ -36,7 +36,7 @@ pub struct EngineConfig {
     pub check_every: Option<u64>,
     /// How many pools each check samples.
     pub check_sample: usize,
-    /// The tokens trade records are quoted in, most preferred first (D97).
+    /// The tokens trade records are quoted in, most preferred first (D102).
     pub quote_assets: Vec<types::chain::Address>,
 }
 

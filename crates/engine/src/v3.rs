@@ -86,7 +86,7 @@ struct Bootstrap {
 
 pub(crate) struct V3Pools {
     deployment: Deployment,
-    /// Trade records' quote assets, most preferred first (D97).
+    /// Trade records' quote assets, most preferred first (D102).
     quote_assets: Vec<Address>,
     pools: BTreeMap<Address, Pool>,
     bootstrapping: BTreeMap<Address, Bootstrap>,

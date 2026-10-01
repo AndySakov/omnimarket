@@ -22,7 +22,7 @@
 | Topic | Key | Retention |
 |---|---|---|
 | `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery | pool | ≥ 24h |
-| `trades.<chain>`: `omnimarket.trade.v1.Trade`, one per Swap on a tracked pool (D97): the token and its quote asset, side, both amounts in base units, execution price (quote base units per token base unit × 10^36), sender, recipient, tx hash, block and log index. No USD and no `tx.from` | pool | 7 days |
+| `trades.<chain>`: `omnimarket.trade.v1.Trade`, one per Swap on a tracked pool (D102): the token and its quote asset, side, both amounts in base units, execution price (quote base units per token base unit × 10^36), sender, recipient, tx hash, block and log index. No USD and no `tx.from` | pool | 7 days |
 | `prices.<chain>` | token | 24h |
 | `corrections.<chain>` | block | 7 days |
 | `executions.<chain>` | wallet | 30 days |

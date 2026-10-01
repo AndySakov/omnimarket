@@ -1,5 +1,5 @@
 //! What the engine publishes: pool updates, with the state before and after (D12), and trade
-//! records (D97).
+//! records (D102).
 
 use std::cell::RefCell;
 use std::rc::Rc;

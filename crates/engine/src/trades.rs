@@ -1,4 +1,4 @@
-//! Trade records (#77, D97): one per Swap on a tracked pool, published to `trades.<chain>`.
+//! Trade records (#77, D102): one per Swap on a tracked pool, published to `trades.<chain>`.
 //! A trade is a fact read from its log. It carries no USD: the API adds that from the
 //! display price at the trade's block.
 
