@@ -2,9 +2,10 @@
 //! row in the PR's table, every test a row names passed in this CI run, and `manual:` rows are
 //! listed for the watchdog.
 
+use std::collections::BTreeSet;
+
 use criteria::{
-    Closed, Problem, Proof, ReadError, Row, check, closed_issues, issue_criteria, passed_tests,
-    pr_rows,
+    Closed, Problem, Proof, Row, check, closed_issues, issue_criteria, passed_tests, pr_rows,
 };
 
 const ISSUE: &str = "\
@@ -96,7 +97,7 @@ fn the_pr_table_rows_carry_tests_and_manual_evidence() {
     );
     assert_eq!(
         pr_rows(&body),
-        Ok(vec![
+        vec![
             Row {
                 criterion: "A PR that names a test that doesn't exist fails the job".into(),
                 proof: tests(&["a_missing_test_fails", "parse::rows_split_on_pipes"]),
@@ -105,30 +106,38 @@ fn the_pr_table_rows_carry_tests_and_manual_evidence() {
                 criterion: "\"A D-entry records it.\"".into(),
                 proof: Proof::Manual("D92 in `docs/spec/decisions.md`".into()),
             },
-        ])
+        ]
     );
 }
 
 #[test]
 fn an_escaped_pipe_stays_inside_its_cell() {
     let body = pr_body("| a \\| b \\ c | `t` |");
-    assert_eq!(pr_rows(&body).unwrap()[0].criterion, "a | b \\ c");
+    assert_eq!(pr_rows(&body)[0].criterion, "a | b \\ c");
 }
 
 #[test]
-fn a_row_without_a_test_or_manual_evidence_is_an_error() {
-    let body = pr_body("| A D-entry records it | see the diff |");
+fn every_row_without_a_test_or_manual_evidence_fails() {
+    let body = pr_body("| A D-entry records it | see the diff |\n| Another | D92 |");
+    let rows = pr_rows(&body);
+    assert_eq!(rows[0].proof, Proof::None);
+    let report = check(&[], &rows, &passed_tests(CARGO_OUTPUT));
     assert_eq!(
-        pr_rows(&body),
-        Err(ReadError::NoProof {
-            criterion: "A D-entry records it".into()
-        })
+        report.problems,
+        vec![
+            Problem::NoProof {
+                criterion: "A D-entry records it".into()
+            },
+            Problem::NoProof {
+                criterion: "Another".into()
+            },
+        ]
     );
 }
 
 #[test]
 fn a_pr_body_without_the_section_has_no_rows() {
-    assert_eq!(pr_rows("## Problem\n\nx\n\nCloses #98\n"), Ok(vec![]));
+    assert_eq!(pr_rows("## Problem\n\nx\n\nCloses #98\n"), vec![]);
 }
 
 #[test]
@@ -232,15 +241,47 @@ fn an_omitted_criterion_fails() {
 }
 
 #[test]
-fn a_row_that_quotes_no_criterion_is_reported() {
-    let rows = vec![Row {
-        criterion: "Something the issue never asked".into(),
-        proof: tests(&["a_missing_test_fails"]),
+fn a_row_that_quotes_no_criterion_is_listed_and_its_tests_still_checked() {
+    let rows = vec![
+        Row {
+            criterion: "A D-entry records it".into(),
+            proof: Proof::Manual("D92".into()),
+        },
+        Row {
+            criterion: "(body) Something the issue's text asked".into(),
+            proof: tests(&["no_such_test"]),
+        },
+    ];
+    let closed = vec![Closed {
+        issue: 98,
+        criteria: vec!["A D-entry records it".into()],
     }];
-    let report = check(&criteria_of_98(), &rows, &passed_tests(CARGO_OUTPUT));
-    assert!(report.problems.contains(&Problem::UnknownCriterion {
-        criterion: "Something the issue never asked".into(),
-    }));
+    let report = check(&closed, &rows, &passed_tests(CARGO_OUTPUT));
+    assert_eq!(
+        report.unmatched,
+        vec!["(body) Something the issue's text asked".to_string()]
+    );
+    assert_eq!(
+        report.problems,
+        vec![Problem::TestNotPassed {
+            criterion: "(body) Something the issue's text asked".into(),
+            test: "no_such_test".into(),
+        }]
+    );
+    assert!(
+        report
+            .summary()
+            .contains("- (body) Something the issue's text asked")
+    );
+}
+
+#[test]
+fn without_a_closed_issue_no_row_is_unmatched() {
+    let rows = vec![Row {
+        criterion: "Anything".into(),
+        proof: Proof::Manual("x".into()),
+    }];
+    assert!(check(&[], &rows, &BTreeSet::new()).unmatched.is_empty());
 }
 
 #[test]
@@ -298,34 +339,35 @@ fn a_row_without_a_closing_pipe_still_has_its_proof() {
     let body = pr_body("| A D-entry records it | `t`");
     assert_eq!(
         pr_rows(&body),
-        Ok(vec![Row {
+        vec![Row {
             criterion: "A D-entry records it".into(),
             proof: tests(&["t"]),
-        }])
+        }]
     );
 }
 
 #[test]
 fn a_row_with_one_cell_is_skipped() {
     let body = pr_body("| just a note |\n| A D-entry records it | `t` |");
-    assert_eq!(pr_rows(&body).unwrap().len(), 1);
+    assert_eq!(pr_rows(&body).len(), 1);
 }
 
 #[test]
 fn backticked_file_paths_are_not_test_names() {
-    let body =
-        pr_body("| A D-entry records it | `t` in `header.spec.ts` under `web/terminal/tests` |");
-    assert_eq!(pr_rows(&body).unwrap()[0].proof, tests(&["t"]));
+    let body = pr_body(
+        "| A D-entry records it | `t` in `header.spec.ts` under `web/terminal/tests`, from `market.proto` |",
+    );
+    assert_eq!(pr_rows(&body)[0].proof, tests(&["t"]));
 }
 
 #[test]
 fn an_unreadable_row_says_what_it_needs() {
-    let error = ReadError::NoProof {
+    let problem = Problem::NoProof {
         criterion: "A D-entry records it".into(),
     };
     assert_eq!(
-        error.to_string(),
-        "the row for \"A D-entry records it\" names no test in backticks and isn't `manual: <evidence>`"
+        problem.to_string(),
+        "The row for \"A D-entry records it\" names no test in backticks and isn't `manual: <evidence>`"
     );
 }
 

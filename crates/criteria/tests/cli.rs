@@ -71,7 +71,7 @@ fn an_unreadable_row_fails_the_job() {
     let dir = setup("unreadable", "| It parses | the tests |");
     let output = run_check(&dir);
     assert_eq!(output.status.code(), Some(1), "{}", stdout(&output));
-    assert!(stdout(&output).contains("can't be read"));
+    assert!(stdout(&output).contains("names no test in backticks"));
 }
 
 #[test]

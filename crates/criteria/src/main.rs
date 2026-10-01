@@ -63,13 +63,7 @@ fn run_check(body: &str, issues_dir: &str, outputs: &[&str]) -> Result<ExitCode,
     for output in outputs {
         passed.extend(passed_tests(&read(output)?));
     }
-    let rows = match pr_rows(&body) {
-        Ok(rows) => rows,
-        Err(e) => {
-            println!("## Acceptance criteria\n\n- The PR's table can't be read: {e}");
-            return Ok(ExitCode::FAILURE);
-        }
-    };
+    let rows = pr_rows(&body);
 
     if closed.is_empty() {
         println!("This PR closes no issue, so only the tests its table names are checked.\n");

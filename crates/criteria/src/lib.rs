@@ -26,6 +26,8 @@ pub enum Proof {
     Tests(Vec<String>),
     /// Evidence a test can't give (a live measurement, a doc), for the watchdog to check.
     Manual(String),
+    /// The cell names no test in backticks and doesn't start with `manual:`.
+    None,
 }
 
 /// One row of a PR's acceptance-criteria table.
@@ -34,24 +36,6 @@ pub struct Row {
     /// The criterion as the row quotes it.
     pub criterion: String,
     pub proof: Proof,
-}
-
-/// A PR table that can't be read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReadError {
-    /// The row's proof cell names no test in backticks and doesn't start with `manual:`.
-    NoProof { criterion: String },
-}
-
-impl fmt::Display for ReadError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ReadError::NoProof { criterion } => write!(
-                f,
-                "the row for \"{criterion}\" names no test in backticks and isn't `manual: <evidence>`"
-            ),
-        }
-    }
 }
 
 /// An issue the PR closes, with its acceptance criteria.
@@ -66,8 +50,8 @@ pub struct Closed {
 pub enum Problem {
     /// A criterion of a closed issue has no row.
     MissingCriterion { issue: u64, criterion: String },
-    /// A row quotes no criterion of the closed issues (usually a misquote).
-    UnknownCriterion { criterion: String },
+    /// A row offers neither tests nor `manual:` evidence.
+    NoProof { criterion: String },
     /// A named test didn't pass in this run: it doesn't exist, failed, or was ignored.
     TestNotPassed { criterion: String, test: String },
 }
@@ -78,9 +62,9 @@ impl fmt::Display for Problem {
             Problem::MissingCriterion { issue, criterion } => {
                 write!(f, "No row for #{issue}'s criterion \"{criterion}\"")
             }
-            Problem::UnknownCriterion { criterion } => write!(
+            Problem::NoProof { criterion } => write!(
                 f,
-                "The row \"{criterion}\" quotes no criterion of the issues this PR closes"
+                "The row for \"{criterion}\" names no test in backticks and isn't `manual: <evidence>`"
             ),
             Problem::TestNotPassed { criterion, test } => write!(
                 f,
@@ -97,6 +81,9 @@ pub struct Report {
     pub problems: Vec<Problem>,
     /// `(criterion as the row quotes it, evidence)` for each `manual:` row.
     pub manual: Vec<(String, String)>,
+    /// Rows that quote no criterion of the closed issues: extra claims (a requirement from the
+    /// issue's text), or misquotes, which also leave their criterion missing.
+    pub unmatched: Vec<String>,
 }
 
 impl Report {
@@ -110,6 +97,14 @@ impl Report {
         } else {
             for problem in &self.problems {
                 out.push_str(&format!("- {problem}\n"));
+            }
+        }
+        if !self.unmatched.is_empty() {
+            out.push_str(
+                "\n## Rows that quote no criterion\n\nTheir tests are still checked. A misquoted criterion also shows above as having no row.\n\n",
+            );
+            for criterion in &self.unmatched {
+                out.push_str(&format!("- {criterion}\n"));
             }
         }
         if !self.manual.is_empty() {
@@ -210,7 +205,7 @@ pub fn closed_issues(body: &str) -> Vec<u64> {
 }
 
 /// The rows of a PR body's acceptance-criteria table. The first table row is the header.
-pub fn pr_rows(body: &str) -> Result<Vec<Row>, ReadError> {
+pub fn pr_rows(body: &str) -> Vec<Row> {
     let mut rows = Vec::new();
     let table = section(body)
         .into_iter()
@@ -225,13 +220,12 @@ pub fn pr_rows(body: &str) -> Result<Vec<Row>, ReadError> {
         if is_separator || cells.len() < 2 {
             continue;
         }
-        let criterion = cells[0].clone();
-        let proof = read_proof(&cells[1]).ok_or_else(|| ReadError::NoProof {
-            criterion: criterion.clone(),
-        })?;
-        rows.push(Row { criterion, proof });
+        rows.push(Row {
+            criterion: cells[0].clone(),
+            proof: read_proof(&cells[1]),
+        });
     }
-    Ok(rows)
+    rows
 }
 
 /// A table line's cells, trimmed. `\|` is a pipe inside a cell.
@@ -260,11 +254,14 @@ fn split_cells(line: &str) -> Vec<String> {
 
 /// A proof cell: `manual: <evidence>`, or the test names in its backticks. A backticked span
 /// that looks like a file path (`crates/x/tests/y.rs`) says where a test is, not which.
-fn read_proof(cell: &str) -> Option<Proof> {
+fn read_proof(cell: &str) -> Proof {
     let trimmed = cell.trim();
     if trimmed.len() >= 7 && trimmed[..7].eq_ignore_ascii_case("manual:") {
         let evidence = trimmed[7..].trim();
-        return (!evidence.is_empty()).then(|| Proof::Manual(evidence.to_string()));
+        if evidence.is_empty() {
+            return Proof::None;
+        }
+        return Proof::Manual(evidence.to_string());
     }
     let tests: Vec<String> = trimmed
         .split('`')
@@ -274,15 +271,21 @@ fn read_proof(cell: &str) -> Option<Proof> {
         .filter(|span| !span.is_empty() && !is_path(span))
         .map(str::to_string)
         .collect();
-    (!tests.is_empty()).then_some(Proof::Tests(tests))
+    if tests.is_empty() {
+        Proof::None
+    } else {
+        Proof::Tests(tests)
+    }
 }
 
 fn is_path(span: &str) -> bool {
     !span.contains(char::is_whitespace)
         && (span.contains('/')
-            || [".rs", ".ts", ".tsx", ".sol"]
-                .iter()
-                .any(|ext| span.ends_with(ext)))
+            || [
+                ".rs", ".ts", ".tsx", ".sol", ".proto", ".md", ".sh", ".json", ".yml", ".toml",
+            ]
+            .iter()
+            .any(|ext| span.ends_with(ext)))
 }
 
 /// The names of the tests that passed: the `test <name> ... ok` lines of libtest output.
@@ -348,9 +351,7 @@ pub fn check(closed: &[Closed], rows: &[Row], passed: &BTreeSet<String>) -> Repo
     }
     for row in rows {
         if !closed.is_empty() && !known.contains(&normalise(&row.criterion)) {
-            report.problems.push(Problem::UnknownCriterion {
-                criterion: row.criterion.clone(),
-            });
+            report.unmatched.push(row.criterion.clone());
         }
         match &row.proof {
             Proof::Tests(tests) => {
@@ -364,6 +365,9 @@ pub fn check(closed: &[Closed], rows: &[Row], passed: &BTreeSet<String>) -> Repo
             Proof::Manual(evidence) => report
                 .manual
                 .push((row.criterion.clone(), evidence.clone())),
+            Proof::None => report.problems.push(Problem::NoProof {
+                criterion: row.criterion.clone(),
+            }),
         }
     }
     report
