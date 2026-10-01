@@ -2087,6 +2087,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
 
+*(Amended by D96: up to three builders per track, four open PRs per track and four watchdogs reviewing at once.)*
+
 *(Amended by D93: Jutin builds the frontend issues labelled `jutin` alongside the farm; an open PR saying `Part of #n` also takes an issue; the watchdog reviews every open PR, whoever opened it.)*
 
 **Date:** 2026-10-01 · **Status:** Decided by Temi (process)
@@ -2214,3 +2216,22 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Consequence:**
 - Run `scripts/work labels` once to create `jutin`; issues held for Jutin before this (#64) move from `hold` to `jutin`.
 - A PR body without `Closes #n` or `Part of #n` is invisible to the queue, from anyone.
+
+---
+
+## D96 — The build account runs up to three builders per track
+
+**Date:** 2026-10-01 · **Status:** Decided by Temi (process; amends D90)
+
+**Decision:** The orchestrator runs up to three backend and three frontend builders at once (D90 allowed one each), with at most four open PRs per track and four watchdogs reviewing at once (D90: two and two). It tells each new builder which issues its siblings hold.
+
+**Rejected:**
+- *Keep one per track.* The demo sprint has several unblocked backend issues at once (#76, #77, #91, #92 after the criticals), and one builder leaves them queued.
+- *More builders without more review capacity.* Review is the gate; open PRs and watchdogs scale with builders, or the extra builders only queue PRs.
+
+**Why:** Temi wants the demo sooner, and the build account's budget allows the parallel spend.
+
+**Consequence:**
+- Spend rises roughly with the number of busy builders, so `BUDGET $N` reports matter more; the orchestrator's thresholds (D90's handoff docs) are unchanged.
+- Parallel builders on one track can touch the same files. The queue stops two taking one issue; merge conflicts between their PRs are each builder's to resolve when it merges second.
+
