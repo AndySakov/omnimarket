@@ -23,7 +23,7 @@
 |---|---|---|
 | `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery | pool | ≥ 24h |
 | `trades.<chain>`: `omnimarket.trade.v1.Trade`, one per Swap on a tracked pool (D102): the token and its quote asset, side, both amounts in base units, execution price (quote base units per token base unit × 10^36), sender, recipient, tx hash, block and log index. No USD and no `tx.from` | pool | 7 days |
-| `prices.<chain>` | token | 24h |
+| `prices.<chain>`: `omnimarket.price.v1.PriceUpdate`, a token's display price after a canonical block (D18, D77, D100): USD price, ±2% depth, thin flag, main pool and the price in its quote asset, FDV, token metadata, and each pool's own price and depth. Prices are doubles (D100) | token | 24h |
 | `corrections.<chain>` | block | 7 days |
 | `executions.<chain>` | wallet | 30 days |
 | `inputs.<chain>` (flight recorder, D54), and `inputs.sim` for the simulator; one partition, so replay sees the core's exact input order (D72). Values are `omnimarket.det.v1.InputRecord`; the producer is idempotent, so retries can't reorder or duplicate records | core instance | 30 days hot, then Cloud Storage for 1 year |
@@ -58,6 +58,7 @@ Every wide event carries `omnimarket.lineage.v1.Lineage { id, caused_by[] }`, wi
 | Chain event | `omnimarket.chain.v1.Log` (inside `Block`) | `chain_event` | chain id (u64), block hash (32 bytes), log index (u64) | |
 | Pool update | `omnimarket.pool.v1.PoolUpdate` | `pool_update` | chain id (u64), pool (20 bytes), block hash (32 bytes), log index (u64) | the chain event |
 | Trade | `omnimarket.trade.v1.Trade` | `trade` | chain id (u64), block hash (32 bytes), log index (u64) | the chain event (the Swap log) |
+| Price update | `omnimarket.price.v1.PriceUpdate` | `price_update` | chain id (u64), token (20 bytes), block hash (32 bytes) | the latest update of each pool it was priced from, then the native token's price update if a pool quotes in it (sorted by ID) |
 
 Chain events will key on (chain, block hash, log index), firings on the firing ID (D35) and intents on their hash, as each schema lands.
 

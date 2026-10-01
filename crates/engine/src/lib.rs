@@ -1,9 +1,10 @@
 //! The Chain Engine core (D6): one task that follows a chain's canonical blocks (D10, D77)
-//! and keeps pool state from their logs. It reaches the outside only through `det`, so every
+//! and keeps pool state from their logs, and prices the tokens in its pools (M2). It reaches the outside only through `det`, so every
 //! run can be recorded and replayed.
 
 mod core;
 mod outbox;
+mod prices;
 mod state;
 mod trades;
 mod v2;
@@ -12,7 +13,10 @@ mod v3;
 use types::chain::B256;
 
 pub use crate::core::Engine;
-pub use crate::outbox::{InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate, V3State};
+pub use crate::outbox::{
+    InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate, PriceUpdate, PricedPool, V3State,
+};
+pub use crate::prices::Coverage;
 pub use crate::state::{EngineConfig, EngineError, Stats, Summary};
 pub use crate::trades::{Side, Trade, Venue};
 
@@ -24,6 +28,9 @@ pub const POOL_UPDATES_TOPIC: &str = "pool-updates.base";
 
 /// Base's trade records, one per Swap on a tracked pool (D102), keyed by pool.
 pub const TRADES_TOPIC: &str = "trades.base";
+
+/// Base's display prices, one per touched token per canonical block (D18, D77), keyed by token.
+pub const PRICES_TOPIC: &str = "prices.base";
 
 /// First topics of the logs M1 follows: Uniswap v2 and v3 pool events.
 pub const M1_TOPICS: [B256; 8] = [

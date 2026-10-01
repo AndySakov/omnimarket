@@ -54,6 +54,18 @@ The display price, or for a curated cross-chain asset list, a depth-weighted ave
 **Depth**:
 Liquidity measured as ±2% depth in USD (D24).
 
+**Quote asset**:
+A token other tokens are priced against: the native token and the reference stablecoins (on Base: WETH, USDC, USDT). A token with no pool against one is unpriced (D19, D100).
+
+**Reference pool**:
+One of a chain's fixed native/stablecoin pools whose weighted mid is the native token's USD price (D19, D100).
+
+**Thin**:
+A token with no pool above the liquidity floor: priced from its deepest pool and flagged in the UI (D18, D20).
+
+**FDV**:
+Total supply × display price, the market cap we show: total supply counts locked and unvested tokens (D100).
+
 **Cue**:
 A signal inferred from the order, market, pools or our own flow that sets the router's risk penalty per extra pool (D25).
 

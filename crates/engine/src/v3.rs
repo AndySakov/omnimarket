@@ -116,6 +116,10 @@ impl V3Pools {
         self.pools.len()
     }
 
+    pub fn pool(&self, address: &Address) -> Option<&Pool> {
+        self.pools.get(address)
+    }
+
     pub fn apply_block(
         &mut self,
         chain_id: u64,

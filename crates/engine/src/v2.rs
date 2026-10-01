@@ -65,6 +65,10 @@ impl V2Pools {
         self.pairs.len()
     }
 
+    pub fn pair(&self, address: &Address) -> Option<&Pair> {
+        self.pairs.get(address)
+    }
+
     pub fn apply_block(
         &mut self,
         chain_id: u64,

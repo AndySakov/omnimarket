@@ -19,6 +19,12 @@ pub mod pool {
     }
 }
 
+pub mod price {
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.price.v1.rs"));
+    }
+}
+
 pub mod trade {
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.trade.v1.rs"));

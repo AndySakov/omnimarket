@@ -1,6 +1,6 @@
 # Pricing
 
-**Status:** Draft. Decisions D18–D24.
+**Status:** Draft. Decisions D18–D24, D100. Display price, USD conversion, depth and token metadata built for Base (`crates/pricing`, in the engine, M2).
 
 ## Three prices (D18)
 
@@ -23,11 +23,32 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 - No pools above the floor → priced from its deepest pool and flagged **thin** in the UI; triggers still evaluate (D20).
 - Recomputed on every pool update affecting T, in the Chain Engine.
 
+### Built (M2, D100)
+
+`crates/pricing` is pure functions of the state the engine holds; the engine runs them and publishes.
+
+- **Which pools.** A token's pools against a quote asset: the engine's one quote-asset list, shared with trade records (`EngineConfig::quote_assets`, D102; on Base USDC, USDT and WETH). Pricing's config names the native token (WETH); every other quote asset is a stablecoin. A pool between two other tokens prices neither. Until D11's tiers land (#41), every pool the engine tracks counts; the floor applies already.
+- **Pool mid.** v2: `reserve1 / reserve0`. v3: `(sqrtPriceX96 / 2⁹⁶)²`. Both scaled by `10^(decimals0 − decimals1)` to whole tokens, then inverted if the token is token1.
+- **±2% depth (D24).** Fee-free. Buy side: the quote that moves the price up 2%. Sell side: the token that moves it down 2%, valued at the mid. v2 in closed form, `y(√1.02 − 1) + y(1/√0.98 − 1)` in token1; v3 by walking initialized ticks from the current price to `√P·√1.02` (adding each crossed tick's net liquidity) and to `√P·√0.98` (subtracting it), with `Δtoken1 = L·Δ√P` and `Δtoken0 = L·Δ(1/√P)` per stretch.
+- **USD.** `mid × usd(quote)`, `depth × usd(quote)`: WETH's latest display price, or $1 for a stablecoin.
+- **Display price.** `Σ price·depth / Σ depth` over the pools at or above the floor ($10,000, a D11 tuning value). None at or above it: the deepest pool's price, **thin**. The update also carries the deepest (main) pool, the display price in its quote asset, and every pool's own price and depth.
+- **Native token.** WETH is priced from the reference pools only: Uniswap v3 WETH/USDC 0.05% and 0.3%, WETH/USDT 0.05%, v2 WETH/USDC. Stablecoins are pinned and publish no update.
+- **Arithmetic.** `f64` from exact integers, with only +, −, ×, ÷ and `sqrt` (correctly rounded everywhere); tick boundaries from Uniswap's integer `getSqrtRatioAtTick`; 10ⁿ by repeated multiplication. A replay reprices bit for bit (D100).
+- **Cadence.** After each canonical block (D77): every token whose pools changed since the last block, WETH first. A WETH move doesn't republish every WETH-quoted token; each update names the WETH price it used (D22's lazy path).
+
+### Token metadata (D100)
+
+- `name`, `symbol`, `decimals`, `totalSupply`, read in one Multicall3 call per 50 tokens (four calls each) through the engine's recorded calls and the call worker's rate limits (D82), at the end of the block the token's first quote-asset pool updated. Read once; a call that fails as a whole is forgotten and read again on the token's next update.
+- **Fallbacks.** A `bytes32` name or symbol (early tokens such as MKR) is read as text; control characters, its zero padding included, are dropped; a revert, an empty string or an unreadable answer leaves the field unset. Decimals above 77 or unreadable: unset, and the token isn't priced.
+- **Supply** is read again once it is 1,800 blocks old (about an hour), for priced tokens, oldest first, 50 a block. The engine doesn't follow `Transfer` logs, so a mint or burn shows within the hour.
+- **Market cap** = total supply × display price, published as `fdv_usd`: total supply counts locked and unvested tokens, so it's a fully diluted value. Unset without a supply.
+
 ### USD conversion (D19)
 
 - Per chain, a fixed set of **reference pools** (deepest native/stablecoin pools) prices the native token in USD, using the same liquidity-weighted mid.
 - Quote assets in phase 1: native token + reference stablecoins. `usd(T) = price(T in quote) × usd(quote)`.
-- Stablecoins pinned at $1 while reference stablecoins agree within ~0.5%; beyond that, priced from their pools against each other, with a depeg warning in the UI.
+- Stablecoins pinned at $1 while reference stablecoins agree within ~0.5%; beyond that, priced from their pools against each other, with a depeg warning in the UI. **Not built yet:** stablecoins are always pinned (D100).
+- Quote-asset coverage on Base: 53% of tokens in updated pools have a pool against WETH, USDC or USDT; most of the rest trade against one token, ADS ([verification.md](verification.md#measured-base-pricing-m2)).
 
 ## Quoting (D21)
 
@@ -70,4 +91,4 @@ Biggest first:
 5. ~~Cross-chain fair price~~ → **decided (D23).**
 6. ~~Liquidity measure~~ → **decided (D24): ±2% depth.**
 
-Remaining: verify MegaETH venues (D21); tuning values (liquidity floor per chain, client push rate).
+Remaining: verify MegaETH venues (D21); tuning values (liquidity floor per chain, client push rate); D19's depeg check.

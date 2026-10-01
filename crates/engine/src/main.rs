@@ -6,8 +6,8 @@
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
-//! `inputs.base` and publishes pool updates to `pool-updates.base` and trade records to
-//! `trades.base`; otherwise all stay in memory. With `--record-to` it also writes the recording
+//! `inputs.base` and publishes pool updates to `pool-updates.base`, trade records to
+//! `trades.base` and prices to `prices.base`; otherwise all stay in memory. With `--record-to` it also writes the recording
 //! and its summary to a directory, as a pinned replay fixture (D99). If `--rpc` or `--call-rpc`
 //! can't answer, before the run starts or during it, it
 //! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
@@ -28,7 +28,7 @@ use det::{
 };
 use engine::{
     Engine, EngineConfig, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox, M1_TOPICS, POOL_UPDATES_TOPIC,
-    Summary, TRADES_TOPIC,
+    PRICES_TOPIC, Summary, TRADES_TOPIC,
 };
 
 #[derive(Parser)]
@@ -265,20 +265,26 @@ fn follow(
             det::kafka::ensure_topic(brokers, INPUT_TOPIC)?;
             det::kafka::ensure_topic(brokers, POOL_UPDATES_TOPIC)?;
             det::kafka::ensure_topic(brokers, TRADES_TOPIC)?;
+            det::kafka::ensure_topic(brokers, PRICES_TOPIC)?;
             Some((
                 KafkaSink::new(brokers, INPUT_TOPIC, &core_instance)?,
                 KafkaPublisher::new(brokers, POOL_UPDATES_TOPIC)?,
                 KafkaPublisher::new(brokers, TRADES_TOPIC)?,
+                KafkaPublisher::new(brokers, PRICES_TOPIC)?,
             ))
         }
         None => None,
     };
     let outbox: Box<dyn engine::Outbox> = match &kafka_sink {
-        Some((_, updates, trades)) => Box::new(KafkaOutbox::new(updates.clone(), trades.clone())),
+        Some((_, updates, trades, prices)) => Box::new(KafkaOutbox::new(
+            updates.clone(),
+            trades.clone(),
+            prices.clone(),
+        )),
         None => Box::new(InMemoryOutbox::default()),
     };
     let sink: Box<dyn det::RecordingSink> = match &kafka_sink {
-        Some((sink, _, _)) => Box::new(sink.clone()),
+        Some((sink, _, _, _)) => Box::new(sink.clone()),
         None => Box::new(in_memory.clone()),
     };
     let recorder = Recorder::new(sink, Box::new(SystemClock));
@@ -324,12 +330,13 @@ fn follow(
 
     println!("core instance {core_instance}");
     match kafka_sink {
-        Some((sink, updates, trades)) => {
+        Some((sink, updates, trades, prices)) => {
             sink.flush(TIMEOUT)?;
             updates.flush(TIMEOUT)?;
             trades.flush(TIMEOUT)?;
+            prices.flush(TIMEOUT)?;
             println!(
-                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}"
+                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}"
             );
         }
         None => println!("{} inputs recorded in memory", in_memory.records().len()),
@@ -388,6 +395,8 @@ mod tests {
             digest: blake3::hash(b"blocks"),
             updates_digest: blake3::hash(b"updates"),
             trades_digest: blake3::hash(b"trades"),
+            prices_digest: blake3::hash(b"prices"),
+            coverage: None,
         };
         write_fixture(&dir.join("nested"), &summary, &recording).unwrap();
         let inputs = std::fs::read(dir.join("nested/inputs.pb.zst")).unwrap();
