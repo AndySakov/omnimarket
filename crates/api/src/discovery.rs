@@ -1,12 +1,12 @@
 //! The discovery read model (#81): the `discovery` topic and `GET /v1/discovery`. New lists the
 //! pools created during the session, by creation block; Trending ranks tokens by 5m USD volume,
 //! then 5m txns, above a minimum depth (D24). A pure function of the `pool-updates.base`,
-//! `trades.base` and `prices.base` records applied, in order, timed by block time (build rule 1).
+//! `trades.base` and `prices.base` records applied, in the fixed order the feed merges them in
+//! (`feed::Pending`), timed by block time (build rule 1).
 //!
-//! Rows are published once per block: when a record from a later block arrives, the rows as of
-//! the blocks before it are compared with those last published, and only the changed ones go
-//! out. That's the feed's throttle, and why a pool created in one block shows in New with the
-//! next. Snapshots serve the published rows, so a delta is always newer than its snapshot.
+//! Rows are published once per block: once a block is whole, the rows as of it are compared
+//! with those last published, and only the changed ones go out. That's the feed's throttle.
+//! Snapshots serve the published rows, so a delta is always newer than its snapshot.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -178,10 +178,21 @@ impl Discovery {
         }
         token.cause = id.clone();
         token.block_number = trade.block_number;
-        if created.is_some() && token.new_pool.is_none() {
+        if let Some(block) = created
+            && self.newer_than_noted(&address, block)
+        {
             self.note_new_pool(&address, &pool_address, id, trade.block_number);
         }
         out
+    }
+
+    /// Whether a pool created at `block` is newer than the token's noted new pool, if any. A
+    /// trade and a price record then credit the same pool, whichever names it first.
+    fn newer_than_noted(&self, token: &str, block: u64) -> bool {
+        match self.tokens.get(token).map(|t| self.created_block(t)) {
+            Some(Some(noted)) => block > noted,
+            _ => true,
+        }
     }
 
     /// Applies a `prices.base` record: the token's price, depth and market cap, and which token
@@ -283,19 +294,24 @@ impl Discovery {
         }
     }
 
-    /// Publishes the rows as of the blocks before `block` when `block` is the first record from
-    /// a later block than the head.
+    /// Publishes the rows as of the head when `block` is the first record from a later block.
     fn advance(&mut self, block: u64) -> Vec<delta::Payload> {
         if block <= self.head_block {
             return Vec::new();
         }
-        let out = if self.head_block == 0 {
-            Vec::new()
-        } else {
-            self.publish()
-        };
+        let out = self.complete(self.head_block);
         self.head_block = block;
         out
+    }
+
+    /// Publishes the rows as of the head once every block up to `block` is whole, if the head's
+    /// rows haven't gone out yet.
+    pub fn complete(&mut self, block: u64) -> Vec<delta::Payload> {
+        let head = self.head_block;
+        if head == 0 || head > block || head == self.published_block {
+            return Vec::new();
+        }
+        self.publish()
     }
 
     /// Ranks the rows as of the head, and returns the ones that changed since the last publish.

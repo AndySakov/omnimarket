@@ -210,3 +210,15 @@ fn the_snapshot_names_its_quote_token_carries_lineage_and_prices_the_main_pool()
     };
     assert_eq!((beat.server_time_ms, beat.head_block_number), (7, 2));
 }
+
+#[test]
+fn a_token_tick_from_a_block_already_sent_is_skipped() {
+    let mut feed = Feed::default();
+    let mut session = Session::default();
+    feed.apply_price(&price(1, 2.0)).unwrap();
+    session.on_text(&subscribe(&format!("token:{TOKEN_HEX}")), &feed);
+    let tick = feed.apply_price(&price(2, 3.0)).unwrap();
+    assert!(session.on_published(&tick[0], &feed).is_some());
+    // The same block again (a tick the throttle released late) is no news.
+    assert!(session.on_published(&tick[0], &feed).is_none());
+}

@@ -141,6 +141,26 @@ async fn rest_serves_the_discovery_feed_built_from_all_three_topics() {
         ..Trade::default()
     };
     shared.apply(engine::TRADES_TOPIC, &buy.encode_to_vec());
+    // Block 1 is whole once every topic reaches block 2.
+    let quiet_pool = PoolUpdate {
+        pool: vec![0x77; 20],
+        block_number: 2,
+        after: Some(PoolState {
+            state: Some(pool_state::State::V2(V2Reserves {
+                reserve0: vec![1],
+                reserve1: vec![1],
+            })),
+        }),
+        ..pool
+    };
+    shared.apply(engine::POOL_UPDATES_TOPIC, &quiet_pool.encode_to_vec());
+    let other_trade = Trade {
+        pool: vec![0x98; 20],
+        token: vec![0x99; 20],
+        block_number: 2,
+        ..buy
+    };
+    shared.apply(engine::TRADES_TOPIC, &other_trade.encode_to_vec());
     shared.apply_price(&price(2, 2.5));
     let feed = http_get(&address, "/v1/discovery?list=new&max_age_ms=60000").await;
     assert!(feed.starts_with("HTTP/1.1 200"), "{feed}");
