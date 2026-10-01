@@ -2213,6 +2213,6 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Why:** pricing.md puts the display price in the engine, recomputed on every pool update; doing it from the state the engine already holds, with its inputs recorded, keeps it inside the det rules at the cost of nothing new to run.
 
 **Consequence:**
-- D19's depeg check isn't built: stablecoins are always pinned at $1 for now. A follow-up issue holds it.
+- D19's depeg check isn't built: stablecoins are always pinned at $1 for now. #117 holds it.
 - Quote-asset coverage on Base is measured in verification.md; a token trading only against another token (cbBTC, a launchpad's base token) is unpriced until that token joins the quote assets.
 - D11's tiers aren't built (#41): every pool the engine tracks is priced. The floor applies already.
