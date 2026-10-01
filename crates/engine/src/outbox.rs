@@ -1,5 +1,5 @@
-//! What the engine publishes: pool updates, with the state before and after (D12), and price
-//! updates (D18, D77).
+//! What the engine publishes: pool updates, with the state before and after (D12), trade
+//! records (D102), and price updates (D18, D77).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -11,6 +11,8 @@ use types::LineageId;
 use types::chain::{Address, B256, Block};
 use venues::v2::Reserves;
 use venues::v3::{Price, TickLiquidity};
+
+use crate::trades::Trade;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolState {
@@ -253,23 +255,29 @@ impl PriceUpdate {
     }
 }
 
-/// Where pool and price updates go. Publishing can't change the engine's decisions, so it
-/// isn't a recorded input.
+/// Where pool updates, trades and price updates go. Publishing can't change the engine's
+/// decisions, so it isn't a recorded input.
 pub trait Outbox {
     fn publish(&self, update: &PoolUpdate);
+    fn publish_trade(&self, trade: &Trade);
     fn publish_price(&self, update: &PriceUpdate);
 }
 
-/// Keeps updates in memory, for tests and replays. Clones share one list.
+/// Keeps updates, trades and prices in memory, for tests and replays. Clones share the lists.
 #[derive(Clone, Default)]
 pub struct InMemoryOutbox {
     updates: Rc<RefCell<Vec<PoolUpdate>>>,
+    trades: Rc<RefCell<Vec<Trade>>>,
     prices: Rc<RefCell<Vec<PriceUpdate>>>,
 }
 
 impl InMemoryOutbox {
     pub fn updates(&self) -> Vec<PoolUpdate> {
         self.updates.borrow().clone()
+    }
+
+    pub fn trades(&self) -> Vec<Trade> {
+        self.trades.borrow().clone()
     }
 
     pub fn prices(&self) -> Vec<PriceUpdate> {
@@ -282,21 +290,28 @@ impl Outbox for InMemoryOutbox {
         self.updates.borrow_mut().push(update.clone());
     }
 
+    fn publish_trade(&self, trade: &Trade) {
+        self.trades.borrow_mut().push(trade.clone());
+    }
+
     fn publish_price(&self, update: &PriceUpdate) {
         self.prices.borrow_mut().push(update.clone());
     }
 }
 
-/// Publishes to `pool-updates.<chain>`, keyed by pool, and `prices.<chain>`, keyed by token.
+/// Publishes pool updates to `pool-updates.<chain>` and trades to `trades.<chain>`, both keyed
+/// by pool, and price updates to `prices.<chain>`, keyed by token.
 pub struct KafkaOutbox {
-    pool_updates: KafkaPublisher,
+    updates: KafkaPublisher,
+    trades: KafkaPublisher,
     prices: KafkaPublisher,
 }
 
 impl KafkaOutbox {
-    pub fn new(pool_updates: KafkaPublisher, prices: KafkaPublisher) -> Self {
+    pub fn new(updates: KafkaPublisher, trades: KafkaPublisher, prices: KafkaPublisher) -> Self {
         Self {
-            pool_updates,
+            updates,
+            trades,
             prices,
         }
     }
@@ -304,8 +319,13 @@ impl KafkaOutbox {
 
 impl Outbox for KafkaOutbox {
     fn publish(&self, update: &PoolUpdate) {
-        self.pool_updates
+        self.updates
             .publish(update.pool.as_slice(), &update.to_proto().encode_to_vec());
+    }
+
+    fn publish_trade(&self, trade: &Trade) {
+        self.trades
+            .publish(trade.pool.as_slice(), &trade.to_proto().encode_to_vec());
     }
 
     fn publish_price(&self, update: &PriceUpdate) {

@@ -64,12 +64,12 @@ Write the body to a file, then `scripts/work open-pr "<title>" <file>`. The titl
 Closes #n
 ```
 
-Every criterion of the issue gets a row (#98 will make CI check this). Don't message the orchestrator yet: CI comes first (next section).
+Every criterion of the issue gets a row, quoted as the issue words it: CI's `criteria` job fails on a missing row or a named test that didn't pass in the run (D95). A criterion moved to a follow-up issue is `manual: moved to #m`. Don't message the orchestrator yet: CI comes first (next section).
 
 ## Get it reviewed
 
 1. Subscribe to the PR's activity (your environment's PR-watching instructions describe it), then end your turn. CI results and comments wake you; don't poll.
-2. When `scripts/work checks <pr>` shows `verify` and `frontend` both `success` on your head: `send_message` to the orchestrator: `READY PR#<pr> <sha>`. Red instead: root-cause it, fix, push, and repeat. "Flaky" isn't a cause.
+2. When `scripts/work checks <pr>` shows `verify`, `frontend` and `criteria` all `success` on your head: `send_message` to the orchestrator: `READY PR#<pr> <sha>`. Red instead: root-cause it, fix, push, and repeat. "Flaky" isn't a cause.
 3. The watchdog posts ``## Watchdog review: `<sha>` passes`` or ``fails on N findings``.
    - **Fails:** fix every blocking finding on this branch, reply on the PR saying what each commit changed, push, wait for green, then send `READY` again. Non-blocking findings: fix the quick ones, and answer the rest in one line each.
    - **You think a finding is wrong:** reply on the PR with why, `send_message` `DISPUTE PR#<pr>: <one line>`, and stop. Temi decides; don't push past it.

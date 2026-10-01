@@ -8,7 +8,7 @@ pub mod metadata;
 pub mod pool;
 pub mod tick_math;
 
-pub use config::{PricingConfig, QuoteAsset, QuoteKind};
+pub use config::{PricingConfig, QuoteKind};
 pub use display::{DisplayPrice, PoolQuote, display_price};
 pub use metadata::TokenMetadata;
 pub use pool::PoolPrice;

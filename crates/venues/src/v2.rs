@@ -1,12 +1,13 @@
 //! Uniswap v2 pairs and forks that share its bytecode.
 
-use alloy_primitives::{Address, B256, keccak256};
+use alloy_primitives::{Address, B256, I256, U256, keccak256};
 use alloy_sol_types::{SolCall, SolEvent, sol};
 use types::chain::Log;
 
 sol! {
     event PairCreated(address indexed token0, address indexed token1, address pair, uint256);
     event Sync(uint112 reserve0, uint112 reserve1);
+    event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to);
     function token0() external view returns (address);
     function token1() external view returns (address);
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
@@ -62,6 +63,10 @@ pub fn is_sync(log: &Log) -> bool {
     log.topics.first() == Some(&Sync::SIGNATURE_HASH)
 }
 
+pub fn is_swap(log: &Log) -> bool {
+    log.topics.first() == Some(&Swap::SIGNATURE_HASH)
+}
+
 pub fn is_pair_created(log: &Log) -> bool {
     log.topics.first() == Some(&PairCreated::SIGNATURE_HASH)
 }
@@ -72,6 +77,47 @@ pub fn decode_sync(log: &Log) -> Option<Reserves> {
     Some(Reserves {
         reserve0: sync.reserve0.to(),
         reserve1: sync.reserve1.to(),
+    })
+}
+
+/// A pair's `Swap`: what went in and came out of each side. A pair emits it after the `Sync`
+/// that carries the reserves the swap left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SwapLog {
+    pub sender: Address,
+    pub recipient: Address,
+    pub amount0_in: U256,
+    pub amount1_in: U256,
+    pub amount0_out: U256,
+    pub amount1_out: U256,
+}
+
+impl SwapLog {
+    /// How much of token0 and of token1 the pair gained (negative: lost). A flash swap can
+    /// both take and return the same token, so this nets them. `None` beyond `int256`, which
+    /// a pair's `uint112` reserves can't reach.
+    pub fn pool_deltas(&self) -> Option<(I256, I256)> {
+        let net = |amount_in: U256, amount_out: U256| {
+            I256::try_from(amount_in)
+                .ok()?
+                .checked_sub(I256::try_from(amount_out).ok()?)
+        };
+        Some((
+            net(self.amount0_in, self.amount0_out)?,
+            net(self.amount1_in, self.amount1_out)?,
+        ))
+    }
+}
+
+pub fn decode_swap(log: &Log) -> Option<SwapLog> {
+    let swap = Swap::decode_raw_log(log.topics.iter().copied(), &log.data).ok()?;
+    Some(SwapLog {
+        sender: swap.sender,
+        recipient: swap.to,
+        amount0_in: swap.amount0In,
+        amount1_in: swap.amount1In,
+        amount0_out: swap.amount0Out,
+        amount1_out: swap.amount1Out,
     })
 }
 
@@ -156,6 +202,7 @@ mod tests {
         let data = (U256::from(5u64), U256::from(7u64)).abi_encode();
         let sync = log(vec![Sync::SIGNATURE_HASH], data);
         assert!(is_sync(&sync));
+        assert!(!is_swap(&sync));
         assert_eq!(
             decode_sync(&sync),
             Some(Reserves {
@@ -250,6 +297,32 @@ mod tests {
         assert_eq!(token0_call(), hex!("0dfe1681"));
         assert_eq!(token1_call(), hex!("d21220a7"));
         assert_eq!(get_reserves_call(), hex!("0902f1ac"));
+    }
+
+    #[test]
+    fn decodes_swap_and_nets_each_side() {
+        let sender = address!("5000000000000000000000000000000000000005");
+        let to = address!("6000000000000000000000000000000000000006");
+        // 10 of token0 in, 4 of token1 out, and a flash-returned 3 of token0 out.
+        let data = (
+            U256::from(10u64),
+            U256::from(0u64),
+            U256::from(3u64),
+            U256::from(4u64),
+        )
+            .abi_encode();
+        let swap = log(
+            vec![Swap::SIGNATURE_HASH, sender.into_word(), to.into_word()],
+            data,
+        );
+        assert!(is_swap(&swap));
+        assert!(!is_sync(&swap));
+        let decoded = decode_swap(&swap).unwrap();
+        assert_eq!((decoded.sender, decoded.recipient), (sender, to));
+        assert_eq!(
+            decoded.pool_deltas(),
+            Some((I256::try_from(7).unwrap(), I256::try_from(-4).unwrap()))
+        );
     }
 
     #[test]

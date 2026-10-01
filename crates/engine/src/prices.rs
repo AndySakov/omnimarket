@@ -54,6 +54,8 @@ pub struct Coverage {
 
 pub(crate) struct Prices {
     chain_id: u64,
+    /// The engine's quote assets (`EngineConfig::quote_assets`), shared with trade records.
+    quote_assets: Vec<Address>,
     config: PricingConfig,
     native: Option<Address>,
     known: BTreeMap<Address, Known>,
@@ -76,14 +78,14 @@ pub(crate) struct Prices {
 }
 
 impl Prices {
-    pub fn new(chain_id: u64, config: PricingConfig) -> Self {
-        let native = config
-            .quote_assets
-            .iter()
-            .find(|q| q.kind == QuoteKind::Native)
-            .map(|q| q.token);
+    pub fn new(chain_id: u64, quote_assets: Vec<Address>, config: PricingConfig) -> Self {
+        // Without the native token among the quote assets nothing is quoted in it.
+        let native = quote_assets
+            .contains(&config.native)
+            .then_some(config.native);
         Self {
             chain_id,
+            quote_assets,
             config,
             native,
             known: BTreeMap::new(),
@@ -119,7 +121,7 @@ impl Prices {
             for (token, other) in [(token0, token1), (token1, token0)] {
                 // The native token is priced from the reference pools only, stablecoins are
                 // pinned (D19), and a token is priced only against a quote asset.
-                if self.config.quote(token).is_some() || self.config.quote(other).is_none() {
+                if self.quote(token).is_some() || self.quote(other).is_none() {
                     continue;
                 }
                 self.token_pools
@@ -131,6 +133,10 @@ impl Prices {
                 self.dirty.insert(token);
             }
         }
+    }
+
+    fn quote(&self, token: Address) -> Option<QuoteKind> {
+        self.config.quote(&self.quote_assets, token)
     }
 
     fn want_metadata(&mut self, token: Address) {
@@ -298,7 +304,7 @@ impl Prices {
 
     /// Something a token's price depends on changed: price it, or whatever it quotes.
     fn mark_dirty(&mut self, token: Address) {
-        match self.config.quote(token) {
+        match self.quote(token) {
             // The native token's decimals price it, and every token quoted in it.
             Some(QuoteKind::Native) => {
                 self.dirty.insert(token);
@@ -311,7 +317,7 @@ impl Prices {
             }
         }
         // A quote asset's decimals arriving prices the tokens quoted in it.
-        if self.config.quote(token).is_some() {
+        if self.quote(token).is_some() {
             let quoted: Vec<Address> = self
                 .token_pools
                 .iter()
@@ -337,7 +343,7 @@ impl Prices {
 
     /// The USD price of a quote asset: the native token's latest, or $1 for a stablecoin.
     fn quote_usd(&self, quote: Address) -> Option<(f64, Option<LineageId>)> {
-        match self.config.quote(quote)? {
+        match self.quote(quote)? {
             QuoteKind::Native => self.native_usd.map(|(usd, id)| (usd, Some(id))),
             QuoteKind::Stable => Some((1.0, None)),
         }
@@ -450,7 +456,7 @@ impl Prices {
     }
 
     pub fn coverage(&self) -> Coverage {
-        let is_quote = |t: &Address| self.config.quote(*t).is_some();
+        let is_quote = |t: &Address| self.quote(*t).is_some();
         let unquoted: Vec<&Address> = self
             .counterparts
             .keys()

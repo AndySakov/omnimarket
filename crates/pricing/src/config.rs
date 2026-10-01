@@ -9,25 +9,22 @@ pub const BASE_USDC: Address = address!("833589fCD6eDb6E08f4c7C32D4f71b54bdA0291
 /// Bridged Tether USD on Base.
 pub const BASE_USDT: Address = address!("fde4C96c8593536E31F229EA8f37b2ADa2699bb2");
 
+/// What a quote asset is worth in USD (D19).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QuoteKind {
-    /// Priced in USD from the reference pools.
+    /// The native token: priced in USD from the reference pools.
     Native,
-    /// Pinned at $1 (D19).
+    /// Any other quote asset: a stablecoin, pinned at $1.
     Stable,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct QuoteAsset {
-    pub token: Address,
-    pub kind: QuoteKind,
-}
-
+/// Pricing's part of the engine config. The quote assets themselves are the engine's one list
+/// (`EngineConfig::quote_assets`, shared with trade records): `native` is priced from the
+/// reference pools, and every other quote asset is a stablecoin pinned at $1.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PricingConfig {
-    /// The tokens other tokens are priced against. A token paired only with others is
-    /// unpriced (D19).
-    pub quote_assets: Vec<QuoteAsset>,
+    /// The native token: WETH on Base.
+    pub native: Address,
     /// Native/stablecoin pools whose weighted mid is the native token's USD price (D19).
     pub reference_pools: Vec<Address>,
     /// Pools below this ±2% depth don't count toward a display price (D18, D24). A tuning
@@ -43,20 +40,7 @@ impl PricingConfig {
         let (weth, usdc) = sorted(BASE_WETH, BASE_USDC);
         let (weth_, usdt) = sorted(BASE_WETH, BASE_USDT);
         Self {
-            quote_assets: vec![
-                QuoteAsset {
-                    token: BASE_WETH,
-                    kind: QuoteKind::Native,
-                },
-                QuoteAsset {
-                    token: BASE_USDC,
-                    kind: QuoteKind::Stable,
-                },
-                QuoteAsset {
-                    token: BASE_USDT,
-                    kind: QuoteKind::Stable,
-                },
-            ],
+            native: BASE_WETH,
             // Uniswap v3 WETH/USDC at 0.05% and 0.3%, WETH/USDT at 0.05%, and the v2 WETH/USDC
             // pair: weighted by depth, so the deepest dominates.
             reference_pools: vec![
@@ -70,11 +54,15 @@ impl PricingConfig {
         }
     }
 
-    pub fn quote(&self, token: Address) -> Option<QuoteKind> {
-        self.quote_assets
-            .iter()
-            .find(|q| q.token == token)
-            .map(|q| q.kind)
+    /// `token`'s kind if it is one of `quote_assets`.
+    pub fn quote(&self, quote_assets: &[Address], token: Address) -> Option<QuoteKind> {
+        if !quote_assets.contains(&token) {
+            None
+        } else if token == self.native {
+            Some(QuoteKind::Native)
+        } else {
+            Some(QuoteKind::Stable)
+        }
     }
 }
 
@@ -89,6 +77,17 @@ mod tests {
 
     /// Addresses the factories returned for these tokens on Base mainnet (2026-10-01:
     /// `getPool(WETH, USDC, 500)` and so on, through base-rpc.publicnode.com).
+    #[test]
+    fn the_native_token_is_native_and_other_quote_assets_are_stable() {
+        let config = PricingConfig::base();
+        let quotes = [BASE_USDC, BASE_USDT, BASE_WETH];
+        assert_eq!(config.quote(&quotes, BASE_WETH), Some(QuoteKind::Native));
+        assert_eq!(config.quote(&quotes, BASE_USDC), Some(QuoteKind::Stable));
+        assert_eq!(config.quote(&quotes, Address::ZERO), None);
+        // Not a quote asset, not priced as one, even if it's the native token.
+        assert_eq!(config.quote(&[BASE_USDC], BASE_WETH), None);
+    }
+
     #[test]
     fn reference_pools_are_the_live_pools() {
         assert_eq!(

@@ -27,7 +27,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 
 `crates/pricing` is pure functions of the state the engine holds; the engine runs them and publishes.
 
-- **Which pools.** A token's pools against a quote asset (Base: WETH, USDC, USDT). A pool between two other tokens prices neither. Until D11's tiers land (#41), every pool the engine tracks counts; the floor applies already.
+- **Which pools.** A token's pools against a quote asset: the engine's one quote-asset list, shared with trade records (`EngineConfig::quote_assets`, D102; on Base USDC, USDT and WETH). Pricing's config names the native token (WETH); every other quote asset is a stablecoin. A pool between two other tokens prices neither. Until D11's tiers land (#41), every pool the engine tracks counts; the floor applies already.
 - **Pool mid.** v2: `reserve1 / reserve0`. v3: `(sqrtPriceX96 / 2⁹⁶)²`. Both scaled by `10^(decimals0 − decimals1)` to whole tokens, then inverted if the token is token1.
 - **±2% depth (D24).** Fee-free. Buy side: the quote that moves the price up 2%. Sell side: the token that moves it down 2%, valued at the mid. v2 in closed form, `y(√1.02 − 1) + y(1/√0.98 − 1)` in token1; v3 by walking initialized ticks from the current price to `√P·√1.02` (adding each crossed tick's net liquidity) and to `√P·√0.98` (subtracting it), with `Δtoken1 = L·Δ√P` and `Δtoken0 = L·Δ(1/√P)` per stretch.
 - **USD.** `mid × usd(quote)`, `depth × usd(quote)`: WETH's latest display price, or $1 for a stablecoin.
@@ -64,7 +64,7 @@ In-memory math per pool type, exact to the contract's rounding; simulation only 
 | Algebra-based | MegaETH | Algebra concentrated liquidity, dynamic fees |
 | PancakeSwap Infinity (CL + bin pools, hooks) | BNB | CL: v4-like · bin pools: own math **(to spec)** |
 
-**Pool state (built, `venues`, M1):** v2 reserves from `Sync`; v3 price, tick, active liquidity and the initialized ticks' gross and net liquidity from `Initialize`, `Swap`, `Mint` and `Burn`, applied as the pool contract does (active liquidity changes only when `tickLower <= tick < tickUpper`). Quoting math on top of this state lands with routing (M4).
+**Pool state (built, `venues`, M1):** v2 reserves from `Sync`; v3 price, tick, active liquidity and the initialized ticks' gross and net liquidity from `Initialize`, `Swap`, `Mint` and `Burn`, applied as the pool contract does (active liquidity changes only when `tickLower <= tick < tickUpper`). Quoting math on top of this state lands with routing (M4). `venues` also decodes each venue's `Swap` into the amounts the pool took in and paid out (v2 nets `amountIn − amountOut` per token), for trade records (D102).
 
 ## Recompute cadence (D22)
 

@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 
-use pricing::{PricingConfig, QuoteAsset, QuoteKind};
+use pricing::PricingConfig;
 use prost::Message as _;
 use types::Timestamp;
 use types::chain::{Address, B256, Block, CallResult, EthCall};
@@ -11,8 +11,20 @@ use venues::v2::Deployment;
 
 use crate::outbox::{PoolUpdate, PriceUpdate};
 use crate::prices::{Coverage, Prices};
+use crate::trades::Trade;
 use crate::v2::V2Pools;
 use crate::v3::V3Pools;
+
+/// Base's quote assets (D18, D102): the reference stablecoins, then the native token, so a
+/// WETH/USDC trade is WETH against USDC. Symbols read from each contract, 2026-10-01.
+pub const BASE_QUOTE_ASSETS: [types::chain::Address; 3] = [
+    // USDC
+    alloy_primitives::address!("833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
+    // USDT
+    alloy_primitives::address!("fde4C96c8593536E31F229EA8f37b2ADa2699bb2"),
+    // WETH
+    alloy_primitives::address!("4200000000000000000000000000000000000006"),
+];
 
 /// How many recent block hashes the engine keeps, to find where a reorg forked.
 const RECENT_BLOCKS: usize = 128;
@@ -26,6 +38,8 @@ pub struct EngineConfig {
     pub check_every: Option<u64>,
     /// How many pools each check samples.
     pub check_sample: usize,
+    /// The tokens trade records are quoted in, most preferred first (D102).
+    pub quote_assets: Vec<types::chain::Address>,
     /// `None`: no pricing, as recordings made before it existed expect.
     pub pricing: Option<PricingConfig>,
 }
@@ -42,6 +56,7 @@ impl EngineConfig {
             v3_tick_lens: self.v3.tick_lens.to_vec(),
             check_every: self.check_every,
             check_sample: self.check_sample as u64,
+            quote_assets: self.quote_assets.iter().map(|a| a.to_vec()).collect(),
             pricing: self.pricing.as_ref().map(pricing_to_proto),
         }
         .encode_to_vec()
@@ -63,6 +78,11 @@ impl EngineConfig {
             },
             check_every: config.check_every,
             check_sample: config.check_sample.try_into().ok()?,
+            quote_assets: config
+                .quote_assets
+                .iter()
+                .map(|a| types::chain::Address::try_from(a.as_slice()).ok())
+                .collect::<Option<_>>()?,
             pricing: match config.pricing {
                 Some(pricing) => Some(pricing_from_proto(pricing)?),
                 None => None,
@@ -77,25 +97,15 @@ impl EngineConfig {
             v3: venues::v3::BASE,
             check_every: None,
             check_sample: 20,
+            quote_assets: BASE_QUOTE_ASSETS.to_vec(),
             pricing: Some(PricingConfig::base()),
         }
     }
 }
 
 fn pricing_to_proto(config: &PricingConfig) -> proto::engine::v1::PricingConfig {
-    use proto::engine::v1;
-    v1::PricingConfig {
-        quote_assets: config
-            .quote_assets
-            .iter()
-            .map(|q| v1::QuoteAsset {
-                token: q.token.to_vec(),
-                kind: match q.kind {
-                    QuoteKind::Native => v1::QuoteKind::Native,
-                    QuoteKind::Stable => v1::QuoteKind::Stable,
-                } as i32,
-            })
-            .collect(),
+    proto::engine::v1::PricingConfig {
+        native: config.native.to_vec(),
         reference_pools: config.reference_pools.iter().map(|p| p.to_vec()).collect(),
         liquidity_floor_usd: config.liquidity_floor_usd,
         supply_refresh_blocks: config.supply_refresh_blocks,
@@ -103,29 +113,13 @@ fn pricing_to_proto(config: &PricingConfig) -> proto::engine::v1::PricingConfig 
 }
 
 fn pricing_from_proto(config: proto::engine::v1::PricingConfig) -> Option<PricingConfig> {
-    use proto::engine::v1;
-    let quote_assets = config
-        .quote_assets
-        .iter()
-        .map(|q| {
-            Some(QuoteAsset {
-                token: Address::try_from(q.token.as_slice()).ok()?,
-                kind: match v1::QuoteKind::try_from(q.kind).ok()? {
-                    v1::QuoteKind::Native => QuoteKind::Native,
-                    v1::QuoteKind::Stable => QuoteKind::Stable,
-                    v1::QuoteKind::Unspecified => return None,
-                },
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let reference_pools = config
-        .reference_pools
-        .iter()
-        .map(|p| Address::try_from(p.as_slice()).ok())
-        .collect::<Option<Vec<_>>>()?;
     Some(PricingConfig {
-        quote_assets,
-        reference_pools,
+        native: Address::try_from(config.native.as_slice()).ok()?,
+        reference_pools: config
+            .reference_pools
+            .iter()
+            .map(|p| Address::try_from(p.as_slice()).ok())
+            .collect::<Option<Vec<_>>>()?,
         liquidity_floor_usd: config.liquidity_floor_usd,
         supply_refresh_blocks: config.supply_refresh_blocks,
     })
@@ -170,6 +164,11 @@ pub struct Stats {
     /// v3 bootstraps abandoned because a call failed; each pool starts again on next sight.
     pub bootstrap_failures: u64,
     pub updates: u64,
+    /// Trade records published: one per Swap on a tracked pool.
+    pub trades: u64,
+    /// Swaps buffered on a pool whose proof or bootstrap read then failed. The pool is read
+    /// again when it next trades, but these swaps are never published.
+    pub trades_dropped: u64,
     pub checks_passed: u64,
     pub checks_failed: u64,
     /// Calls reading tokens' name, symbol, decimals and supply.
@@ -191,10 +190,78 @@ pub struct Summary {
     pub digest: blake3::Hash,
     /// Over every pool update published, in order: its proto bytes.
     pub updates_digest: blake3::Hash,
+    /// Over every trade published, in order: its proto bytes.
+    pub trades_digest: blake3::Hash,
     /// Over every price update published, in order: its proto bytes.
     pub prices_digest: blake3::Hash,
     /// `None` without pricing.
     pub coverage: Option<Coverage>,
+}
+
+/// The text `engine follow` and `engine replay` print, and a pinned replay fixture's summary
+/// file holds (D99): two runs with the same text made the same decisions.
+impl std::fmt::Display for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((number, hash)) = self.head {
+            writeln!(f, "head {number} {hash}")?;
+        }
+        let s = &self.stats;
+        writeln!(
+            f,
+            "{} blocks, {} logs, {} reorgs detected, digest {}",
+            s.blocks, s.logs, s.reorgs_detected, self.digest
+        )?;
+        writeln!(
+            f,
+            "v2: {} pairs tracked, {} rejected, {} verification calls ({} failed)",
+            s.pairs_tracked, s.pairs_rejected, s.verify_calls, s.verify_failures
+        )?;
+        writeln!(
+            f,
+            "v3: {} pools tracked, {} rejected, {} bootstrap calls ({} bootstraps failed)",
+            s.pools_tracked, s.pools_rejected, s.bootstrap_calls, s.bootstrap_failures
+        )?;
+        writeln!(
+            f,
+            "{} pool updates, digest {}",
+            s.updates, self.updates_digest
+        )?;
+        writeln!(
+            f,
+            "{} trades ({} dropped with a failed read), digest {}",
+            s.trades, s.trades_dropped, self.trades_digest
+        )?;
+        writeln!(
+            f,
+            "shadow checks: {} passed, {} failed",
+            s.checks_passed, s.checks_failed
+        )?;
+        // Only with pricing on, so a recording from before pricing prints what it always did.
+        if let Some(c) = &self.coverage {
+            writeln!(
+                f,
+                "{} price updates, digest {}; {} metadata calls, {} supply calls ({} failed)",
+                s.price_updates,
+                self.prices_digest,
+                s.metadata_calls,
+                s.supply_calls,
+                s.metadata_failures
+            )?;
+            writeln!(
+                f,
+                "coverage: {} tokens seen, {} with a quote-asset pool, {} priced ({} thin), {} without decimals",
+                c.tokens_seen,
+                c.tokens_quotable,
+                c.tokens_priced,
+                c.tokens_thin,
+                c.tokens_without_decimals
+            )?;
+            for (token, count) in &c.unquoted_counterparts {
+                writeln!(f, "  unquoted tokens trading against {token}: {count}")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A call the engine is waiting on, and what to do with its answer.
@@ -209,6 +276,7 @@ pub(crate) enum Pending {
 pub(crate) struct Effects {
     pub calls: Vec<(Pending, EthCall)>,
     pub updates: Vec<PoolUpdate>,
+    pub trades: Vec<Trade>,
     pub prices: Vec<PriceUpdate>,
 }
 
@@ -218,6 +286,7 @@ pub(crate) struct State {
     stats: Stats,
     digest: blake3::Hasher,
     updates_digest: blake3::Hasher,
+    trades_digest: blake3::Hasher,
     prices_digest: blake3::Hasher,
     v2: V2Pools,
     v3: V3Pools,
@@ -227,17 +296,18 @@ pub(crate) struct State {
 impl State {
     pub fn new(config: EngineConfig) -> Self {
         Self {
-            v2: V2Pools::new(config.v2),
-            v3: V3Pools::new(config.v3),
+            v2: V2Pools::new(config.v2, config.quote_assets.clone()),
+            v3: V3Pools::new(config.v3, config.quote_assets.clone()),
             prices: config
                 .pricing
                 .clone()
-                .map(|pricing| Prices::new(config.chain_id, pricing)),
+                .map(|pricing| Prices::new(config.chain_id, config.quote_assets.clone(), pricing)),
             config,
             recent: VecDeque::with_capacity(RECENT_BLOCKS),
             stats: Stats::default(),
             digest: blake3::Hasher::new(),
             updates_digest: blake3::Hasher::new(),
+            trades_digest: blake3::Hasher::new(),
             prices_digest: blake3::Hasher::new(),
         }
     }
@@ -301,6 +371,7 @@ impl State {
             block.number,
             logs = block.logs.len(),
             updates = effects.updates.len(),
+            trades = effects.trades.len(),
             prices = effects.prices.len(),
             lag_ms,
             "block"
@@ -331,7 +402,8 @@ impl State {
         self.finish(effects);
     }
 
-    /// Folds this step's updates into the digest, counts them, and notes them for pricing.
+    /// Folds this step's updates and trades into their digests, counts them, and notes the
+    /// updates for pricing.
     fn finish(&mut self, effects: &Effects) {
         if let Some(prices) = &mut self.prices {
             prices.on_updates(&effects.updates, &self.v2, &self.v3);
@@ -341,6 +413,11 @@ impl State {
                 .update(&update.to_proto().encode_length_delimited_to_vec());
         }
         self.stats.updates += effects.updates.len() as u64;
+        for trade in &effects.trades {
+            self.trades_digest
+                .update(&trade.to_proto().encode_length_delimited_to_vec());
+        }
+        self.stats.trades += effects.trades.len() as u64;
         self.stats.pairs_tracked = self.v2.tracked() as u64;
         self.stats.pools_tracked = self.v3.tracked() as u64;
     }
@@ -351,6 +428,7 @@ impl State {
             stats: self.stats.clone(),
             digest: self.digest.finalize(),
             updates_digest: self.updates_digest.finalize(),
+            trades_digest: self.trades_digest.finalize(),
             prices_digest: self.prices_digest.finalize(),
             coverage: self.prices.as_ref().map(Prices::coverage),
         }

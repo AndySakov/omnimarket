@@ -10,6 +10,7 @@ pub mod archive;
 mod chain;
 mod clock;
 mod events;
+pub mod file;
 pub mod kafka;
 mod record;
 mod replay;
