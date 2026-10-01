@@ -50,6 +50,8 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D4 — Wallet vendor: Privy, behind our own Signer boundary
 
+*(Amended by D96: in the demo, the local keystore also signs guest trades and trigger fills, in shadow only.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Privy embedded wallets with server-side signing via authorization keys and policies. All signing goes through an internal `Signer` boundary with two implementations: Privy (product/demo path) and a local encrypted keystore (load tests, mainnet forks).
@@ -2005,6 +2007,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 *(Amended by D90: `scripts/work next` applies this order over REST; the build account's frontend builder takes Jutin's frontend issues while he's away, claimed by the `wip` label instead of reassignment.)*
 
+*(Amended by D96: the sprint's scope and shortcuts are recorded there.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
 
 **Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
@@ -2231,7 +2235,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D96 — The demo is a thin slice through M2, M4, M5 and M6 on live Base, ahead of milestone order
 
-**Date:** 2026-10-01 · **Status:** Decided (#74; amends D5, D41, D42, D57, D59, D63)
+**Date:** 2026-10-01 · **Status:** Decided (#74; amends D4, D5, D41, D42, D57, D59, D63)
 
 **Decision:** The demo in #62 is built as a thin vertical slice on live Base, ahead of the milestone order in D63 and the build plan. The frontend track starts now, against the API contract v0 (D91) and its fixtures, rather than at M2.
 - **Scope.** Thin parts of four milestones, each named by the #62 issue that builds it:
@@ -2246,8 +2250,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 |---|---|---|
 | Intents are signed against a placeholder EIP-712 domain (`verifyingContract` isn't a deployed router) and marked demo | D42, D59: intents are verified by our router | The router is deployed (M3) |
 | Candles and read models are held in memory by the API, rebuilt from records and backfill on restart | D41: candles and swaps live in ClickHouse | The cold path's ClickHouse services (`candles/`, `history/`) |
-| **Demo accounts**: a guest account with no signup, alongside Privy logins, each holding a **shadow balance** | D57: user accounts are Privy accounts | Real wallets (D3, D4) and real funds (M5's real-funds trade) |
-| Trigger fills, and a guest's manual trades, are signed by the server's local signer, in shadow only | D57: the server key signs only for absent users, under Privy policy | Privy server signing behind policy (M5, M6) |
+| **Demo accounts**: a guest account with no signup, alongside Privy logins, each holding a **shadow balance**. A Privy login's embedded wallet signs its intents in the browser (D57) and identifies the account; trades debit and credit the shadow balance, never the wallet | D57: user accounts are Privy accounts | Real wallets (D3, D4) and real funds (M5's real-funds trade) |
+| Trigger fills, and a guest's manual trades, are signed by the server's local signer, in shadow only | D4: the local keystore signs only for load tests and forks, Privy on the product path. D57: the server key signs only for absent users, under Privy policy | Privy server signing behind policy (M5, M6) |
 | In replay mode, shadow trades simulate in memory, not with `eth_call` (PublicNode serves only ~90 blocks back, D82), and receipts say so | D5: shadow execution simulates against live state | Archive RPC or our own node (D44) |
 
 - **Order against M1's open issues.**
