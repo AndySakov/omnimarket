@@ -1,14 +1,18 @@
-//! What the engine publishes: pool updates, with the state before and after (D12).
+//! What the engine publishes: pool updates, with the state before and after (D12), trade
+//! records (D102), and price updates (D18, D77).
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use det::kafka::KafkaPublisher;
+use pricing::{DisplayPrice, PoolQuote, TokenMetadata};
 use prost::Message as _;
 use types::LineageId;
-use types::chain::{Address, B256};
+use types::chain::{Address, B256, Block};
 use venues::v2::Reserves;
 use venues::v3::{Price, TickLiquidity};
+
+use crate::trades::Trade;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolState {
@@ -130,21 +134,154 @@ fn big_endian(value: u128) -> Vec<u8> {
     bytes[first..].to_vec()
 }
 
-/// Where pool updates go. Publishing can't change the engine's decisions, so it isn't a
-/// recorded input.
-pub trait Outbox {
-    fn publish(&self, update: &PoolUpdate);
+/// One of the pools a price update was priced from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PricedPool {
+    pub quote: PoolQuote,
+    /// At or above the liquidity floor, so it counts toward the display price (D18).
+    pub counted: bool,
 }
 
-/// Keeps updates in memory, for tests and replays. Clones share one list.
+/// A token's display price after a canonical block (D18, D77).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PriceUpdate {
+    /// From the natural key (chain, token, block hash).
+    pub id: LineageId,
+    /// The latest update of each pool priced from, and the native token's price update when a
+    /// pool quotes in it.
+    pub caused_by: Vec<LineageId>,
+    pub chain_id: u64,
+    pub token: Address,
+    pub block_number: u64,
+    pub block_hash: B256,
+    pub block_timestamp: u64,
+    pub metadata: TokenMetadata,
+    pub price_usd: f64,
+    pub depth_usd: f64,
+    pub thin: bool,
+    pub main_pool: Address,
+    pub quote_token: Address,
+    /// The display price in the main pool's quote asset.
+    pub price_in_quote: f64,
+    /// Total supply × price: fully diluted.
+    pub fdv_usd: Option<f64>,
+    pub pools: Vec<PricedPool>,
+}
+
+impl PriceUpdate {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        chain_id: u64,
+        block: &Block,
+        token: Address,
+        caused_by: Vec<LineageId>,
+        metadata: TokenMetadata,
+        display: DisplayPrice,
+        price_in_quote: f64,
+        fdv_usd: Option<f64>,
+        pools: Vec<PricedPool>,
+    ) -> Self {
+        let key = [
+            &chain_id.to_le_bytes()[..],
+            token.as_slice(),
+            block.hash.as_slice(),
+        ]
+        .concat();
+        Self {
+            id: LineageId::from_natural_key("price_update", &key),
+            caused_by,
+            chain_id,
+            token,
+            block_number: block.number,
+            block_hash: block.hash,
+            block_timestamp: block.timestamp,
+            metadata,
+            price_usd: display.price_usd,
+            depth_usd: display.depth_usd,
+            thin: display.thin,
+            main_pool: display.main.pool,
+            quote_token: display.main.quote,
+            price_in_quote,
+            fdv_usd,
+            pools,
+        }
+    }
+
+    pub fn to_proto(&self) -> proto::price::v1::PriceUpdate {
+        use proto::price::v1;
+        v1::PriceUpdate {
+            lineage: Some(proto::lineage::v1::Lineage {
+                id: self.id.as_bytes().to_vec(),
+                caused_by: self
+                    .caused_by
+                    .iter()
+                    .map(|id| id.as_bytes().to_vec())
+                    .collect(),
+            }),
+            chain_id: self.chain_id,
+            token: self.token.to_vec(),
+            block_number: self.block_number,
+            block_hash: self.block_hash.to_vec(),
+            block_timestamp: self.block_timestamp,
+            metadata: Some(v1::TokenMetadata {
+                name: self.metadata.name.clone(),
+                symbol: self.metadata.symbol.clone(),
+                decimals: self.metadata.decimals.map(u32::from),
+                total_supply: self
+                    .metadata
+                    .total_supply
+                    .map(|s| s.to_be_bytes_trimmed_vec()),
+            }),
+            price_usd: self.price_usd,
+            depth_usd: self.depth_usd,
+            thin: self.thin,
+            main_pool: self.main_pool.to_vec(),
+            quote_token: self.quote_token.to_vec(),
+            price_in_quote: self.price_in_quote,
+            fdv_usd: self.fdv_usd,
+            pools: self
+                .pools
+                .iter()
+                .map(|p| v1::PoolPrice {
+                    pool: p.quote.pool.to_vec(),
+                    quote_token: p.quote.quote.to_vec(),
+                    price_in_quote: p.quote.price_in_quote,
+                    price_usd: p.quote.price_usd,
+                    depth_usd: p.quote.depth_usd,
+                    counted: p.counted,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Where pool updates, trades and price updates go. Publishing can't change the engine's
+/// decisions, so it isn't a recorded input.
+pub trait Outbox {
+    fn publish(&self, update: &PoolUpdate);
+    fn publish_trade(&self, trade: &Trade);
+    fn publish_price(&self, update: &PriceUpdate);
+}
+
+/// Keeps updates, trades and prices in memory, for tests and replays. Clones share the lists.
 #[derive(Clone, Default)]
 pub struct InMemoryOutbox {
     updates: Rc<RefCell<Vec<PoolUpdate>>>,
+    trades: Rc<RefCell<Vec<Trade>>>,
+    prices: Rc<RefCell<Vec<PriceUpdate>>>,
 }
 
 impl InMemoryOutbox {
     pub fn updates(&self) -> Vec<PoolUpdate> {
         self.updates.borrow().clone()
+    }
+
+    pub fn trades(&self) -> Vec<Trade> {
+        self.trades.borrow().clone()
+    }
+
+    pub fn prices(&self) -> Vec<PriceUpdate> {
+        self.prices.borrow().clone()
     }
 }
 
@@ -152,23 +289,48 @@ impl Outbox for InMemoryOutbox {
     fn publish(&self, update: &PoolUpdate) {
         self.updates.borrow_mut().push(update.clone());
     }
+
+    fn publish_trade(&self, trade: &Trade) {
+        self.trades.borrow_mut().push(trade.clone());
+    }
+
+    fn publish_price(&self, update: &PriceUpdate) {
+        self.prices.borrow_mut().push(update.clone());
+    }
 }
 
-/// Publishes to `pool-updates.<chain>`, keyed by pool.
+/// Publishes pool updates to `pool-updates.<chain>` and trades to `trades.<chain>`, both keyed
+/// by pool, and price updates to `prices.<chain>`, keyed by token.
 pub struct KafkaOutbox {
-    publisher: KafkaPublisher,
+    updates: KafkaPublisher,
+    trades: KafkaPublisher,
+    prices: KafkaPublisher,
 }
 
 impl KafkaOutbox {
-    pub fn new(publisher: KafkaPublisher) -> Self {
-        Self { publisher }
+    pub fn new(updates: KafkaPublisher, trades: KafkaPublisher, prices: KafkaPublisher) -> Self {
+        Self {
+            updates,
+            trades,
+            prices,
+        }
     }
 }
 
 impl Outbox for KafkaOutbox {
     fn publish(&self, update: &PoolUpdate) {
-        self.publisher
+        self.updates
             .publish(update.pool.as_slice(), &update.to_proto().encode_to_vec());
+    }
+
+    fn publish_trade(&self, trade: &Trade) {
+        self.trades
+            .publish(trade.pool.as_slice(), &trade.to_proto().encode_to_vec());
+    }
+
+    fn publish_price(&self, update: &PriceUpdate) {
+        self.prices
+            .publish(update.token.as_slice(), &update.to_proto().encode_to_vec());
     }
 }
 

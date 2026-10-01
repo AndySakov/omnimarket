@@ -14,4 +14,21 @@ message EngineConfig {
   bytes v3_factory = 6;
   bytes v3_init_code_hash = 7;
   bytes v3_tick_lens = 8;
+  // The quote assets trade records are priced in, most preferred first (D102). Empty in
+  // recordings made before trade records: every trade is then token0 against token1.
+  repeated bytes quote_assets = 9;
+  // Unset: the engine prices nothing, as before pricing existed, so older recordings replay.
+  PricingConfig pricing = 10;
+}
+
+// Pricing (D18, D19, D24, D100). Tokens are priced against `quote_assets` (field 9): the native
+// token is priced from the reference pools, and every other quote asset is a stablecoin pinned
+// at $1.
+message PricingConfig {
+  // The native token (WETH on Base).
+  bytes native = 1;
+  // Native/stablecoin pools whose weighted mid is the native token's USD price (D19).
+  repeated bytes reference_pools = 2;
+  uint64 liquidity_floor_usd = 3;
+  uint64 supply_refresh_blocks = 4;
 }

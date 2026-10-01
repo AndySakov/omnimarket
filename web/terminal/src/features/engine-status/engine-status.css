@@ -1,0 +1,104 @@
+/* The engine status bar (#71) and the "How it works" view. Kept out of styles.css, like
+   ConnectionStatus.css, so the shell's styles and this feature change independently. */
+
+.engine-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--omni-text-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+}
+button.engine-status:hover { border-color: var(--omni-border); background: var(--omni-surface-hover); }
+.engine-status__badge { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.engine-status__item { display: inline-flex; align-items: center; gap: 6px; }
+.engine-status__item strong { color: var(--omni-text); font-weight: 600; }
+.engine-status--live .engine-status__badge { color: var(--omni-green); }
+.engine-status--live.engine-status--mode-replay .engine-status__badge,
+.engine-status--live.engine-status--mode-fixtures .engine-status__badge { color: var(--omni-blue); }
+.engine-status--loading { color: var(--omni-text-muted); }
+.engine-status--stale .engine-status__badge,
+.engine-status--reconnecting .engine-status__badge { color: var(--omni-amber); }
+.engine-status--unavailable,
+.engine-status--unavailable .engine-status__badge { color: var(--omni-red); }
+/* Old numbers stay readable, but visibly not current. */
+.engine-status--stale .engine-status__item strong,
+.engine-status--reconnecting .engine-status__item strong { color: var(--omni-text-muted); text-decoration: line-through dotted; }
+
+/* The engine status outranks the rail's sample tickers: they give way before it is squeezed. */
+@media (max-width: 1320px) {
+  .utility-rail__ticker .ticker-item { display: none; }
+}
+
+.engine-status-tooltip {
+  z-index: 40;
+  max-width: 340px;
+  padding: 12px 14px;
+  border: 1px solid var(--omni-border-strong);
+  border-radius: 8px;
+  background: var(--omni-surface-raised);
+  color: var(--omni-text);
+  font-size: 12px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.32);
+}
+.engine-status-tooltip__arrow { fill: var(--omni-border-strong); }
+
+.engine-status-details { font-size: 12px; }
+.engine-status-details__state { margin: 0 0 8px; color: var(--omni-text-muted); }
+.engine-status-details dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+.engine-status-details__row { display: contents; }
+.engine-status-details dt { color: var(--omni-text-muted); }
+.engine-status-details dd { margin: 0; font-family: "JetBrains Mono Variable", "SFMono-Regular", Consolas, monospace; font-size: 11px; }
+
+/* "How it works" */
+.utility-button.how-it-works-trigger { display: inline-flex; align-items: center; gap: 6px; width: auto; padding: 0 8px; font-size: 11px; white-space: nowrap; }
+.how-it-works-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(4, 6, 10, 0.72); }
+.how-it-works {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 51;
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 24px 28px;
+  border: 1px solid var(--omni-border-strong);
+  border-radius: 12px;
+  background: var(--omni-surface);
+  color: var(--omni-text);
+  transform: translate(-50%, -50%);
+}
+.how-it-works h2 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.02em; }
+.how-it-works h3 { margin: 22px 0 8px; color: var(--omni-text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.how-it-works p, .how-it-works li { color: var(--omni-text-muted); font-size: 13px; line-height: 1.6; }
+.how-it-works p { margin: 0; }
+.how-it-works a { color: var(--omni-blue); }
+.how-it-works a:focus-visible { outline: 2px solid var(--omni-blue); outline-offset: 2px; }
+.how-it-works__close { position: absolute; top: 16px; right: 16px; }
+.how-it-works__split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.how-it-works__card { padding: 12px 14px; border: 1px solid var(--omni-border); border-radius: 8px; background: var(--omni-bg); }
+.how-it-works__card h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 13px; }
+.how-it-works__card ul { margin: 0; padding-left: 18px; }
+.how-it-works__card--live h4 { color: var(--omni-green); }
+.how-it-works__card--shadow h4 { color: var(--omni-amber); }
+.how-it-works__flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; margin: 0; padding: 0; list-style: none; }
+.how-it-works__flow li { position: relative; display: flex; }
+.how-it-works__stage { display: flex; flex: 1; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--omni-border-strong); border-radius: 8px; background: var(--omni-bg); }
+.how-it-works__stage strong { color: var(--omni-text); font-size: 13px; }
+.how-it-works__stage span { color: var(--omni-text-muted); font-size: 11px; line-height: 1.4; }
+.how-it-works__arrow { position: absolute; top: 50%; right: -20px; color: var(--omni-text-subtle); transform: translateY(-50%); }
+.how-it-works__links { margin: 0; padding-left: 18px; }
+
+@media (max-width: 620px) {
+  .how-it-works { padding: 20px 16px; }
+  .how-it-works__split { grid-template-columns: 1fr; }
+  .how-it-works__flow { grid-template-columns: 1fr; }
+  .how-it-works__arrow { top: auto; right: auto; bottom: -20px; left: 50%; transform: translateX(-50%) rotate(90deg); }
+  .how-it-works-trigger__label { display: none; }
+}

@@ -29,8 +29,10 @@ A bug that meets rule 2's bar gets the `critical` label, and a comment saying wh
 
 ## Decisions
 
-- Every choice that changes behaviour or architecture gets a D-entry: the decision, the rejected options, and why.
-- To change an existing decision, add an amendment note to it and a new entry. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
+- A D-entry records a choice about OmniMarket itself, its behaviour or architecture (including the infrastructure and test tooling it's built and checked with): the decision, the rejected options, and why. Add one only when a reader would ask "why is it like this?" and the code can't answer.
+- How the work is coordinated (the work order, review and merge mechanics, agent sessions and their limits) isn't a D-entry. It lives in [docs/agents/process.md](docs/agents/process.md) and `docs/agents/handoff/`, changed in place; the PR records why.
+- Take a new entry's number from `scripts/work reserve-d "<title>"`, never by counting: parallel sessions share one D-number ledger ([process.md](docs/agents/process.md#coordination-between-workers)).
+- A refinement that keeps a decision's direction (a tighter limit, an extra retry, a renamed flag) is edited into that entry with a dated note. A new entry is for a reversal or a genuinely new choice, with an amendment note on the one it changes. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
 - Settle an empirical question by building a throwaway prototype, not by writing another D-entry.
 - Mark anything unverified **(verify)**.
 
@@ -118,6 +120,7 @@ Passing tests only show the code ran. To check that a change's tests would notic
 - After opening a PR or pushing to one, wait for the checks: `scripts/work checks <n>` (in cloud sessions `gh pr checks` fails: GraphQL is blocked there). While you wait, you may start the next issue in the "Current mode" order on a new branch off `main`.
 - A PR whose body closes an issue labelled `bug` (`Fixes #n`, `Closes #n`) also gets CI's `regression-check` job (D92): the PR's new or changed tests must fail on `main`'s code and pass on its head. On any other PR it passes at once. It isn't required yet; once it's green on two fix PRs it joins `verify` and `watchdog/review`. When it fails, read its job summary: a test that passes on `main` too doesn't show the bug.
 - On `failure`, read the latest watchdog comment (`scripts/work show <n>`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
+- CI's `criteria` job checks the PR body's "Acceptance criteria" table (`.github/pull_request_template.md`, D95): every criterion of the closed issue has a row, every row names tests or `manual:` evidence, and every test a row names passed in this run. `manual:` rows are listed in its summary, and the watchdog checks their evidence. After editing the body, re-run that job. It becomes a required check once it has run green on two PRs.
 - If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
 - Once `verify`, `frontend` and `watchdog/review` pass on the head, the builder merges with `scripts/work merge <n>` (a merge commit). It refuses anything short of that, and anything labelled `hold`.
 - Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself, and no watchdog verdict comment unless you are the watchdog.

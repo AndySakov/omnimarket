@@ -11,6 +11,7 @@ blake3.workspace = true
 futures.workspace = true
 prost.workspace = true
 proto.workspace = true
+pricing.workspace = true
 venues.workspace = true
 chain-io.workspace = true
 clap.workspace = true
