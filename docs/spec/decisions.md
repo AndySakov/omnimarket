@@ -2187,7 +2187,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
 - The watchdog still reads the failure on `main` to confirm it's the bug's.
 
-## D96 — CI replays a pinned real Base recording to its recorded summary
+## D99 — CI replays a pinned real Base recording to its recorded summary
 
 **Date:** 2026-10-01 · **Status:** Decided (#99)
 

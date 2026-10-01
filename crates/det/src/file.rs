@@ -1,4 +1,4 @@
-//! One core instance's input log as a single file (D96): the length-delimited
+//! One core instance's input log as a single file (D99): the length-delimited
 //! `omnimarket.det.v1.InputRecord`s of the archive's segments, in log order, compressed with
 //! zstd. The pinned replay fixtures in the repository use it.
 

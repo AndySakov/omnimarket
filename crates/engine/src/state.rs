@@ -126,7 +126,7 @@ pub struct Summary {
 }
 
 /// The text `engine follow` and `engine replay` print, and a pinned replay fixture's summary
-/// file holds (D96): two runs with the same text made the same decisions.
+/// file holds (D99): two runs with the same text made the same decisions.
 impl std::fmt::Display for Summary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some((number, hash)) = self.head {

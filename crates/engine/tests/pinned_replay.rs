@@ -1,5 +1,5 @@
 //! A real Base recording, pinned in the repository, replays through today's engine to the
-//! summary it was recorded with (D96). A change to the engine's decisions moves its digests:
+//! summary it was recorded with (D99). A change to the engine's decisions moves its digests:
 //! re-record the fixture (docs/spec/observability.md) and say in the PR why they moved.
 
 use det::Replay;

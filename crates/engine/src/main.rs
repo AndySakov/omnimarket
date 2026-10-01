@@ -8,7 +8,7 @@
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`; otherwise both stay in
 //! memory. With `--record-to` it also writes the recording and its summary to a directory, as a
-//! pinned replay fixture (D96). If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
+//! pinned replay fixture (D99). If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
 //! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
 //! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
 //! (D54, D72).
@@ -60,7 +60,7 @@ enum Command {
         #[arg(long, default_value_t = 5)]
         calls_per_second: u32,
         /// Write the recording (`inputs.pb.zst`) and its summary (`summary.txt`) to this
-        /// directory: a pinned replay fixture (D96).
+        /// directory: a pinned replay fixture (D99).
         #[arg(long, conflicts_with = "kafka")]
         record_to: Option<PathBuf>,
     },
@@ -333,7 +333,7 @@ fn follow(
     Ok((summary, in_memory.records()))
 }
 
-/// Writes a pinned replay fixture (D96): the recording as one file, and the summary its run
+/// Writes a pinned replay fixture (D99): the recording as one file, and the summary its run
 /// printed, which a replay of it must print again.
 fn write_fixture(dir: &Path, summary: &Summary, recording: &[InputRecord]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
