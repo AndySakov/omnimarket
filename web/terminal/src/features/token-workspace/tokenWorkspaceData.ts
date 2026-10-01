@@ -8,6 +8,7 @@ import type {
   TokenMarketSnapshot,
   TokenTradeRow,
   TokenWorkspaceFixture,
+  TokenWorkspaceStreamStatus,
   TokenWorkspaceState,
   TokenWorkspaceStreamState,
 } from '../../domains/market/tokenWorkspace'
@@ -39,9 +40,13 @@ const streamTicks = [
 export type TokenWorkspaceStreamOptions = {
   loadDelayMs?: number
   tickIntervalMs?: number
+  disconnectAfterMs?: number
+  reconnectDelayMs?: number
+  onStatus?: TokenWorkspaceStreamStatusListener
 }
 
 export type TokenWorkspaceStreamListener = (snapshot: TokenMarketSnapshot) => void
+export type TokenWorkspaceStreamStatusListener = (status: TokenWorkspaceStreamStatus) => void
 
 /**
  * Resolves the selected token into the complete view model consumed by the
@@ -132,24 +137,66 @@ export function createTokenWorkspaceStream(
 ): () => void {
   const loadDelayMs = options.loadDelayMs ?? 320
   const tickIntervalMs = options.tickIntervalMs ?? 6_000
+  const reconnectDelayMs = options.reconnectDelayMs ?? 900
   let sequence = 0
   let tickTimer: number | undefined
+  let disconnectTimer: number | undefined
+  let reconnectTimer: number | undefined
   let disposed = false
+  let reconnectAttempt = 0
+  let interruptionScheduled = false
 
-  const loadTimer = window.setTimeout(() => {
-    if (disposed) return
-    listener(getTokenMarketSnapshot(token, interval, sequence))
+  const reportStatus = (status: TokenWorkspaceStreamStatus) => options.onStatus?.(status)
+
+  const clearTickTimer = () => {
+    if (tickTimer !== undefined) {
+      window.clearInterval(tickTimer)
+      tickTimer = undefined
+    }
+  }
+
+  const startTicking = () => {
+    clearTickTimer()
     tickTimer = window.setInterval(() => {
       sequence += 1
       const state = sequence % 3 === 2 ? 'stale' : 'ready'
       listener(getTokenMarketSnapshot(token, interval, sequence, state))
     }, tickIntervalMs)
+  }
+
+  const scheduleInterruption = () => {
+    if (options.disconnectAfterMs === undefined || interruptionScheduled) return
+    interruptionScheduled = true
+    disconnectTimer = window.setTimeout(() => {
+      if (disposed) return
+      clearTickTimer()
+      reconnectAttempt += 1
+      reportStatus({ state: 'reconnecting', attempt: reconnectAttempt, label: 'Stream interrupted · reconnecting' })
+      reconnectTimer = window.setTimeout(() => {
+        if (disposed) return
+        listener(getTokenMarketSnapshot(token, interval, sequence, sequence % 3 === 2 ? 'stale' : 'ready'))
+        reportStatus({ state: 'connected', attempt: reconnectAttempt, label: 'Fixture stream connected' })
+        startTicking()
+      }, reconnectDelayMs)
+    }, options.disconnectAfterMs)
+  }
+
+  reportStatus({ state: 'connecting', attempt: 0, label: 'Connecting to fixture stream' })
+
+  const loadTimer = window.setTimeout(() => {
+    if (disposed) return
+    listener(getTokenMarketSnapshot(token, interval, sequence))
+    reportStatus({ state: 'connected', attempt: 0, label: 'Fixture stream connected' })
+    startTicking()
+    scheduleInterruption()
   }, loadDelayMs)
 
   return () => {
     disposed = true
     window.clearTimeout(loadTimer)
-    if (tickTimer !== undefined) window.clearInterval(tickTimer)
+    if (disconnectTimer !== undefined) window.clearTimeout(disconnectTimer)
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+    clearTickTimer()
   }
 }
 

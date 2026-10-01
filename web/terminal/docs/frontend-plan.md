@@ -154,6 +154,8 @@ integration from this branch.
 The Token Workspace design gate and implementation notes are in
 [token-workspace-brief.md](token-workspace-brief.md), with the design-system
 contract in [token-workspace-design-system.md](token-workspace-design-system.md).
+The connection-aware fixture adapter and its replacement plan are documented in
+[token-workspace-stream-plan.md](token-workspace-stream-plan.md).
 Live generated API types,
 mock-server integration and WebSocket behaviour begin when the backend reaches
 M2.

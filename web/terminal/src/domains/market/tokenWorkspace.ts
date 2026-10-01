@@ -50,6 +50,14 @@ export type TokenChartSnapshot = {
 
 export type TokenWorkspaceStreamState = 'loading' | 'ready' | 'stale' | 'error'
 
+export type TokenWorkspaceConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'error'
+
+export type TokenWorkspaceStreamStatus = {
+  state: TokenWorkspaceConnectionState
+  attempt: number
+  label: string
+}
+
 export type TokenMarketSnapshot = {
   interval: TokenChartInterval
   token: TokenWorkspaceFixture

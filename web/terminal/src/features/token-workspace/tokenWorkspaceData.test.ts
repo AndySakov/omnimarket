@@ -76,4 +76,31 @@ describe('getTokenWorkspaceSnapshot', () => {
     vi.advanceTimersByTime(400)
     expect(listener).toHaveBeenCalledTimes(2)
   })
+
+  it('reports connection lifecycle and resumes after a fixture interruption', () => {
+    vi.useFakeTimers()
+    const listener = vi.fn()
+    const statuses: string[] = []
+    const token = getTokenWorkspaceSnapshot().token
+    const unsubscribe = createTokenWorkspaceStream(token, '5m', listener, {
+      loadDelayMs: 10,
+      tickIntervalMs: 200,
+      disconnectAfterMs: 50,
+      reconnectDelayMs: 20,
+      onStatus: (status) => statuses.push(status.state),
+    })
+
+    expect(statuses).toEqual(['connecting'])
+    vi.advanceTimersByTime(10)
+    expect(statuses).toEqual(['connecting', 'connected'])
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(50)
+    expect(statuses).toEqual(['connecting', 'connected', 'reconnecting'])
+    vi.advanceTimersByTime(20)
+    expect(statuses).toEqual(['connecting', 'connected', 'reconnecting', 'connected'])
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    unsubscribe()
+  })
 })

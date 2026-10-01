@@ -8,6 +8,7 @@ test('opens the token workspace and prepares a mocked trade review', async ({ pa
   await expect(page.locator('.token-page')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'NovaSet' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(page.getByText('Fixture stream connected', { exact: true })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Holders' }).click()
   await expect(page.getByRole('heading', { name: 'Holder distribution' })).toBeVisible()
