@@ -82,6 +82,7 @@
 .value-blue { color: var(--omni-blue) !important; }
 .value-amber { color: var(--omni-amber); }
 .status-dot--red { color: var(--omni-red); }
+.status-dot--amber { color: var(--omni-amber); }
 .token-header-actions { flex: 0 0 auto; gap: 7px; }
 .token-header-actions .icon-button { width: 32px; height: 32px; border-radius: 7px; }
 .watch-button { min-height: 32px; padding: 0 11px; border: 1px solid var(--omni-border-strong); border-radius: 7px; }
@@ -139,9 +140,19 @@
 .chart-legend { flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--omni-text-subtle); font-size: var(--omni-type-caption); }
 .chart-legend__price { color: var(--omni-text); font-size: 18px; font-weight: 700; letter-spacing: -0.03em; }
 .chart-legend__volume { margin-left: auto; }
-.price-chart { position: relative; min-height: 330px; flex: 1 1 auto; margin: 8px 0 4px; }
+.chart-visual { position: relative; min-height: 340px; flex: 1 1 auto; margin: 8px 0 4px; overflow: hidden; }
+.price-chart { position: relative; min-height: 330px; flex: 1 1 auto; }
 .price-chart--lightweight { min-height: 340px; }
 .price-chart--lightweight > div { width: 100%; height: 100%; min-height: 340px; }
+.chart-visual--loading .price-chart { opacity: 0.48; }
+.chart-visual--stale .price-chart { opacity: 0.62; }
+.chart-state-overlay { position: absolute; inset: 14px; display: flex; align-items: flex-start; justify-content: center; pointer-events: none; border: 1px solid var(--omni-border); background: rgba(9, 12, 18, 0.72); }
+.chart-state-overlay > div { display: grid; max-width: 330px; gap: 4px; margin-top: 22px; padding: 10px 12px; border: 1px solid var(--omni-border-strong); background: rgba(16, 21, 30, 0.94); text-align: center; }
+.chart-state-overlay strong { color: var(--omni-text); font-size: var(--omni-type-caption); font-weight: 700; }
+.chart-state-overlay span { color: var(--omni-text-muted); font-size: var(--omni-type-caption); line-height: 1.4; }
+.chart-state-overlay--loading strong { color: var(--omni-blue); }
+.chart-state-overlay--stale strong { color: var(--omni-amber); }
+.chart-state-overlay--error strong { color: var(--omni-red); }
 .chart-footer { justify-content: space-between; gap: 8px; color: var(--omni-text-subtle); font-family: var(--omni-font-data); font-size: var(--omni-type-caption); }
 .chart-footer span:first-child { display: inline-flex; align-items: center; gap: 6px; }
 
@@ -211,7 +222,7 @@
 }
 
 @media (max-width: 560px) {
-  .token-workspace-header { padding-top: 10px; }.token-workspace-header__body { position: relative; padding-bottom: 13px; }.token-identity { min-width: 0; flex: 1 1 100%; }.token-identity__avatar { width: 42px; height: 42px; }.token-identity h1 { font-size: 18px; }.token-header-actions { position: absolute; top: 0; right: 0; }.token-summary-metrics { gap: 18px; }.token-metric { min-width: 72px; }.token-metric--emphasis strong { font-size: 18px; }.token-banner { margin: 0 -16px; padding: 0 16px; }.token-workspace { padding: 10px 10px 18px; }.chart-toolbar { align-items: flex-start; flex-direction: column; }.chart-toolbar__controls { width: 100%; justify-content: space-between; }.chart-intervals { flex: 1; justify-content: space-between; }.chart-interval { flex: 1; min-width: 0; padding: 0 3px; }.chart-subtoolbar { gap: 10px; overflow-x: auto; }.chart-subtoolbar__spacer { min-width: 10px; }.price-chart--lightweight, .price-chart--lightweight > div { min-height: 280px; }.token-chart-panel { min-height: 390px; padding-right: 10px; padding-left: 10px; }.token-detail-toolbar { align-items: flex-end; }.token-detail-tabs { padding-left: 8px; }.token-detail-tab { min-width: max-content; padding: 0 8px; }.token-detail-actions { padding-right: 8px; }.token-detail-actions .quiet-button { font-size: 0; }.token-detail-actions .quiet-button svg { width: 15px; }.token-detail-content { padding: 13px 10px 18px; }.market-table { min-width: 620px; }.detail-panel-heading { align-items: flex-start; }.dev-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.holders-table { overflow-x: auto; }.holders-table__head, .holders-table__row { min-width: 490px; }.trade-mode-tabs { gap: 12px; }.trade-mode-tab { font-size: 10px; }
+  .token-workspace-header { padding-top: 10px; }.token-workspace-header__body { position: relative; padding-bottom: 13px; }.token-identity { min-width: 0; flex: 1 1 100%; }.token-identity__avatar { width: 42px; height: 42px; }.token-identity h1 { font-size: 18px; }.token-header-actions { position: absolute; top: 0; right: 0; }.token-summary-metrics { gap: 18px; }.token-metric { min-width: 72px; }.token-metric--emphasis strong { font-size: 18px; }.token-banner { margin: 0 -16px; padding: 0 16px; }.token-workspace { padding: 10px 10px 18px; }.chart-toolbar { align-items: flex-start; flex-direction: column; }.chart-toolbar__controls { width: 100%; justify-content: space-between; }.chart-intervals { flex: 1; justify-content: space-between; }.chart-interval { flex: 1; min-width: 0; padding: 0 3px; }.chart-subtoolbar { gap: 10px; overflow-x: auto; }.chart-visual, .price-chart--lightweight, .price-chart--lightweight > div { min-height: 280px; }.token-chart-panel { min-height: 390px; padding-right: 10px; padding-left: 10px; }.token-detail-toolbar { align-items: flex-end; }.token-detail-tabs { padding-left: 8px; }.token-detail-tab { min-width: max-content; padding: 0 8px; }.token-detail-actions { padding-right: 8px; }.token-detail-actions .quiet-button { font-size: 0; }.token-detail-actions .quiet-button svg { width: 15px; }.token-detail-content { padding: 13px 10px 18px; }.market-table { min-width: 620px; }.detail-panel-heading { align-items: flex-start; }.dev-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.holders-table { overflow-x: auto; }.holders-table__head, .holders-table__row { min-width: 490px; }.trade-mode-tabs { gap: 12px; }.trade-mode-tab { font-size: 10px; }
 }
 
 /* Semantic typography overrides keep the dense workspace readable without scaling the UI. */

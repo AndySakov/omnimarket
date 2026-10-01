@@ -34,6 +34,8 @@ import {
 } from 'lightweight-charts'
 import type {
   TokenCandle,
+  TokenChartData,
+  TokenChartInterval,
   TokenMarketTab,
   TokenOrder,
   TokenPosition,
@@ -45,13 +47,13 @@ import type {
   TradeExecutionState,
   TradePanelMode,
   TradeQuoteState,
+  TokenWorkspaceStreamState,
 } from '../../domains/market/tokenWorkspace'
-import { nativeAssetForChain } from '../../domains/market/tokenWorkspace'
+import { nativeAssetForChain, tokenChartIntervals } from '../../domains/market/tokenWorkspace'
 import { discoveryTokens } from '../../mocks/discoveryFixtures'
-import { getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
+import { getTokenMarketSnapshot, getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
+import { useTokenWorkspaceStream } from './useTokenWorkspaceStream'
 
-const intervals = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
-type ChartInterval = (typeof intervals)[number]
 const marketTabs: TokenMarketTab[] = ['Trades', 'Positions', 'Orders', 'Holders', 'Top Traders', 'Dev Token']
 
 type TokenPageProps = { tokenId?: string; state?: TokenWorkspaceState; onBack: () => void }
@@ -59,22 +61,46 @@ type TokenPageProps = { tokenId?: string; state?: TokenWorkspaceState; onBack: (
 export function TokenPage({ tokenId, state = 'ready', onBack }: TokenPageProps) {
   const [activeTokenId, setActiveTokenId] = useState(tokenId ?? '')
   const [activeTab, setActiveTab] = useState<TokenMarketTab>('Trades')
-  const [activeInterval, setActiveInterval] = useState<ChartInterval>('5m')
+  const [activeInterval, setActiveInterval] = useState<TokenChartInterval>('5m')
   const snapshot = useMemo(() => getTokenWorkspaceSnapshot(activeTokenId, state), [activeTokenId, state])
   const token = snapshot.token
+  const stream = useTokenWorkspaceStream({ tokenId: activeTokenId, interval: activeInterval })
+  const marketSnapshot = stream.snapshot.token.id === token.id
+    ? stream.snapshot
+    : getTokenMarketSnapshot(token, activeInterval)
+  const marketToken = marketSnapshot.token
+
+  function handleChartIntervalChange(interval: TokenChartInterval) {
+    if (interval === activeInterval) return
+    setActiveInterval(interval)
+  }
+
+  function handleTokenChange(id: string) {
+    setActiveTokenId(id)
+    setActiveTab('Trades')
+    setActiveInterval('5m')
+  }
 
   if (snapshot.state !== 'ready') return <TokenStatePanel state={snapshot.state} onBack={onBack} />
 
   return (
     <main className="token-page" aria-label={`${token.name} token workspace`}>
-      <TokenWorkspaceHeader token={token} onBack={onBack} />
+      <TokenWorkspaceHeader token={marketToken} onBack={onBack} />
       <div className="token-workspace">
-        <ContextRail activeTokenId={activeTokenId} onTokenChange={(id) => { setActiveTokenId(id); setActiveTab('Trades') }} />
+        <ContextRail activeTokenId={activeTokenId} onTokenChange={handleTokenChange} />
         <section className="token-decision-workspace" aria-label="Token analysis">
-          <TokenChartPanel token={token} activeInterval={activeInterval} onIntervalChange={setActiveInterval} />
-          <TokenMarketTabs activeTab={activeTab} onTabChange={setActiveTab} token={token} />
+          <TokenChartPanel
+            token={marketToken}
+            chartData={marketSnapshot.chart}
+            updatedLabel={marketSnapshot.updatedLabel}
+            activeInterval={activeInterval}
+            displayedInterval={marketSnapshot.interval}
+            state={stream.state === 'ready' ? 'ready' : stream.state}
+            onIntervalChange={handleChartIntervalChange}
+          />
+          <TokenMarketTabs activeTab={activeTab} onTabChange={setActiveTab} token={marketToken} />
         </section>
-        <TradePanel token={token} />
+        <TradePanel token={marketToken} />
       </div>
     </main>
   )
@@ -113,37 +139,63 @@ function Signal({ label, value, tone }: { label: string; value: string; tone: 'p
   return <div className="context-signal"><span>{label}</span><strong className={tone === 'positive' ? 'value-up' : 'value-amber'}>{value}</strong></div>
 }
 
-function TokenChartPanel({ token, activeInterval, onIntervalChange }: { token: TokenWorkspaceFixture; activeInterval: ChartInterval; onIntervalChange: (interval: ChartInterval) => void }) {
+function TokenChartPanel({ token, chartData, updatedLabel, activeInterval, displayedInterval, state, onIntervalChange }: { token: TokenWorkspaceFixture; chartData: TokenChartData; updatedLabel: string; activeInterval: TokenChartInterval; displayedInterval: TokenChartInterval; state: TokenWorkspaceStreamState; onIntervalChange: (interval: TokenChartInterval) => void }) {
+  const chartHigh = chartData ? Math.max(...chartData.candles.map((candle) => candle.high)) : null
+  const chartLow = chartData ? Math.min(...chartData.candles.map((candle) => candle.low)) : null
+  const chartStatus = state === 'loading' ? `Loading ${activeInterval} fixture snapshot…` : `Fixture · ${displayedInterval}`
+
   return (
-    <section className="token-chart-panel" aria-label="Token price chart">
-      <div className="chart-toolbar"><div className="chart-toolbar__title"><CandlestickChart size={15} aria-hidden="true" /><span>{token.pair}</span><span className="chart-toolbar__source"><span className="status-dot status-dot--green" aria-hidden="true" />Fixture · delayed</span></div><div className="chart-toolbar__controls"><div className="chart-intervals" role="tablist" aria-label="Chart interval">{intervals.map((interval) => <button className={`chart-interval ${activeInterval === interval ? 'chart-interval--active' : ''}`} key={interval} type="button" role="tab" aria-selected={activeInterval === interval} onClick={() => onIntervalChange(interval)}>{interval}</button>)}</div><button className="chart-control" type="button" aria-label="Toggle multi-chart layout"><LayoutGrid size={15} aria-hidden="true" /></button><button className="chart-control" type="button" aria-label="Toggle crosshair"><Crosshair size={15} aria-hidden="true" /></button><button className="chart-control" type="button" aria-label="Open chart settings"><Settings2 size={15} aria-hidden="true" /></button></div></div>
+    <section className="token-chart-panel" aria-label="Token price chart" aria-busy={state === 'loading'}>
+      <div className="chart-toolbar"><div className="chart-toolbar__title"><CandlestickChart size={15} aria-hidden="true" /><span>{token.pair}</span><span className="chart-toolbar__source" role="status"><span className={`status-dot ${state === 'loading' ? 'status-dot--blue' : state === 'stale' ? 'status-dot--amber' : 'status-dot--green'}`} aria-hidden="true" />{chartStatus}</span></div><div className="chart-toolbar__controls"><div className="chart-intervals" role="tablist" aria-label="Chart interval">{tokenChartIntervals.map((interval) => <button className={`chart-interval ${activeInterval === interval ? 'chart-interval--active' : ''}`} key={interval} type="button" role="tab" aria-selected={activeInterval === interval} onClick={() => onIntervalChange(interval)}>{interval}</button>)}</div><button className="chart-control" type="button" aria-label="Toggle multi-chart layout"><LayoutGrid size={15} aria-hidden="true" /></button><button className="chart-control" type="button" aria-label="Toggle crosshair"><Crosshair size={15} aria-hidden="true" /></button><button className="chart-control" type="button" aria-label="Open chart settings"><Settings2 size={15} aria-hidden="true" /></button></div></div>
       <div className="chart-subtoolbar"><span className="chart-subtoolbar__active">Price / MC</span><span>USD / SOL</span><span>Display <ChevronDown size={13} aria-hidden="true" /></span><span className="chart-subtoolbar__spacer" /><button type="button" aria-label="Search chart"><Search size={14} aria-hidden="true" /></button><button type="button" aria-label="Maximize chart"><Maximize2 size={14} aria-hidden="true" /></button></div>
-      <div className="chart-legend"><span className="chart-legend__price">{token.price}</span><span className="value-up">{token.priceChange}</span><span>High {token.price}</span><span>Low $0.42</span><span className="chart-legend__volume">Vol $8.2M</span></div>
-      <LightweightTokenChart token={token} />
-      <div className="chart-footer"><span><span className="status-dot status-dot--green" aria-hidden="true" />Streaming paused for foundation preview</span><span>Last update 12s ago</span></div>
+      <div className="chart-legend"><span className="chart-legend__price">{token.price}</span><span className="value-up">{token.priceChange}</span><span>High {chartHigh === null ? '—' : formatChartPrice(chartHigh)}</span><span>Low {chartLow === null ? '—' : formatChartPrice(chartLow)}</span><span className="chart-legend__volume">Vol {token.volume24h}</span></div>
+      <div className={`chart-visual chart-visual--${state}`}>
+        <LightweightTokenChart token={token} chartData={chartData} interval={displayedInterval} />
+        {state !== 'ready' && <ChartStateOverlay state={state} activeInterval={activeInterval} displayedInterval={displayedInterval} />}
+      </div>
+      <div className="chart-footer"><span><span className={`status-dot ${state === 'loading' ? 'status-dot--blue' : state === 'stale' ? 'status-dot--amber' : 'status-dot--green'}`} aria-hidden="true" />{state === 'loading' ? `Loading ${activeInterval} chart…` : state === 'stale' ? 'Showing stale fixture snapshot' : 'Fixture snapshot loaded'}</span><span>{state === 'loading' ? `Showing ${displayedInterval} until ready` : updatedLabel}</span></div>
     </section>
   )
 }
 
-function LightweightTokenChart({ token }: { token: TokenWorkspaceFixture }) {
+function LightweightTokenChart({ token, chartData, interval }: { token: TokenWorkspaceFixture; chartData: TokenChartData; interval: TokenChartInterval }) {
   const containerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!containerRef.current) return
     const container = containerRef.current
     const chart = createChart(container, { autoSize: true, layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#7d879b', attributionLogo: false }, grid: { vertLines: { color: 'rgba(32, 38, 50, 0.55)' }, horzLines: { color: 'rgba(32, 38, 50, 0.55)' } }, crosshair: { vertLine: { color: 'rgba(109, 124, 255, 0.35)' }, horzLine: { color: 'rgba(109, 124, 255, 0.35)' } }, rightPriceScale: { borderColor: '#202632', scaleMargins: { top: 0.08, bottom: 0.2 } }, timeScale: { borderColor: '#202632', timeVisible: true, secondsVisible: false } })
     const candles = chart.addSeries(CandlestickSeries, { upColor: '#43d69a', downColor: '#ff6678', borderVisible: false, wickUpColor: '#43d69a', wickDownColor: '#ff6678' })
-    candles.setData(token.chart.candles.map((candle, index) => toChartCandle(candle, index)))
+    candles.setData(chartData.candles.map((candle, index) => toChartCandle(candle, index, interval)))
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '', color: 'rgba(67, 214, 154, 0.28)' })
     volume.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    volume.setData(token.chart.volume.map((point, index) => ({ time: toChartTime(index), value: point.value, color: point.tone === 'up' ? 'rgba(67, 214, 154, 0.30)' : 'rgba(255, 102, 120, 0.26)' })))
+    volume.setData(chartData.volume.map((point, index) => ({ time: toChartTime(index, interval), value: point.value, color: point.tone === 'up' ? 'rgba(67, 214, 154, 0.30)' : 'rgba(255, 102, 120, 0.26)' })))
     chart.timeScale().fitContent()
     return () => chart.remove()
-  }, [token])
-  return <div className="price-chart price-chart--lightweight" ref={containerRef} aria-label={`${token.name} candlestick price chart`} role="img" />
+  }, [chartData, interval, token.name])
+  return <div className="price-chart price-chart--lightweight" ref={containerRef} aria-label={`${token.name} candlestick price chart (${interval})`} role="img" />
 }
 
-function toChartTime(index: number): UTCTimestamp { return Math.floor(Date.UTC(2026, 8, 30, 9, index * 15) / 1000) as UTCTimestamp }
-function toChartCandle(candle: TokenCandle, index: number) { return { time: toChartTime(index), open: candle.open, high: candle.high, low: candle.low, close: candle.close } }
+function toChartTime(index: number, interval: TokenChartInterval): UTCTimestamp {
+  const intervalMinutes: Record<TokenChartInterval, number> = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1D': 1440 }
+  return Math.floor(Date.UTC(2026, 8, 30, 9, index * intervalMinutes[interval]) / 1000) as UTCTimestamp
+}
+
+function toChartCandle(candle: TokenCandle, index: number, interval: TokenChartInterval) {
+  return { time: toChartTime(index, interval), open: candle.open, high: candle.high, low: candle.low, close: candle.close }
+}
+
+function formatChartPrice(value: number) { return `$${value.toFixed(2)}` }
+
+function ChartStateOverlay({ state, activeInterval, displayedInterval }: { state: TokenWorkspaceStreamState; activeInterval: TokenChartInterval; displayedInterval: TokenChartInterval }) {
+  if (state === 'ready') return null
+  const content = {
+    loading: { title: `Loading ${activeInterval} chart`, body: `Showing the ${displayedInterval} snapshot until the new candles arrive.` },
+    stale: { title: 'Chart data is stale', body: 'This snapshot is older than the trade freshness window.' },
+    empty: { title: 'No candles in this interval', body: 'Try a shorter interval or refresh the market snapshot.' },
+    error: { title: 'Chart snapshot unavailable', body: 'The chart could not be refreshed. Retry when the connection is restored.' },
+  }[state]
+  return <div className={`chart-state-overlay chart-state-overlay--${state}`} role={state === 'error' ? 'alert' : 'status'}><div><strong>{content.title}</strong><span>{content.body}</span></div></div>
+}
 
 function TokenMarketTabs({ activeTab, onTabChange, token }: { activeTab: TokenMarketTab; onTabChange: (tab: TokenMarketTab) => void; token: TokenWorkspaceFixture }) {
   return <section className="token-detail-panel" aria-label="Token market details"><div className="token-detail-toolbar"><div className="token-detail-tabs" role="tablist" aria-label="Token market views">{marketTabs.map((tab) => <button className={`token-detail-tab ${activeTab === tab ? 'token-detail-tab--active' : ''}`} key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => onTabChange(tab)}>{tab}{tab === 'Trades' && <span className="tab-count">{token.trades.length}</span>}{tab === 'Holders' && <span className="tab-count">{token.topHolders}</span>}</button>)}</div><div className="token-detail-actions"><button className="quiet-button" type="button"><RefreshCw size={14} aria-hidden="true" /> Refresh</button><button className="icon-button icon-button--small" type="button" aria-label="Filter market table"><ListFilter size={14} aria-hidden="true" /></button></div></div><div className="token-detail-content">{renderMarketTab(activeTab, token)}</div></section>

@@ -38,3 +38,15 @@ test('stacks the token workspace on mobile without losing the trade panel', asyn
   expect(metrics.documentFitsViewport).toBe(true)
   expect(metrics.tokenPageOwnsScroll).toBe(true)
 })
+
+test('loads a distinct fixture snapshot when the chart interval changes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'NovaSet', exact: true }).click()
+
+  const hourlyInterval = page.getByRole('tab', { name: '1h', exact: true })
+  await hourlyInterval.click()
+  await expect(hourlyInterval).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('Fixture · 1h', { exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: /NovaSet candlestick price chart \(1h\)/ })).toBeVisible()
+})

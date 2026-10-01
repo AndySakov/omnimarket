@@ -34,6 +34,32 @@ export type TokenChartData = {
   volume: TokenVolumePoint[]
 }
 
+export const tokenChartIntervals = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
+
+export type TokenChartInterval = (typeof tokenChartIntervals)[number]
+
+export type TokenChartState = 'ready' | 'loading' | 'stale' | 'empty' | 'error'
+
+export type TokenChartSnapshot = {
+  interval: TokenChartInterval
+  data: TokenChartData | null
+  state: TokenChartState
+  source: 'fixture'
+  updatedLabel: string
+}
+
+export type TokenWorkspaceStreamState = 'loading' | 'ready' | 'stale' | 'error'
+
+export type TokenMarketSnapshot = {
+  interval: TokenChartInterval
+  token: TokenWorkspaceFixture
+  chart: TokenChartData
+  trades: TokenTradeRow[]
+  sequence: number
+  state: Exclude<TokenWorkspaceStreamState, 'loading'>
+  updatedLabel: string
+}
+
 export type TokenActivity = {
   id: string
   side: 'Buy' | 'Sell'

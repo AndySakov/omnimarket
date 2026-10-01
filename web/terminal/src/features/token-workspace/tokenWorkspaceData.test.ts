@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createTokenWorkspaceStream, getTokenChartSnapshot, getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('getTokenWorkspaceSnapshot', () => {
   it('resolves the default token into a ready fixture snapshot', () => {
@@ -33,5 +37,43 @@ describe('getTokenWorkspaceSnapshot', () => {
     expect(snapshot.state).toBe('stale')
     expect(snapshot.updatedLabel).toBe('Older than 2m')
     expect(snapshot.token.symbol).toBe('NOVA')
+  })
+
+  it('aggregates the fixture candles when a larger interval is selected', () => {
+    const token = getTokenWorkspaceSnapshot().token
+    const fifteenMinute = getTokenChartSnapshot(token, '15m')
+    const hourly = getTokenChartSnapshot(token, '1h')
+
+    expect(fifteenMinute.data?.candles).toHaveLength(16)
+    expect(hourly.data?.candles).toHaveLength(4)
+    expect(hourly.data?.volume[0]?.value).toBeGreaterThan(fifteenMinute.data?.volume[0]?.value ?? 0)
+  })
+
+  it('exposes explicit empty and error chart states without inventing candles', () => {
+    const token = getTokenWorkspaceSnapshot().token
+
+    expect(getTokenChartSnapshot(token, '5m', 'empty').data).toBeNull()
+    expect(getTokenChartSnapshot(token, '5m', 'error').updatedLabel).toBe('Snapshot unavailable')
+  })
+
+  it('emits deterministic market ticks and stops after unsubscribe', () => {
+    vi.useFakeTimers()
+    const listener = vi.fn()
+    const token = getTokenWorkspaceSnapshot().token
+    const unsubscribe = createTokenWorkspaceStream(token, '1h', listener, { loadDelayMs: 100, tickIntervalMs: 200 })
+
+    vi.advanceTimersByTime(99)
+    expect(listener).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(listener.mock.calls[0]?.[0].interval).toBe('1h')
+
+    vi.advanceTimersByTime(200)
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    unsubscribe()
+    vi.advanceTimersByTime(400)
+    expect(listener).toHaveBeenCalledTimes(2)
   })
 })
