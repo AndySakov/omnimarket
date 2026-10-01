@@ -1,17 +1,19 @@
 //! The Base Chain Engine binary.
 //!
 //!   engine follow [--rpc URL] [--call-rpc URL] [--minutes N] [--kafka BROKERS] [--otlp URL]
-//!                 [--check-every N]
+//!                 [--check-every N] [--record-to DIR]
 //!   engine replay --core-instance ID (--kafka BROKERS | --from-archive)
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`; otherwise both stay in
-//! memory. If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
+//! memory. With `--record-to` it also writes the recording and its summary to a directory, as a
+//! pinned replay fixture (D96). If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
 //! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
 //! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
 //! (D54, D72).
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -20,8 +22,8 @@ use det::archive::{ArchiveError, InputArchive, S3Config};
 use det::kafka::KafkaPublisher;
 use det::kafka::{KafkaSink, read_input_log};
 use det::{
-    ChannelEventSource, ChannelRpc, InMemorySink, Recorder, RecordingClock, RecordingEventSource,
-    RecordingRpc, Replay, SeededRng, SystemClock,
+    ChannelEventSource, ChannelRpc, InMemorySink, InputRecord, Recorder, RecordingClock,
+    RecordingEventSource, RecordingRpc, Replay, SeededRng, SystemClock,
 };
 use engine::{
     Engine, EngineConfig, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox, M1_TOPICS, POOL_UPDATES_TOPIC,
@@ -57,6 +59,10 @@ enum Command {
         /// Most `eth_call`s started per second.
         #[arg(long, default_value_t = 5)]
         calls_per_second: u32,
+        /// Write the recording (`inputs.pb.zst`) and its summary (`summary.txt`) to this
+        /// directory: a pinned replay fixture (D96).
+        #[arg(long, conflicts_with = "kafka")]
+        record_to: Option<PathBuf>,
     },
     Replay {
         /// Read the recording from Kafka at these brokers.
@@ -147,12 +153,13 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             otlp,
             check_every,
             calls_per_second,
+            record_to,
         } => {
             let config = EngineConfig {
                 check_every,
                 ..EngineConfig::base()
             };
-            follow(
+            let (summary, recording) = follow(
                 rpc,
                 call_rpc,
                 minutes,
@@ -160,7 +167,12 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 otlp,
                 config,
                 calls_per_second,
-            )
+            )?;
+            if let Some(dir) = record_to {
+                write_fixture(&dir, &summary, &recording)?;
+                println!("fixture written to {}", dir.display());
+            }
+            Ok(())
         }
         Command::Archive {
             kafka,
@@ -219,7 +231,7 @@ fn follow(
     otlp: Option<String>,
     config: EngineConfig,
     calls_per_second: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(Summary, Vec<InputRecord>), Box<dyn std::error::Error>> {
     let _telemetry = otlp
         .map(|endpoint| telemetry::init("omnimarket-engine-base", &endpoint))
         .transpose()?;
@@ -317,7 +329,19 @@ fn follow(
         None => println!("{} inputs recorded in memory", in_memory.records().len()),
     }
     print_summary(&summary);
-    Ok(())
+    // Empty when the inputs went to Kafka.
+    Ok((summary, in_memory.records()))
+}
+
+/// Writes a pinned replay fixture (D96): the recording as one file, and the summary its run
+/// printed, which a replay of it must print again.
+fn write_fixture(dir: &Path, summary: &Summary, recording: &[InputRecord]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(
+        dir.join("inputs.pb.zst"),
+        det::file::encode_log_file(recording),
+    )?;
+    std::fs::write(dir.join("summary.txt"), summary.to_string())
 }
 
 /// What `follow` stops with when the endpoint `flag` names can't answer (D88).
@@ -328,28 +352,42 @@ fn unusable_endpoint(what: &str, flag: &str, url: &str, error: &chain_io::ChainE
 }
 
 fn print_summary(summary: &Summary) {
-    if let Some((number, hash)) = summary.head {
-        println!("head {number} {hash}");
+    print!("{summary}");
+}
+
+#[cfg(test)]
+mod tests {
+    use det::Source;
+    use types::Timestamp;
+
+    use super::*;
+
+    #[test]
+    fn a_fixture_holds_the_recording_and_the_summary_text() {
+        let dir = std::env::temp_dir().join(format!("engine-fixture-{}", std::process::id()));
+        let recording: Vec<InputRecord> = (0..3)
+            .map(|seq| InputRecord {
+                seq,
+                source: Source::Clock,
+                arrived: Timestamp::from_unix_nanos(seq),
+                payload: vec![seq as u8],
+            })
+            .collect();
+        let summary = Summary {
+            head: None,
+            stats: engine::Stats {
+                blocks: 7,
+                ..Default::default()
+            },
+            digest: blake3::hash(b"blocks"),
+            updates_digest: blake3::hash(b"updates"),
+        };
+        write_fixture(&dir.join("nested"), &summary, &recording).unwrap();
+        let inputs = std::fs::read(dir.join("nested/inputs.pb.zst")).unwrap();
+        assert_eq!(det::file::decode_log_file(&inputs).unwrap(), recording);
+        let text = std::fs::read_to_string(dir.join("nested/summary.txt")).unwrap();
+        assert_eq!(text, summary.to_string());
+        assert!(text.starts_with("7 blocks, 0 logs"), "{text}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
-    let s = &summary.stats;
-    println!(
-        "{} blocks, {} logs, {} reorgs detected, digest {}",
-        s.blocks, s.logs, s.reorgs_detected, summary.digest
-    );
-    println!(
-        "v2: {} pairs tracked, {} rejected, {} verification calls ({} failed)",
-        s.pairs_tracked, s.pairs_rejected, s.verify_calls, s.verify_failures
-    );
-    println!(
-        "v3: {} pools tracked, {} rejected, {} bootstrap calls ({} bootstraps failed)",
-        s.pools_tracked, s.pools_rejected, s.bootstrap_calls, s.bootstrap_failures
-    );
-    println!(
-        "{} pool updates, digest {}",
-        s.updates, summary.updates_digest
-    );
-    println!(
-        "shadow checks: {} passed, {} failed",
-        s.checks_passed, s.checks_failed
-    );
 }

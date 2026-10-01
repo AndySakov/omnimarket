@@ -2186,3 +2186,26 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
 - The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
 - The watchdog still reads the failure on `main` to confirm it's the bug's.
+
+## D96 — CI replays a pinned real Base recording to its recorded summary
+
+**Date:** 2026-10-01 · **Status:** Decided (#99)
+
+**Decision:** A real Base recording lives in the repository as a test fixture, and `cargo test --workspace` replays it through the current engine and asserts the summary it was recorded with.
+- **Format.** `det::file` writes one core instance's input log as one file: the archive's length-delimited `omnimarket.det.v1.InputRecord`s in log order (D54, D72), compressed with zstd (level 19). Reading it rejects a gap in `seq`, as the archive and Kafka readers do.
+- **Recording.** `engine follow --record-to DIR` (not with `--kafka`) writes `inputs.pb.zst` and `summary.txt`, the summary text `engine follow` and `engine replay` print (now `Summary`'s `Display`), so the fixture's expected value is exactly what the live run printed.
+- **The fixture.** `crates/engine/tests/fixtures/base-replay/`: 2 minutes of Base with `--check-every 10` (61 blocks, 1,107 inputs, 580 KB). It contains v3 pools with a same-block event after their bootstrap, so the bootstrap guard's `>=` mutant fails it.
+- **The test.** `crates/engine/tests/pinned_replay.rs` compares the replayed summary text with `summary.txt`. A PR that changes the engine's decisions re-records the fixture (observability.md says how) and says why the digests moved.
+
+**Rejected:**
+- *Kafka or the object-storage archive as the fixture's home.* The test must run offline in `cargo test --workspace`; a file in the repository needs no service.
+- *Uncompressed records.* This recording is 56.8 MB raw against 580 KB compressed (98×). The fixture is read on every test run but written rarely, so zstd's slow level 19 costs nothing that matters.
+- *Gzip (`flate2`).* Pure Rust, but gzip -9 makes this recording 1.79 MB, 3× zstd's. zstd is as well known, and its build needs only a C compiler, which `rdkafka` already requires.
+- *A longer recording (5 minutes).* 2 minutes already holds the same-block case the issue asks for and replays in about a second; longer means a bigger file in git for each re-record.
+- *Asserting only the digests.* The counts make a failure readable: which part of the engine decided differently.
+
+**Why:** Exact replay (D54) is what everything later relies on, and until now CI proved it only for the M0 toy core. The engine's replay equality rested on simulated-chain tests and on live numbers quoted in PR bodies, which nobody reruns. A pinned real recording makes any change to the engine's decisions on real data visible in CI.
+
+**Consequence:**
+- Every intended change to the engine's decisions, config encoding or calls means re-recording, and the new fixture comes from a different stretch of the chain, so the PR's diff shows new digests, not a comparison on the same blocks. The PR explains why they moved; the replay of the old fixture failing is the evidence that they did.
+- Each re-record adds about 0.6 MB to the repository's history.
