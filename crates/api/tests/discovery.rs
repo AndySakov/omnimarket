@@ -564,3 +564,30 @@ fn a_depth_at_the_minimum_passes_and_a_zero_opening_price_has_no_change() {
     let tracked = rows[0].stats_tracked.clone().unwrap();
     assert_eq!(tracked.price_change_pct, "");
 }
+
+#[test]
+fn a_same_block_price_and_trade_give_the_same_feed_in_either_order() {
+    let run = |price_first: bool| {
+        let mut feed = Feed::default();
+        feed.apply_price(&price(0xa1, 0xc1, 10, 1.0, 50_000.0))
+            .unwrap();
+        tick(&mut feed, 10);
+        let (p, t) = (
+            price(0xa1, 0xc1, 11, 2.0, 50_000.0),
+            buy(0xa1, 0xc1, 11, 100, 0),
+        );
+        if price_first {
+            feed.apply_price(&p).unwrap();
+            feed.apply_trade(&t);
+        } else {
+            feed.apply_trade(&t);
+            feed.apply_price(&p).unwrap();
+        }
+        let published = discovery_only(tick(&mut feed, 12));
+        (published, feed.discovery().feed(&Filters::default()))
+    };
+    let (published, feed) = run(true);
+    assert_eq!((published.clone(), feed.clone()), run(false));
+    // Valued at the price before block 11's prices: 100 tokens at $1.
+    assert_eq!(feed.rows[0].stats_5m.as_ref().unwrap().volume_usd, "100");
+}
