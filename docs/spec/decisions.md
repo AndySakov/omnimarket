@@ -2161,7 +2161,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Date:** 2026-10-01 · **Status:** Decided by Temi (process; amends D90)
 
 **Decision:** Jutin is back at reduced capacity, working from his fork with Codex. He and the build account's frontend builder share the frontend track:
-- **Jutin's issues carry the `jutin` label.** Temi or the orchestrator applies it when Jutin takes an issue (`JUTIN TAKES #n`), and `scripts/work` never hands it to an agent session. `JUTIN BACK` still returns the whole track to him.
+- **Jutin claims an issue himself** by commenting `Taking this` from his GitHub account (`Dropping this` releases it). Agent sessions act as `AndySakov`, so only he can make that claim. Temi or the orchestrator can also label an issue `jutin` (`JUTIN TAKES #n`). `scripts/work` never hands either to an agent session, and `JUTIN BACK` still returns the whole track to him.
 - **Any open PR that says `Closes #n` or `Part of #n` takes issue `#n`, whoever opened it.** That's how the queue sees work from Jutin's fork.
 - **The watchdog reviews every open PR whose CI is green,** Jutin's included, so his PRs can pass the same gate (D81).
 - **One data layer.** Frontend work builds on the generated contract types (#75) and the shared client (#63); a slice that overlaps another person's open PR builds on it and raises the overlap there.
@@ -2172,7 +2172,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Rejected:**
 - *`hold` for Jutin's issues.* `hold` is Temi's brake, and `scripts/work merge` refuses PRs that close a held issue; Jutin's own claim needs a label of its own.
 - *Reassigning issues away from Jutin.* He stays assigned to every frontend issue (D90), so the assignee can't say who's building one.
-- *Jutin adding the label himself.* He works from a fork and may not have triage access; Temi or the orchestrator applies it.
+- *Only a label, applied by Temi.* Every claim would wait on Temi. Jutin's comment is his own, can't come from an agent session, and his agent can post it unprompted.
 
 **Why:** The farm picks frontend work by rule, so Jutin's work has to be visible to that rule, and his PRs need the same review path to merge.
 

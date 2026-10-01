@@ -82,9 +82,10 @@ shared repository; Jutin keeps his fork and `codex/…` branches. To keep the
 two from building the same thing:
 
 - **Claim before building.** Pick an issue with no `wip` label and no open PR
-  that says `Closes #<n>` or `Part of #<n>`. Tell Temi; he (or the orchestrator)
-  labels it `jutin`, and the farm never takes an issue labelled `jutin`.
-  Comment `Taking this` on the issue as well.
+  that says `Closes #<n>` or `Part of #<n>`, then comment `Taking this` on it
+  from Jutin's account. The farm's queue reads that comment as his claim and
+  never takes the issue. `Dropping this` releases it. (Temi can also label an
+  issue `jutin` for him.)
 - **Name the issue in every PR body:** `Closes #<n>`, or `Part of #<n>` for a
   slice that leaves the issue open (for example, fixtures now, live wiring
   later). That line is how the farm's queue (`scripts/work`) sees the work.

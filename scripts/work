@@ -97,6 +97,20 @@ def milestone_number(issue):
     return int(m.group(1)) if m else 99
 
 
+def jutin_claims(n):
+    """Jutin's own claim (D93): his latest 'Taking this' or 'Dropping this' comment on the issue decides.
+    His comments come from his GitHub account, so no agent session can make or fake one by mistake."""
+    claimed = False
+    for c in gh(f"repos/{REPO}/issues/{n}/comments?per_page=100"):
+        if c["user"]["login"] != JUTIN:
+            continue
+        if re.match(r"(?i)\s*taking this", c["body"]):
+            claimed = True
+        elif re.match(r"(?i)\s*dropping this", c["body"]):
+            claimed = False
+    return claimed
+
+
 def stage(issue):
     m = re.search(r"Demo stage (\d)", issue.get("body") or "")
     return int(m.group(1)) if m else 9
@@ -139,6 +153,8 @@ class Board:
         holders = assignees(issue) - ({JUTIN} if track == "frontend" else set())
         if holders:
             return "assigned to " + ", ".join(sorted(holders))
+        if issue.get("comments") and jutin_claims(n):
+            return "Jutin's (his 'Taking this' comment)"
         return None
 
     def unavailable(self, issue, track):
