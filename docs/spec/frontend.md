@@ -51,6 +51,8 @@ Things this backend's design makes cheap to show:
 
 ### Contract v0 (D91)
 
+The demo's API scope is #62's: its stages and issues set what v0 serves, and D96 records the demo slice and its shortcuts (shadow execution only, demo accounts with shadow balances, intents on a placeholder EIP-712 domain).
+
 The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` (token references, route legs, fees), `market.proto`, `trading.proto`, `automation.proto` and `stream.proto` (the WebSocket envelope). The proto comments are the field-level reference.
 
 **Encoding.** proto3 JSON on the wire:
