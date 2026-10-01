@@ -111,8 +111,8 @@ fn the_pr_table_rows_carry_tests_and_manual_evidence() {
 
 #[test]
 fn an_escaped_pipe_stays_inside_its_cell() {
-    let body = pr_body("| a \\| b | `t` |");
-    assert_eq!(pr_rows(&body).unwrap()[0].criterion, "a | b");
+    let body = pr_body("| a \\| b \\ c | `t` |");
+    assert_eq!(pr_rows(&body).unwrap()[0].criterion, "a | b \\ c");
 }
 
 #[test]
@@ -291,4 +291,55 @@ fn frontend_test_names_match_their_last_title_segments() {
         proof: tests(&["shell"]),
     }];
     assert!(!check(&[], &rows, &passed).problems.is_empty());
+}
+
+#[test]
+fn a_row_without_a_closing_pipe_still_has_its_proof() {
+    let body = pr_body("| A D-entry records it | `t`");
+    assert_eq!(
+        pr_rows(&body),
+        Ok(vec![Row {
+            criterion: "A D-entry records it".into(),
+            proof: tests(&["t"]),
+        }])
+    );
+}
+
+#[test]
+fn a_row_with_one_cell_is_skipped() {
+    let body = pr_body("| just a note |\n| A D-entry records it | `t` |");
+    assert_eq!(pr_rows(&body).unwrap().len(), 1);
+}
+
+#[test]
+fn backticked_file_paths_are_not_test_names() {
+    let body =
+        pr_body("| A D-entry records it | `t` in `header.spec.ts` under `web/terminal/tests` |");
+    assert_eq!(pr_rows(&body).unwrap()[0].proof, tests(&["t"]));
+}
+
+#[test]
+fn an_unreadable_row_says_what_it_needs() {
+    let error = ReadError::NoProof {
+        criterion: "A D-entry records it".into(),
+    };
+    assert_eq!(
+        error.to_string(),
+        "the row for \"A D-entry records it\" names no test in backticks and isn't `manual: <evidence>`"
+    );
+}
+
+#[test]
+fn sub_points_notes_and_issue_numbers_are_not_joined_to_a_criterion() {
+    let body = "\
+## Acceptance criteria
+
+- [ ] First
+  - a sub-point, not part of the criterion
+- [ ] Second
+#98 starts this line, but it isn't a heading.
+A note, not part of any criterion.
+- [ ] Third
+";
+    assert_eq!(issue_criteria(body), vec!["First", "Second", "Third"]);
 }

@@ -143,8 +143,7 @@ fn section(body: &str) -> Vec<&str> {
 /// A Markdown heading (`## Why`), not a line that starts with an issue number (`#98 …`).
 fn is_heading(line: &str) -> bool {
     let text = line.trim_start();
-    let level = text.chars().take_while(|&c| c == '#').count();
-    level > 0 && text[level..].starts_with(' ')
+    text.starts_with('#') && text.trim_start_matches('#').starts_with(' ')
 }
 
 /// The acceptance criteria of an issue: its checkbox items, ticked or not, with wrapped lines
@@ -161,9 +160,9 @@ pub fn issue_criteria(body: &str) -> Vec<String> {
         if let Some(text) = item.filter(|_| !line.starts_with(char::is_whitespace)) {
             criteria.push(text.trim().to_string());
             open = true;
-        } else if trimmed.is_empty() || trimmed.starts_with(['-', '*']) {
-            open = false;
-        } else if open && line.starts_with(char::is_whitespace) {
+        } else if open && line.starts_with(char::is_whitespace) && !trimmed.starts_with(['-', '*'])
+        {
+            // A blank line is unindented once trimmed of its line ending, so it closes too.
             if let Some(last) = criteria.last_mut() {
                 last.push(' ');
                 last.push_str(trimmed);

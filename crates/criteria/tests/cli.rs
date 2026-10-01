@@ -92,3 +92,15 @@ fn closes_prints_the_closed_issues() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(stdout(&output), "98\n");
 }
+
+#[test]
+fn check_without_test_output_is_a_usage_error() {
+    let dir = setup("no-output", "| It parses | `it_parses` |");
+    let output = Command::new(env!("CARGO_BIN_EXE_criteria"))
+        .arg("check")
+        .arg(dir.join("pr-body.md"))
+        .arg(dir.join("issues"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+}
