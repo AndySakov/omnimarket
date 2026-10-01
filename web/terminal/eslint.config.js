@@ -13,6 +13,7 @@ export default tseslint.config(
       'test-results',
       'storybook-static',
       'src/api/generated',
+      'public/mockServiceWorker.js',
     ],
   },
   js.configs.recommended,

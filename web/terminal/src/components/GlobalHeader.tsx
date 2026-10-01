@@ -10,15 +10,18 @@ import {
   Star,
   X,
 } from 'lucide-react'
+import { ConnectionStatus, type ConnectionStatusProps } from './ConnectionStatus'
 
 const routes = ['Discover', 'Portfolio', 'Trackers', 'Wallets', 'Settings']
 
 type GlobalHeaderProps = {
   activeRoute: string
   onNavigate: (route: string) => void
+  /** The market-data connection the status indicator shows. */
+  connection: ConnectionStatusProps
 }
 
-export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
+export function GlobalHeader({ activeRoute, onNavigate, connection }: GlobalHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
@@ -65,7 +68,7 @@ export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
           </button>
           <SearchControl mobileOpen={searchOpen} />
           <ChainSelector />
-          <ConnectionStatus />
+          <ConnectionStatus source={connection.source} state={connection.state} />
           <button className="button button--primary" type="button">
             Deposit
           </button>
@@ -128,15 +131,6 @@ function ChainSelector() {
       <span>Base</span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>
-  )
-}
-
-function ConnectionStatus() {
-  return (
-    <span className="connection-status" role="status" aria-label="Wallet connection status: connected">
-      <span className="status-dot status-dot--green" aria-hidden="true" />
-      <span>Connected</span>
-    </span>
   )
 }
 

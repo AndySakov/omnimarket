@@ -8,6 +8,7 @@ const meta = {
   args: {
     activeRoute: 'Discover',
     onNavigate: () => undefined,
+    connection: { source: 'live', state: 'open' },
   },
 } satisfies Meta<typeof GlobalHeader>
 
@@ -18,4 +19,12 @@ export const Discover: Story = {}
 
 export const Portfolio: Story = {
   args: { activeRoute: 'Portfolio' },
+}
+
+export const Reconnecting: Story = {
+  args: { connection: { source: 'live', state: 'reconnecting' } },
+}
+
+export const Replay: Story = {
+  args: { connection: { source: 'replay', state: 'open' } },
 }
