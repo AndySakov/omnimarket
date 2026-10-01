@@ -1,6 +1,6 @@
 import type { Chain, DiscoveryToken, SafetyState } from './token'
 
-export type TokenWorkspaceState = 'ready' | 'loading' | 'missing' | 'stale'
+export type TokenWorkspaceState = 'ready' | 'loading' | 'missing' | 'stale' | 'error'
 
 export type TokenMarketTab = 'Trades' | 'Positions' | 'Orders' | 'Holders' | 'Top Traders' | 'Dev Token'
 
@@ -34,7 +34,7 @@ export type TokenChartData = {
   volume: TokenVolumePoint[]
 }
 
-export const tokenChartIntervals = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
+export const tokenChartIntervals = ['1s', '1m', '5m', '15m', '1h', '4h', '1D'] as const
 
 export type TokenChartInterval = (typeof tokenChartIntervals)[number]
 
@@ -78,10 +78,35 @@ export type TokenActivity = {
 }
 
 export type TokenTradeRow = TokenActivity & {
+  price: string
   marketCap: string
   gas: string
   trader: string
   tracking: string
+  txHash: string
+  txUrl: string
+}
+
+export type TokenPool = {
+  venue: string
+  feeTier: string
+  address: string
+  explorerUrl: string
+}
+
+export type TokenEvidenceState = 'not-checked' | 'passed' | 'warning' | 'failed'
+
+export type TokenSafetyCheck = {
+  status: TokenEvidenceState
+  value: string
+  detail: string
+}
+
+export type TokenSafetyEvidence = {
+  sellable: TokenSafetyCheck
+  buyTax: TokenSafetyCheck
+  sellTax: TokenSafetyCheck
+  updatedLabel: string
 }
 
 export type TokenPosition = {
@@ -121,6 +146,10 @@ export type TopTrader = {
 export type TokenWorkspaceFixture = DiscoveryToken & {
   address: string
   price: string
+  priceEth: string
+  marketCap: string
+  depth24h: string
+  txns24h: string
   priceChange: string
   fdv: string
   volume24h: string
@@ -141,6 +170,8 @@ export type TokenWorkspaceFixture = DiscoveryToken & {
   }
   pool: string
   poolShare: string
+  pools: TokenPool[]
+  safetyEvidence: TokenSafetyEvidence
   topHolders: string
   safetyNote: string
 }

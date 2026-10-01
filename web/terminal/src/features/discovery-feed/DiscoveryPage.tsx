@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Activity,
   ArrowDownUp,
@@ -330,15 +330,39 @@ type TokenRowProps = {
 }
 
 function TokenRow({ token, index, selected, onSelect, onOpen, onQuickBuy }: TokenRowProps) {
+  function openToken() {
+    onSelect()
+    onOpen()
+  }
+
+  function handleRowClick(event: ReactMouseEvent<HTMLTableRowElement>) {
+    const target = event.target as HTMLElement
+    if (target.closest('button, a, input, select, textarea')) return
+    openToken()
+  }
+
+  function handleRowKeyDown(event: ReactKeyboardEvent<HTMLTableRowElement>) {
+    if (event.currentTarget !== event.target) return
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    openToken()
+  }
+
   return (
-    <tr className={selected ? 'token-row token-row--selected' : 'token-row'}>
+    <tr
+      className={selected ? 'token-row token-row--selected' : 'token-row'}
+      tabIndex={0}
+      aria-label={`Open ${token.name} token workspace`}
+      onClick={handleRowClick}
+      onKeyDown={handleRowKeyDown}
+    >
       <td data-label="Pair info">
         <div className="pair-cell">
           <span className="row-index" aria-hidden="true">{index}</span>
           <TokenAvatar src={token.avatarSrc} tone={token.avatarTone} />
           <div className="pair-cell__body">
             <div className="pair-cell__title">
-              <button className="token-name" type="button" onClick={() => { onSelect(); onOpen() }}>{token.name}</button>
+              <button className="token-name" type="button" onClick={openToken}>{token.name}</button>
               <span className="token-symbol">{token.symbol}</span>
               <button className="copy-button" type="button" aria-label={`Copy ${token.name} address`}><Copy size={13} /></button>
             </div>

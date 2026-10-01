@@ -306,3 +306,39 @@
 @media (prefers-reduced-motion: reduce) {
   .token-page *, .token-page *::before, .token-page *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Issue 64 contract surfaces: pool provenance, safety evidence and tape states. */
+.token-pool-list { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 9px 0 0; border-top: 1px solid var(--omni-border); }
+.token-pool-list__label { color: var(--omni-text-subtle); font-size: var(--omni-type-caption); text-transform: uppercase; letter-spacing: 0.05em; }
+.token-pool { display: inline-flex; align-items: center; gap: 7px; min-height: 25px; padding: 0 8px; border: 1px solid var(--omni-border); border-radius: 5px; color: var(--omni-text-muted); font-size: var(--omni-type-caption); text-decoration: none; }
+.token-pool:hover { border-color: var(--omni-blue); color: var(--omni-text); }
+.token-pool:focus-visible, .table-link:focus-visible { outline: 2px solid var(--omni-blue); outline-offset: 2px; }
+.token-pool span:nth-child(2) { color: var(--omni-amber); }
+.token-pool span:last-child { color: var(--omni-text-subtle); }
+.table-link { color: var(--omni-blue); text-decoration: none; }
+.table-link:hover { color: var(--omni-text); text-decoration: underline; }
+.market-table-state { display: grid; min-height: 122px; place-content: center; gap: 7px; border-top: 1px solid var(--omni-border); color: var(--omni-text-muted); text-align: center; }
+.market-table-state strong { color: var(--omni-text); font-size: var(--omni-type-data); }
+.market-table-state span { font-size: var(--omni-type-caption); }
+.market-table-state--error strong { color: var(--omni-red); }
+.market-table-state--empty strong { color: var(--omni-amber); }
+.safety-evidence-panel { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--omni-border); }
+.safety-evidence-panel__status { max-width: 115px; color: var(--omni-text-subtle); font-family: var(--omni-font-data); font-size: var(--omni-type-badge); text-align: right; }
+.safety-check-list { display: grid; gap: 7px; }
+.safety-check { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.safety-check__icon { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; border: 1px solid var(--omni-border); border-radius: 50%; }
+.safety-check__icon--not-checked { color: var(--omni-amber); border-color: rgba(239, 180, 76, 0.35); }
+.safety-check__icon--passed { color: var(--omni-green); border-color: rgba(67, 214, 154, 0.35); }
+.safety-check__icon--warning { color: var(--omni-amber); border-color: rgba(239, 180, 76, 0.35); }
+.safety-check__icon--failed { color: var(--omni-red); border-color: rgba(255, 102, 120, 0.35); }
+.safety-check__copy { display: grid; min-width: 0; gap: 1px; }
+.safety-check__copy strong { color: var(--omni-text-muted); font-size: var(--omni-type-caption); font-weight: 600; }
+.safety-check__copy span { overflow: hidden; color: var(--omni-text-subtle); font-family: var(--omni-font-data); font-size: var(--omni-type-badge); text-overflow: ellipsis; white-space: nowrap; }
+.trade-safety-row .trade-safety-row__pending { color: var(--omni-amber); }
+.token-state-panel--error .token-state-panel__icon { color: var(--omni-red); }
+
+@media (max-width: 880px) {
+  .token-pool-list { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+  .token-pool-list__label { flex: 0 0 auto; }
+  .token-pool { flex: 0 0 auto; }
+}

@@ -105,6 +105,7 @@
 .discovery-table tbody tr:last-child td { border-bottom: 0; }
 .token-row { transition: background-color 160ms ease; }
 .token-row:hover, .token-row--selected { background: rgba(255, 255, 255, 0.024); }
+.token-row:focus-visible { outline: 2px solid var(--omni-blue); outline-offset: -2px; }
 .token-row--selected { box-shadow: inset 2px 0 0 var(--omni-blue); }
 
 .pair-cell { display: flex; align-items: center; min-width: 0; gap: 10px; padding-left: 14px; }

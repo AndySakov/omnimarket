@@ -9,6 +9,12 @@ test('opens the token workspace and prepares a mocked trade review', async ({ pa
   await expect(page.getByRole('heading', { name: 'NovaSet' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
   await expect(page.getByText('Fixture stream connected', { exact: true })).toBeVisible()
+  await expect(page.getByText('0.00036 ETH', { exact: true })).toBeVisible()
+  await expect(page.getByText('$14.8M', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Aerodrome 0.30% 0xpool…9a10' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '0x9c21…a810' })).toHaveAttribute('href', /basescan\.org\/tx/)
+  await expect(page.getByRole('region', { name: 'Safety evidence' })).toBeVisible()
+  await expect(page.getByText('Not checked yet', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('tab', { name: 'Holders' }).click()
   await expect(page.getByRole('heading', { name: 'Holder distribution' })).toBeVisible()
@@ -23,6 +29,15 @@ test('opens the token workspace and prepares a mocked trade review', async ({ pa
   }))
   expect(metrics.tokenPageOwnsScroll).toBe(true)
   expect(metrics.tradePanelVisible).toBe(true)
+})
+
+test('resolves a token workspace from the public address route', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/base/token/0x7b3f8a42')
+
+  await expect(page).toHaveURL(/\/base\/token\/0x7b3f8a42$/)
+  await expect(page.getByRole('main', { name: 'NovaSet token workspace' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'NovaSet' })).toBeVisible()
 })
 
 test('stacks the token workspace on mobile without losing the trade panel', async ({ page }) => {

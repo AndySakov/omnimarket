@@ -23,6 +23,7 @@ export type TokenWorkspaceSnapshot = {
 }
 
 const chartGroupSizes: Record<TokenChartInterval, number> = {
+  '1s': 1,
   '1m': 1,
   '5m': 1,
   '15m': 1,
@@ -79,6 +80,17 @@ export function getTokenWorkspaceSnapshot(
   }
 }
 
+export function getTokenRouteAddress(tokenId: string): string {
+  const token = resolveToken(tokenId)
+  return token ? token.address.replace('…', '') : tokenId
+}
+
+export function resolveTokenIdByAddress(address: string): string | undefined {
+  const normalisedAddress = address.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const candidates = [tokenWorkspace, ...discoveryTokens.map((token) => resolveToken(token.id)).filter((token): token is TokenWorkspaceFixture => Boolean(token))]
+  return candidates.find((token) => token.address.toLowerCase().replace(/[^a-z0-9]/g, '') === normalisedAddress)?.id
+}
+
 export function getTokenChartSnapshot(
   token: TokenWorkspaceFixture,
   interval: TokenChartInterval,
@@ -113,6 +125,7 @@ export function getTokenMarketSnapshot(
   const streamedToken: TokenWorkspaceFixture = {
     ...token,
     price: tick.price,
+    priceEth: sequence % 2 === 0 ? '0.00036 ETH' : '0.00038 ETH',
     priceChange: tick.priceChange,
   }
   const chart = getTokenChartSnapshot(streamedToken, interval, state === 'stale' ? 'stale' : 'ready').data
@@ -213,10 +226,13 @@ function createStreamTrade(
     value: tick.value,
     wallet: tick.wallet,
     time: 'just now',
+    price: tick.price,
     marketCap: token.fdv,
     gas: '$0.35',
     trader: tick.wallet,
     tracking: sequence % 2 === 0 ? 'Untracked' : 'Tracked',
+    txHash: `0xstream…${String(sequence).padStart(4, '0')}`,
+    txUrl: `https://basescan.org/tx/stream-${token.id}-${sequence}`,
   }
 }
 
@@ -260,6 +276,10 @@ function resolveToken(tokenId?: string): TokenWorkspaceFixture | undefined {
     ...source,
     address: `0x${source.id.replaceAll('-', '').slice(0, 4)}…${source.id.replaceAll('-', '').slice(-4)}`,
     price: source.marketCap,
+    priceEth: '0.00037 ETH',
+    marketCap: source.marketCap,
+    depth24h: source.liquidity,
+    txns24h: source.txns,
     priceChange: source.marketCapChange,
     fdv: source.marketCap,
     volume24h: source.volume,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createTokenWorkspaceStream, getTokenChartSnapshot, getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
+import { createTokenWorkspaceStream, getTokenChartSnapshot, getTokenRouteAddress, getTokenWorkspaceSnapshot, resolveTokenIdByAddress } from './tokenWorkspaceData'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -29,6 +29,13 @@ describe('getTokenWorkspaceSnapshot', () => {
     expect(snapshot.state).toBe('missing')
     expect(snapshot.updatedLabel).toBe('Unavailable')
     expect(snapshot.freshness).toBe('stale')
+  })
+
+  it('round-trips the public address route for the default fixture', () => {
+    const address = getTokenRouteAddress('nova-set')
+
+    expect(address).toBe('0x7b3f8a42')
+    expect(resolveTokenIdByAddress(address)).toBe('nova-set')
   })
 
   it('preserves an explicitly requested stale state', () => {

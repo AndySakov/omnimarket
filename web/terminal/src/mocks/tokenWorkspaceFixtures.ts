@@ -32,6 +32,10 @@ export const tokenWorkspace: TokenWorkspaceFixture = {
   ...discoveryTokens[0],
   address: '0x7b3f…8a42',
   price: '$0.96',
+  priceEth: '0.00037 ETH',
+  marketCap: '$14.8M',
+  depth24h: '$1.2M',
+  txns24h: '1,842',
   priceChange: '+28.6%',
   fdv: '$14.8M',
   volume24h: '$8.2M',
@@ -45,10 +49,10 @@ export const tokenWorkspace: TokenWorkspaceFixture = {
     { id: 'trade-4', side: 'Buy', amount: '2,410 NOVA', value: '$2.3K', wallet: '0x54ac…14d0', time: '2m ago' },
   ],
   trades: [
-    { id: 'trade-1', side: 'Buy', amount: '18.4K', value: '$17.7K', wallet: '0x3a7e…9c21', time: '12s ago', marketCap: '$14.8M', gas: '$0.42', trader: '0x3a7e…9c21', tracking: 'Tracked' },
-    { id: 'trade-2', side: 'Sell', amount: '4.1K', value: '$3.9K', wallet: '0xf11d…048a', time: '38s ago', marketCap: '$14.6M', gas: '$0.36', trader: '0xf11d…048a', tracking: 'Untracked' },
-    { id: 'trade-3', side: 'Buy', amount: '7.8K', value: '$7.5K', wallet: '0x8b29…e812', time: '1m ago', marketCap: '$14.4M', gas: '$0.31', trader: '0x8b29…e812', tracking: 'Tracked' },
-    { id: 'trade-4', side: 'Buy', amount: '2.4K', value: '$2.3K', wallet: '0x54ac…14d0', time: '2m ago', marketCap: '$14.1M', gas: '$0.28', trader: '0x54ac…14d0', tracking: 'Tracked' },
+    { id: 'trade-1', side: 'Buy', amount: '18.4K', value: '$17.7K', wallet: '0x3a7e…9c21', time: '12s ago', price: '$0.96', marketCap: '$14.8M', gas: '$0.42', trader: '0x3a7e…9c21', tracking: 'Tracked', txHash: '0x9c21…a810', txUrl: 'https://basescan.org/tx/0x9c21a810' },
+    { id: 'trade-2', side: 'Sell', amount: '4.1K', value: '$3.9K', wallet: '0xf11d…048a', time: '38s ago', price: '$0.95', marketCap: '$14.6M', gas: '$0.36', trader: '0xf11d…048a', tracking: 'Untracked', txHash: '0x048a…f11d', txUrl: 'https://basescan.org/tx/0x048af11d' },
+    { id: 'trade-3', side: 'Buy', amount: '7.8K', value: '$7.5K', wallet: '0x8b29…e812', time: '1m ago', price: '$0.94', marketCap: '$14.4M', gas: '$0.31', trader: '0x8b29…e812', tracking: 'Tracked', txHash: '0xe812…8b29', txUrl: 'https://basescan.org/tx/0xe8128b29' },
+    { id: 'trade-4', side: 'Buy', amount: '2.4K', value: '$2.3K', wallet: '0x54ac…14d0', time: '2m ago', price: '$0.92', marketCap: '$14.1M', gas: '$0.28', trader: '0x54ac…14d0', tracking: 'Tracked', txHash: '0x14d0…54ac', txUrl: 'https://basescan.org/tx/0x14d054ac' },
   ],
   positions: [
     { id: 'position-1', wallet: '0x3a7e…9c21', side: 'Long', size: '18.4K NOVA', entry: '$0.77', pnl: '+$3.5K' },
@@ -76,6 +80,16 @@ export const tokenWorkspace: TokenWorkspaceFixture = {
   },
   pool: 'NOVA / ETH · Aerodrome',
   poolShare: '98.2% locked',
+  pools: [
+    { venue: 'Aerodrome', feeTier: '0.30%', address: '0xpool…9a10', explorerUrl: 'https://basescan.org/address/0xpool9a10' },
+    { venue: 'Uniswap v3', feeTier: '0.05%', address: '0xpool…c420', explorerUrl: 'https://basescan.org/address/0xpoolc420' },
+  ],
+  safetyEvidence: {
+    sellable: { status: 'not-checked', value: 'Not checked yet', detail: 'Simulation pending from Issue 89.' },
+    buyTax: { status: 'not-checked', value: 'Not checked yet', detail: 'Simulation pending from Issue 89.' },
+    sellTax: { status: 'not-checked', value: 'Not checked yet', detail: 'Simulation pending from Issue 89.' },
+    updatedLabel: 'Awaiting safety service',
+  },
   topHolders: '8.4K holders',
   safetyNote: 'Sell simulation passed 2 minutes ago. No mint authority detected; ownership is renounced.',
 }
