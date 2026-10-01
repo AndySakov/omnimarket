@@ -2186,3 +2186,33 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
 - The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
 - The watchdog still reads the failure on `main` to confirm it's the bug's.
+
+---
+
+## D97 — Pricing runs in the engine, in f64 from exact pool state, published per canonical block
+
+**Date:** 2026-10-01 · **Status:** Decided (#76; builds D18, D19, D22, D24 for Base)
+
+**Decision:**
+- **Where.** `crates/pricing` holds pure functions: a pool's mid and ±2% depth, a token's display price across its pools, ERC-20 metadata decoding. The Chain Engine runs them (D6). It reads token metadata (`name`, `symbol`, `decimals`, `totalSupply`) through its own recorded calls, so through the call worker's rate limits (D82): one Multicall3 call per 50 new tokens, at the block they were first wanted.
+- **When.** After applying a canonical block (D77), the engine prices every token whose pools changed since the last block, the native token first, and publishes one `omnimarket.price.v1.PriceUpdate` per token on `prices.base`, keyed by token. Its lineage: the latest update of each pool it was priced from, and the native token's price update when a pool quotes in it (D53).
+- **Arithmetic.** Exact integer pool state in; `f64` out, using only operations IEEE 754 rounds exactly (+, −, ×, ÷, `sqrt`). v3 tick boundaries come from Uniswap's integer `getSqrtRatioAtTick`, and 10ⁿ from repeated multiplication, never `powf` or `powi`. The same state gives the same bits on any machine, so a replay reprices identically.
+- **Depth (D24).** Fee-free: the token1 that moves the price up 2%, plus the token0 that moves it down 2% valued at the mid. v2 in closed form; v3 by walking the initialized ticks.
+- **Base's quote assets and reference pools (D19).** WETH (native), USDC and USDT (pinned at $1). A token is priced only from its pools against one of these. WETH is priced only from four reference pools: Uniswap v3 WETH/USDC at 0.05% and 0.3%, WETH/USDT at 0.05%, and the v2 WETH/USDC pair. Stablecoins publish no price update.
+- **Liquidity floor** $10,000 of ±2% depth, a tuning value (D11). Below it on every pool: the deepest pool's price, flagged thin (D18).
+- **Market cap** is total supply × display price, published as `fdv_usd`: total supply counts locked and unvested tokens. Supply is read again every 1,800 blocks (about an hour) for priced tokens, since the engine doesn't follow `Transfer` logs.
+- **Recorded config (D83).** The pricing config is part of the engine config. A config without it prices nothing and makes no metadata calls, so recordings from before pricing still replay.
+
+**Rejected:**
+- *Fixed-point or decimal arithmetic.* Exact, but memecoin prices span 10⁻¹² to 10⁶ dollars and their products with 10²⁷-unit supplies overflow `rust_decimal`'s 28 digits; a U256 fixed point needs its own square root and scaling rules. `f64` holds 15 significant digits, more than any display needs, and is deterministic under the rule above.
+- *`f64::powf` or `powi` for 1.0001^tick and 10ⁿ.* They call the platform's maths library, whose results differ between machines: a replay elsewhere could reprice differently.
+- *Republishing every native-quoted token when WETH moves.* Every block moves WETH, so it would republish every token every block. D22's lazy path instead: a token's USD price is computed at its own update, which names the WETH price it used.
+- *Reading metadata outside the engine.* A separate service's answers aren't in the engine's input log, so a replay couldn't reproduce them.
+- *Following `Transfer` logs for supply.* Base's busiest log, for a figure that changes rarely on most tokens.
+
+**Why:** pricing.md puts the display price in the engine, recomputed on every pool update; doing it from the state the engine already holds, with its inputs recorded, keeps it inside the det rules at the cost of nothing new to run.
+
+**Consequence:**
+- D19's depeg check isn't built: stablecoins are always pinned at $1 for now. A follow-up issue holds it.
+- Quote-asset coverage on Base is measured in verification.md; a token trading only against another token (cbBTC, a launchpad's base token) is unpriced until that token joins the quote assets.
+- D11's tiers aren't built (#41): every pool the engine tracks is priced. The floor applies already.

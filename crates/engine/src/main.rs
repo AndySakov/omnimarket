@@ -6,8 +6,8 @@
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
-//! `inputs.base` and publishes pool updates to `pool-updates.base`; otherwise both stay in
-//! memory. If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
+//! `inputs.base` and publishes pool updates to `pool-updates.base` and prices to
+//! `prices.base`; otherwise all stay in memory. If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
 //! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
 //! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
 //! (D54, D72).
@@ -25,7 +25,7 @@ use det::{
 };
 use engine::{
     Engine, EngineConfig, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox, M1_TOPICS, POOL_UPDATES_TOPIC,
-    Summary,
+    PRICES_TOPIC, Summary,
 };
 
 #[derive(Parser)]
@@ -251,19 +251,23 @@ fn follow(
         Some(brokers) => {
             det::kafka::ensure_topic(brokers, INPUT_TOPIC)?;
             det::kafka::ensure_topic(brokers, POOL_UPDATES_TOPIC)?;
+            det::kafka::ensure_topic(brokers, PRICES_TOPIC)?;
             Some((
                 KafkaSink::new(brokers, INPUT_TOPIC, &core_instance)?,
                 KafkaPublisher::new(brokers, POOL_UPDATES_TOPIC)?,
+                KafkaPublisher::new(brokers, PRICES_TOPIC)?,
             ))
         }
         None => None,
     };
     let outbox: Box<dyn engine::Outbox> = match &kafka_sink {
-        Some((_, publisher)) => Box::new(KafkaOutbox::new(publisher.clone())),
+        Some((_, pool_updates, prices)) => {
+            Box::new(KafkaOutbox::new(pool_updates.clone(), prices.clone()))
+        }
         None => Box::new(InMemoryOutbox::default()),
     };
     let sink: Box<dyn det::RecordingSink> = match &kafka_sink {
-        Some((sink, _)) => Box::new(sink.clone()),
+        Some((sink, _, _)) => Box::new(sink.clone()),
         None => Box::new(in_memory.clone()),
     };
     let recorder = Recorder::new(sink, Box::new(SystemClock));
@@ -309,10 +313,13 @@ fn follow(
 
     println!("core instance {core_instance}");
     match kafka_sink {
-        Some((sink, publisher)) => {
+        Some((sink, pool_updates, prices)) => {
             sink.flush(TIMEOUT)?;
-            publisher.flush(TIMEOUT)?;
-            println!("inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}");
+            pool_updates.flush(TIMEOUT)?;
+            prices.flush(TIMEOUT)?;
+            println!(
+                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, prices on {PRICES_TOPIC}"
+            );
         }
         None => println!("{} inputs recorded in memory", in_memory.records().len()),
     }
@@ -352,4 +359,25 @@ fn print_summary(summary: &Summary) {
         "shadow checks: {} passed, {} failed",
         s.checks_passed, s.checks_failed
     );
+    println!(
+        "{} price updates, digest {}; {} metadata calls, {} supply calls ({} failed)",
+        s.price_updates,
+        summary.prices_digest,
+        s.metadata_calls,
+        s.supply_calls,
+        s.metadata_failures
+    );
+    if let Some(c) = &summary.coverage {
+        println!(
+            "coverage: {} tokens seen, {} with a quote-asset pool, {} priced ({} thin), {} without decimals",
+            c.tokens_seen,
+            c.tokens_quotable,
+            c.tokens_priced,
+            c.tokens_thin,
+            c.tokens_without_decimals
+        );
+        for (token, count) in &c.unquoted_counterparts {
+            println!("  unquoted tokens trading against {token}: {count}");
+        }
+    }
 }

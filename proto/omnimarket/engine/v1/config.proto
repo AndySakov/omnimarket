@@ -14,4 +14,28 @@ message EngineConfig {
   bytes v3_factory = 6;
   bytes v3_init_code_hash = 7;
   bytes v3_tick_lens = 8;
+  // Unset: the engine prices nothing, as before pricing existed, so older recordings replay.
+  PricingConfig pricing = 9;
+}
+
+// Pricing (D18, D19, D24).
+message PricingConfig {
+  repeated QuoteAsset quote_assets = 1;
+  // Native/stablecoin pools whose weighted mid is the native token's USD price (D19).
+  repeated bytes reference_pools = 2;
+  uint64 liquidity_floor_usd = 3;
+  uint64 supply_refresh_blocks = 4;
+}
+
+message QuoteAsset {
+  bytes token = 1;
+  QuoteKind kind = 2;
+}
+
+enum QuoteKind {
+  QUOTE_KIND_UNSPECIFIED = 0;
+  // Priced in USD from the reference pools.
+  QUOTE_KIND_NATIVE = 1;
+  // Pinned at $1.
+  QUOTE_KIND_STABLE = 2;
 }
