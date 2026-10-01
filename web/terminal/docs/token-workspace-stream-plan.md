@@ -59,3 +59,31 @@ local; this does not add wallet signing, API fetching, or backend behavior.
 - Switching tokens or intervals cleans up the previous subscription.
 - The current fixture remains deterministic for unit, E2E, and visual tests.
 - No backend or wallet behavior is introduced in this slice.
+
+## Backend-aligned bridge (current follow-up)
+
+The backend currently publishes low-level pool updates to Kafka; it does not
+yet expose the token-level API/WebSocket gateway described by M2. The frontend
+therefore implements the seam that can be tested now without coupling the UI to
+pool reserves or tick math:
+
+```text
+MarketStreamClient
+  subscribe(request, handlers)
+    → snapshot / update / heartbeat / error events
+    → Token Workspace view model
+```
+
+The temporary event envelope is intentionally small and transport-neutral:
+
+- `snapshot`: complete token workspace data for the subscription.
+- `update`: the next complete view-model snapshot in the fixture bridge; the
+  backend may later send a smaller delta with the same sequence and timestamp
+  guarantees.
+- `heartbeat`: proves the subscription is alive without replacing market data.
+- `error`: carries a stable code, message, and retryable flag.
+
+Every event carries a token ID, monotonic sequence, and server timestamp. The
+fixture client emits this shape from the existing deterministic stream. A
+future M2 WebSocket client will implement the same `MarketStreamClient`
+interface and map generated Protobuf/API types at this boundary.
