@@ -11,11 +11,14 @@ const sourceNames: Record<DataSourceKind, Presentation> = {
   fixtures: { label: 'Fixtures', tone: 'blue', detail: 'Showing built-in sample data, not the chain.' },
 }
 
-/** What the header says about the market-data connection (#63). Text and dot, never colour alone. */
-function presentConnection(source: DataSourceKind, state: ConnectionState): Presentation {
+/**
+ * What the header says about the market-data connection (#63). Text and dot, never colour alone.
+ * Once the engine's status arrives, its own mode decides Live or Replay; fixtures stay fixtures.
+ */
+function presentConnection(source: DataSourceKind, state: ConnectionState, engineMode?: EngineModeLabel): Presentation {
   switch (state) {
     case 'open':
-      return sourceNames[source]
+      return sourceNames[source === 'fixtures' ? 'fixtures' : (engineMode ?? source)]
     case 'idle':
     case 'connecting':
       return { label: 'Connecting', tone: 'amber', detail: 'Connecting to market data.' }
@@ -28,10 +31,17 @@ function presentConnection(source: DataSourceKind, state: ConnectionState): Pres
   }
 }
 
-export type ConnectionStatusProps = { source: DataSourceKind; state: ConnectionState }
+export type EngineModeLabel = 'live' | 'replay'
 
-export function ConnectionStatus({ source, state }: ConnectionStatusProps) {
-  const { label, tone, detail } = presentConnection(source, state)
+export type ConnectionStatusProps = {
+  source: DataSourceKind
+  state: ConnectionState
+  /** The mode the engine reports on the `status` topic, once it has. */
+  engineMode?: EngineModeLabel
+}
+
+export function ConnectionStatus({ source, state, engineMode }: ConnectionStatusProps) {
+  const { label, tone, detail } = presentConnection(source, state, engineMode)
   return (
     <span
       className={`connection-status connection-status--${tone}`}

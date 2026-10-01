@@ -144,8 +144,11 @@ integration from this branch.
   mocked surface.**
 - Token Workspace: token header/summary, candle/price display, recent trades,
   basic safety panel and the persistent mocked trade-panel shell.
-- Connection status and WebSocket reconnection behaviour.
-- Build against the backend mock server.
+- Connection status and WebSocket reconnection behaviour. **Complete (#63, D94):**
+  `src/api` holds the typed REST client, the WebSocket manager and its per-topic
+  store; `VITE_DATA_SOURCE` picks fixtures (MSW), replay or live.
+- Build against the backend mock server. Fixture mode serves the contract
+  fixtures through MSW until the API server (#78) and replay (#88) land.
 
 The next implementation branch is `codex/token-workspace`. Its design gate must
 lock the token-page desktop/mobile layout, chart and context-rail proportions,

@@ -68,7 +68,7 @@ export function GlobalHeader({ activeRoute, onNavigate, connection }: GlobalHead
           </button>
           <SearchControl mobileOpen={searchOpen} />
           <ChainSelector />
-          <ConnectionStatus source={connection.source} state={connection.state} />
+          <ConnectionStatus {...connection} />
           <button className="button button--primary" type="button">
             Deposit
           </button>
