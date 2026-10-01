@@ -1,12 +1,12 @@
 // The fixture source's WebSocket server (#63): answers subscribes with the contract fixtures as
-// snapshots, then moves token prices with deterministic ticks, so the terminal looks alive offline.
+// snapshots, then moves token prices and the discovery feed with deterministic ticks, so the
+// terminal looks alive offline.
 // Pure: `receive` and `tick` return the messages to send; the MSW handler owns the timers.
 
 import { create, type MessageInitShape } from '@bufbuild/protobuf'
 import Decimal from 'decimal.js'
 import {
   CandleSeriesSchema,
-  DiscoveryFeedSchema,
   EngineStatusSchema,
   TokenSnapshotSchema,
   TradeListSchema,
@@ -21,11 +21,12 @@ import {
 } from '../../api/generated/omnimarket/api/v1/stream_pb'
 import { topicKind } from '../../api/stream/topics'
 import { apiFixture } from '../fixtures/api'
+import { FixtureDiscovery } from './discoveryFeed'
 
 // Relative price moves, applied in turn on each tick. They sum to zero, so prices wander but don't drift.
 const TICK_STEPS = ['0.004', '-0.002', '0.003', '-0.005', '0.001', '-0.001'].map((step) => new Decimal(step))
 
-type TopicCursor = { seq: bigint; ticks: number; base?: TokenSnapshot }
+type TopicCursor = { seq: bigint; ticks: number; base?: TokenSnapshot; discovery?: FixtureDiscovery }
 
 export class FixtureStream {
   private readonly topics = new Map<string, TopicCursor>()
@@ -46,20 +47,29 @@ export class FixtureStream {
     }
   }
 
-  /** One second of stream: a heartbeat, and a price tick on each subscribed token topic. */
+  /** One second of stream: a heartbeat, a price tick on each subscribed token topic, and the discovery feed's changes. */
   tick(): ServerMessage[] {
     this.heartbeats += 1n
     const status = apiFixture(EngineStatusSchema)
+    const serverTimeMs = status.headBlockTimeMs + this.heartbeats * 1000n
     const out: ServerMessage[] = [
       server({
         case: 'heartbeat',
         value: {
-          serverTimeMs: status.headBlockTimeMs + this.heartbeats * 1000n,
+          serverTimeMs,
           headBlockNumber: status.headBlockNumber + this.heartbeats / 2n,
         },
       }),
     ]
     for (const [topic, cursor] of this.topics) {
+      if (cursor.discovery) {
+        cursor.ticks += 1
+        for (const payload of cursor.discovery.tick(cursor.ticks, serverTimeMs)) {
+          cursor.seq += 1n
+          out.push(server({ case: 'delta', value: { topic, seq: cursor.seq, payload } }))
+        }
+        continue
+      }
       if (!cursor.base) continue
       cursor.seq += 1n
       cursor.ticks += 1
@@ -84,9 +94,13 @@ export class FixtureStream {
       case 'status':
         payload = snapshot(topic, { case: 'status', value: apiFixture(EngineStatusSchema) })
         break
-      case 'discovery':
-        payload = snapshot(topic, { case: 'discovery', value: apiFixture(DiscoveryFeedSchema) })
+      case 'discovery': {
+        const status = apiFixture(EngineStatusSchema)
+        // The feed counts its ages from the heartbeat's clock, which starts at the head block.
+        cursor.discovery = new FixtureDiscovery(status.headBlockTimeMs + this.heartbeats * 1000n, status.headBlockNumber)
+        payload = snapshot(topic, { case: 'discovery', value: cursor.discovery.snapshot() })
         break
+      }
       case 'token': {
         const fixture = apiFixture(TokenSnapshotSchema)
         // One fixture token stands in for any address the UI asks about.

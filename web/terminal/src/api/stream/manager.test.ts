@@ -223,6 +223,18 @@ describe('heartbeats', () => {
     expect(manager.store.getState().connection).toBe('open')
   })
 
+  it('keeps the server clock from each heartbeat', () => {
+    const { manager, sockets } = setup()
+    manager.start()
+    const socket = sockets.latest()
+    socket.acceptConnection()
+    expect(manager.store.getState().serverTimeMs).toBeUndefined()
+    socket.push({ case: 'heartbeat', value: { serverTimeMs: 1790000001000n, headBlockNumber: 1n } })
+    expect(manager.store.getState().serverTimeMs).toBe(1790000001000n)
+    socket.push({ case: 'heartbeat', value: { serverTimeMs: 1790000002000n, headBlockNumber: 2n } })
+    expect(manager.store.getState().serverTimeMs).toBe(1790000002000n)
+  })
+
   it('replaces a connection that stays silent', () => {
     const { manager, sockets } = setup({ deadAfterMs: 10_000, initialBackoffMs: 500 })
     manager.start()
