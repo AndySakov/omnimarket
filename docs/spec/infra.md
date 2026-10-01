@@ -53,7 +53,7 @@ The hook runs `scripts/verify-fast.sh` (D86). A commit whose staged files are al
 
 CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, a check that the TypeScript generated from `proto/omnimarket/api` isn't stale (`npm run api:check`, D91), the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
 
-Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
+Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, retrying when GitHub's release CDN answers with an error, so local runs and CI use the same binary with nothing installed globally. CI's `verify` and `frontend` jobs (the latter runs `buf generate` to check the generated API types) cache `.tools/` keyed on `scripts/buf`, so CI downloads buf only when the pinned version changes.
 
 CI also runs a Kafka service container (the same `apache/kafka` image as the local stack) for the input-log integration test, `cargo test -p sim --test kafka -- --ignored`. Locally it runs against `scripts/stack up`.
 
