@@ -48,7 +48,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 - Per chain, a fixed set of **reference pools** (deepest native/stablecoin pools) prices the native token in USD, using the same liquidity-weighted mid.
 - Quote assets in phase 1: native token + reference stablecoins. `usd(T) = price(T in quote) × usd(quote)`.
 - Stablecoins pinned at $1 while reference stablecoins agree within ~0.5%; beyond that, priced from their pools against each other, with a depeg warning in the UI. **Not built yet:** stablecoins are always pinned (D100).
-- Quote-asset coverage on Base: 53% of tokens in updated pools have a pool against WETH, USDC or USDT; most of the rest trade only against one token, ADS ([verification.md](verification.md#measured-base-pricing-m2)).
+- Quote-asset coverage on Base: 53% of tokens in updated pools have a pool against WETH, USDC or USDT; most of the rest trade against one token, ADS ([verification.md](verification.md#measured-base-pricing-m2)).
 
 ## Quoting (D21)
 

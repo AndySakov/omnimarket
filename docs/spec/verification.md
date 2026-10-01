@@ -126,7 +126,7 @@ Quote-asset coverage on Base (D19, #76). `engine follow --rpc https://mainnet.ba
 | Without readable decimals | 0 |
 | Price updates | 2,236; 127 metadata calls, none failed |
 
-Of the 224 unpriced tokens, 190 trade only against **ADS** (`0xb20A4Bd059F5914a2F8B9c18881c637f79efb7df`), most likely a launchpad's base token **(verify)**. Next: VIRTUAL (`0x0b3e…7E1b`, 9), ToT (`0xd5B2…A0c8`, 8), then BIO, AMZNc and cbBTC (2 each). So one token decides most of the gap: pricing ADS from its WETH or USDC pools as a second-hop quote asset would lift coverage to about 93% of the tokens seen. D19 limits phase-1 quote assets to the native token and reference stablecoins, so that's a decision for later, not a fix.
+Of the 224 unpriced tokens, 190 trade against **ADS** (`0xb20A4Bd059F5914a2F8B9c18881c637f79efb7df`), most likely a launchpad's base token **(verify)**. Next: VIRTUAL (`0x0b3e…7E1b`, 9), ToT (`0xd5B2…A0c8`, 8), then BIO, AMZNc and cbBTC (2 each). So one token decides most of the gap: pricing ADS from its WETH or USDC pools as a second-hop quote asset would price up to 190 more, about 93% of the tokens seen. D19 limits phase-1 quote assets to the native token and reference stablecoins, so that's a decision for later, not a fix.
 
 Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 and v3 only (no Aerodrome, no v4 yet), not D11's active tier (#41). The thin share reflects that the floor counts every tracked pool, memecoin pools included.
 
