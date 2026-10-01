@@ -19,7 +19,7 @@ Primary bar (72px desktop)
   Brand → Primary navigation → Search → Chain → Connection → Deposit → Favorites → Wallet
 
 Utility rail (38px desktop)
-  Terminal tools                                      Live · market tickers · gas
+  Terminal tools · How it works          Engine status · market tickers · gas
 ```
 
 The primary bar is always one visual line on desktop. The utility rail is a
@@ -84,7 +84,21 @@ deposit action.
 ### Utility rail
 
 - Utility buttons require accessible labels and visible focus.
-- Market tickers remain secondary and can disappear at tablet widths.
+- **Engine status** (#71) comes from the engine's `status` topic, once per
+  block: Base, the head block, lag to head, pools tracked, shadow checks agreed
+  out of those run (D21), and the engine's mode as text (`Live`, `Replay`, or
+  `Fixtures` in fixture builds, like the connection status). Its tooltip, also
+  reachable by keyboard focus, adds core instance, recording and uptime. It
+  goes stale (amber `Stale`, numbers dimmed and struck through) when heartbeats
+  stop, and also when the head hasn't moved for 10 seconds (five Base blocks)
+  while heartbeats continue.
+- **How it works** (#71) opens a dialog from the rail, on every route and at
+  every width: what is live and what is shadow, the data path (chain engine →
+  Kafka → API → terminal), the engine's status now, and links to the README,
+  the decision log and #52. Its copy describes the backend, so it changes with
+  the backend.
+- Market tickers remain secondary: they give way below 1320px so the engine
+  status isn't squeezed, and the whole ticker area hides at tablet widths.
 - The rail is allowed to be absent in compact mobile mode.
 
 ## State coverage
