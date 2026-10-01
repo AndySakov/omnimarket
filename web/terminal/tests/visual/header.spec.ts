@@ -7,7 +7,11 @@ test.describe('global header visual baselines', () => {
     // The fixture stream connects before the baseline is taken, so it never catches "Connecting".
     await expect(page.getByRole('status', { name: /^Market data: Fixtures/ })).toBeVisible()
 
-    await expect(page.locator('.global-header')).toHaveScreenshot('header-desktop.png')
+    // The engine status moves every fixture block; its values are masked so the baseline holds still.
+    await expect(page.getByRole('button', { name: /^Engine: Fixtures\./ })).toBeVisible()
+    await expect(page.locator('.global-header')).toHaveScreenshot('header-desktop.png', {
+      mask: [page.locator('.engine-status__item strong')],
+    })
   })
 
   test('mobile navigation menu', async ({ page }) => {
