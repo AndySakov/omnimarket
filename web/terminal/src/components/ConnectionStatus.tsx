@@ -1,5 +1,8 @@
+import { EngineStatus_Mode } from '../api/generated/omnimarket/api/v1/market_pb'
 import type { DataSourceKind } from '../api/source'
+import { useConnection, useEngineStatusStream } from '../api/stream/hooks'
 import type { ConnectionState } from '../api/stream/state'
+import './ConnectionStatus.css'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red'
 
@@ -33,14 +36,25 @@ function presentConnection(source: DataSourceKind, state: ConnectionState, engin
 
 export type EngineModeLabel = 'live' | 'replay'
 
-export type ConnectionStatusProps = {
+export type ConnectionStatusViewProps = {
   source: DataSourceKind
   state: ConnectionState
   /** The mode the engine reports on the `status` topic, once it has. */
   engineMode?: EngineModeLabel
 }
 
-export function ConnectionStatus({ source, state, engineMode }: ConnectionStatusProps) {
+/**
+ * The header's indicator, connected to the stream. The header is always on screen, so the engine's
+ * `status` topic is always subscribed.
+ */
+export function ConnectionStatus() {
+  const { source, state } = useConnection()
+  const mode = useEngineStatusStream().data?.mode
+  const engineMode = mode === EngineStatus_Mode.REPLAY ? 'replay' : mode === EngineStatus_Mode.LIVE ? 'live' : undefined
+  return <ConnectionStatusView source={source} state={state} engineMode={engineMode} />
+}
+
+export function ConnectionStatusView({ source, state, engineMode }: ConnectionStatusViewProps) {
   const { label, tone, detail } = presentConnection(source, state, engineMode)
   return (
     <span

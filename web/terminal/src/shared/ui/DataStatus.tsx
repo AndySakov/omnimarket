@@ -1,3 +1,4 @@
+import './DataStatus.css'
 import type { DataState } from '../../api/stream/dataState'
 import { dataStateLabels } from '../../api/stream/dataState'
 

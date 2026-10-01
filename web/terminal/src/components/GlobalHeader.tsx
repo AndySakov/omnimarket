@@ -10,18 +10,16 @@ import {
   Star,
   X,
 } from 'lucide-react'
-import { ConnectionStatus, type ConnectionStatusProps } from './ConnectionStatus'
+import { ConnectionStatus } from './ConnectionStatus'
 
 const routes = ['Discover', 'Portfolio', 'Trackers', 'Wallets', 'Settings']
 
 type GlobalHeaderProps = {
   activeRoute: string
   onNavigate: (route: string) => void
-  /** The market-data connection the status indicator shows. */
-  connection: ConnectionStatusProps
 }
 
-export function GlobalHeader({ activeRoute, onNavigate, connection }: GlobalHeaderProps) {
+export function GlobalHeader({ activeRoute, onNavigate }: GlobalHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
@@ -68,7 +66,7 @@ export function GlobalHeader({ activeRoute, onNavigate, connection }: GlobalHead
           </button>
           <SearchControl mobileOpen={searchOpen} />
           <ChainSelector />
-          <ConnectionStatus {...connection} />
+          <ConnectionStatus />
           <button className="button button--primary" type="button">
             Deposit
           </button>

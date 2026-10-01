@@ -3,7 +3,7 @@
 
 import { QueryClient } from '@tanstack/react-query'
 import { createApiClient, type ApiClient } from '../api/rest'
-import type { DataSource } from '../api/source'
+import { readDataSource, type DataSource, type DataSourceEnv } from '../api/source'
 import { StreamManager, type StreamManagerOptions } from '../api/stream/manager'
 
 export type ApiServices = {
@@ -28,4 +28,23 @@ export function createApiServices(
       },
     }),
   }
+}
+
+let starting: Promise<ApiServices> | undefined
+
+/**
+ * Reads the source from the env and, for fixtures, starts the MSW worker first. Called once per
+ * page: React's StrictMode runs effects twice, and the worker must start only once.
+ */
+export function startApiServices(env: DataSourceEnv): Promise<ApiServices> {
+  starting ??= (async () => {
+    const source = readDataSource(env)
+    if (source.kind === 'fixtures') {
+      // Loaded on demand, so replay and live builds never start the mocks.
+      const { startFixtureWorker } = await import('../mocks/api/browser')
+      await startFixtureWorker(source)
+    }
+    return createApiServices(source)
+  })()
+  return starting
 }

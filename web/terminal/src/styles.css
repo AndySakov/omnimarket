@@ -152,15 +152,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
 .context-control { height: 39px; gap: 8px; padding: 0 10px; border-color: var(--omni-border); border-radius: 9px; color: var(--omni-text); font-size: 12px; font-weight: 620; }
 .context-control:hover, .wallet-menu:hover, .icon-button:hover { border-color: var(--omni-border-strong); background: var(--omni-surface-hover); }
 .chain-mark { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
-.connection-status { display: inline-flex; align-items: center; gap: 7px; padding: 0 2px; color: var(--omni-green); font-size: 12px; font-weight: 580; white-space: nowrap; min-width: 100px; }
+.connection-status { display: inline-flex; align-items: center; gap: 7px; padding: 0 2px; color: var(--omni-green); font-size: 12px; font-weight: 580; white-space: nowrap; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .status-dot--green { color: var(--omni-green); }
 .status-dot--blue { color: var(--omni-blue); }
-.status-dot--amber { color: var(--omni-amber); }
-.status-dot--red { color: var(--omni-red); }
-.connection-status--blue { color: var(--omni-blue); }
-.connection-status--amber { color: var(--omni-amber); }
-.connection-status--red { color: var(--omni-red); }
 .button { display: inline-flex; align-items: center; justify-content: center; height: 39px; padding: 0 18px; border: 1px solid transparent; border-radius: 9px; font-size: 13px; font-weight: 690; cursor: pointer; transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease; }
 .button:hover { transform: translateY(-1px); }
 .button--primary { background: var(--omni-blue); color: #090b12; }
@@ -231,10 +226,3 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--omni-blue);
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
-
-/* Data state of a streamed region (#63): text plus dot, never colour alone. */
-.data-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 580; white-space: nowrap; }
-.data-status--green { color: var(--omni-green); }
-.data-status--amber { color: var(--omni-amber); }
-.data-status--red { color: var(--omni-red); }
-.data-status--muted { color: var(--omni-text-muted); }

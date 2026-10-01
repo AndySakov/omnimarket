@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { ConnectionStatus } from './ConnectionStatus'
+import { ConnectionStatusView } from './ConnectionStatus'
 
 const meta = {
   title: 'Shell/ConnectionStatus',
-  component: ConnectionStatus,
+  component: ConnectionStatusView,
   parameters: { layout: 'centered' },
   args: { source: 'live', state: 'open' },
-} satisfies Meta<typeof ConnectionStatus>
+} satisfies Meta<typeof ConnectionStatusView>
 
 export default meta
 type Story = StoryObj<typeof meta>
