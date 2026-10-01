@@ -19,7 +19,7 @@ If your brief names a **PR** instead (a stalled one, D87 rule 1): `scripts/work 
 ## Build
 
 - **Branch:** work on the branch your session was given. Merge `origin/main` into it if it's behind. Never rebase or force-push a branch someone else pushed to.
-- **Test first.** Write the test for each acceptance criterion before the code, and check it fails for the right reason. Test the behaviour the spec requires, not your implementation. A fix's regression test must fail on `main`: prove it by running it against `main`'s code.
+- **Test first.** Write the test for each acceptance criterion before the code, and check it fails for the right reason. Test the behaviour the spec requires, not your implementation. A fix's regression test must fail on `main`: prove it with `scripts/regression-check` (CI runs it on PRs closing a `bug` issue, D92).
 - **The rules that bite** (CLAUDE.md's build-mode rules; clippy and `scripts/check-determinism.sh` enforce most):
   - No wall clock, randomness, threads, `HashMap` or `HashSet` in core code: time comes from `det::Clock`, randomness from `det::Rng`, maps are `BTreeMap`. Any `select!` starts with `biased;`.
   - Every input a core reads goes through a `det` trait with a recording wrapper, so a recorded run replays exactly. Every published record carries its lineage IDs (D53).
@@ -27,9 +27,19 @@ If your brief names a **PR** instead (a stalled one, D87 rule 1): `scripts/work 
   - Shadow mode only: nothing broadcasts and no real funds move.
 - **Iterate cheaply.** Use `cargo test -p <crate>` and `cargo clippy -p <crate> --all-targets -- -D warnings` while working; each commit runs the full `scripts/verify.sh` through the git hook (about 1–3 minutes warm). The hook runs on every commit, so commit at meaningful green points, not every edit. Never `--no-verify`.
 - **Live runs** (measurements, recordings, fixtures): Base RPC is reachable here. Use `--rpc https://mainnet.base.org --call-rpc https://base-rpc.publicnode.com` (D80, D82, D88). For Kafka, Postgres or object storage: `scripts/stack up`.
-- **Docs in the same commit**, per CLAUDE.md's update table. A behaviour or architecture choice gets a D-entry: the next free number on `main` *and* in open PRs (`grep -h "^+## D" <(gh api repos/AndySakov/omnimarket/pulls/<pr>/files --jq '.[].patch')` over open PRs). If two PRs take the same number, whichever merges second renumbers. An unverified claim is marked **(verify)**, and a measured one goes in `docs/spec/verification.md`.
-- **Push at every green commit.** The container is reclaimed when idle, and unpushed work is lost.
+- **Docs in the same commit**, per CLAUDE.md's update table. A choice about OmniMarket's behaviour or architecture gets a D-entry (CLAUDE.md, Decisions), numbered as "Work alongside other builders" says; a process change goes in `docs/agents/process.md` instead. An unverified claim is marked **(verify)**, and a measured one goes in `docs/spec/verification.md`.
 - **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or explain in the PR why not.
+
+## Work alongside other builders
+
+Up to three builders per track, and Jutin, work at once ([process.md](../process.md#coordination-between-workers)). This section applies to every builder, frontend and backend.
+
+- **D-numbers:** take a new entry's number from `scripts/work reserve-d "<the decision, in a few words>"`, never by counting by hand. It reserves the next free number in the D-number ledger that every session on both accounts, and Jutin, shares.
+- **Push at every green commit.** The container is reclaimed when idle, and unpushed work is lost. Your pushed branch is also how other builders see what you're changing.
+- **Check for overlaps** with `scripts/work overlaps` right after your first push and before every later push. It lists every other live branch and open PR that touches a file yours does, with the session working on it (from its claim comment). For each overlap outside the append-only files it marks:
+  - `send_message` to that session (the ID is the end of its link): `OVERLAP #<your issue> / #<theirs>: I'm changing <file> to <what>; my branch is <branch>. Plan: <who changes what, or which of us merges first>.` Agree it in one or two messages, then follow it. The one that merges second merges `main` in and resolves.
+  - If you can't agree, or the other session doesn't answer within a tick, report `BLOCKED #n: overlaps #<theirs> on <file>` to the orchestrator.
+- **Shared contracts.** When you change something other builders build on (`proto/`, `web/terminal/src/api/generated`, a crate's public API, `Cargo.toml` workspace dependencies, `scripts/work`, CLAUDE.md), `send_message` the orchestrator `CONTRACT #n: <what changed, in one line>` when you push it. It tells every running builder.
 
 ## Open the PR
 
@@ -54,12 +64,12 @@ Write the body to a file, then `scripts/work open-pr "<title>" <file>`. The titl
 Closes #n
 ```
 
-Every criterion of the issue gets a row (#98 will make CI check this). Don't message the orchestrator yet: CI comes first (next section).
+Every criterion of the issue gets a row, quoted as the issue words it: CI's `criteria` job fails on a missing row or a named test that didn't pass in the run (D95). A criterion moved to a follow-up issue is `manual: moved to #m`. Don't message the orchestrator yet: CI comes first (next section).
 
 ## Get it reviewed
 
 1. Subscribe to the PR's activity (your environment's PR-watching instructions describe it), then end your turn. CI results and comments wake you; don't poll.
-2. When `scripts/work checks <pr>` shows `verify` and `frontend` both `success` on your head: `send_message` to the orchestrator: `READY PR#<pr> <sha>`. Red instead: root-cause it, fix, push, and repeat. "Flaky" isn't a cause.
+2. When `scripts/work checks <pr>` shows `verify`, `frontend` and `criteria` all `success` on your head: `send_message` to the orchestrator: `READY PR#<pr> <sha>`. Red instead: root-cause it, fix, push, and repeat. "Flaky" isn't a cause.
 3. The watchdog posts ``## Watchdog review: `<sha>` passes`` or ``fails on N findings``.
    - **Fails:** fix every blocking finding on this branch, reply on the PR saying what each commit changed, push, wait for green, then send `READY` again. Non-blocking findings: fix the quick ones, and answer the rest in one line each.
    - **You think a finding is wrong:** reply on the PR with why, `send_message` `DISPUTE PR#<pr>: <one line>`, and stop. Temi decides; don't push past it.

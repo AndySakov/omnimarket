@@ -50,7 +50,7 @@ test.describe('terminal typography reference baselines', () => {
   test('token workspace desktop composition', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
-    await page.locator('.token-name').first().click()
+    await page.locator('.token-name').filter({ hasText: 'NovaSet' }).first().click()
     await page.locator('.token-page').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
 
@@ -60,7 +60,7 @@ test.describe('terminal typography reference baselines', () => {
   test('token workspace mobile composition', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
-    await page.locator('.token-name').first().click()
+    await page.locator('.token-name').filter({ hasText: 'NovaSet' }).first().click()
     await page.locator('.token-page').waitFor({ state: 'visible' })
     await waitForStableSurface(page)
 

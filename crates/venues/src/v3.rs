@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use alloy_primitives::{Address, B256, U256, keccak256};
+use alloy_primitives::{Address, B256, I256, U256, keccak256};
 use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
 use types::chain::Log;
 
@@ -248,6 +248,29 @@ pub fn decode(log: &Log) -> Option<Event> {
     }
 }
 
+/// A pool's `Swap`, for the trade it records: who swapped, and how much of token0 and of
+/// token1 the pool gained (negative: paid out). `decode` reads the same log for the state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SwapLog {
+    pub sender: Address,
+    pub recipient: Address,
+    pub amount0: I256,
+    pub amount1: I256,
+}
+
+pub fn decode_swap(log: &Log) -> Option<SwapLog> {
+    if log.topics.first() != Some(&Swap::SIGNATURE_HASH) {
+        return None;
+    }
+    let e = Swap::decode_raw_log(log.topics.iter().copied(), &log.data).ok()?;
+    Some(SwapLog {
+        sender: e.sender,
+        recipient: e.recipient,
+        amount0: e.amount0,
+        amount1: e.amount1,
+    })
+}
+
 /// A new pool, from its factory's `PoolCreated`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Created {
@@ -440,7 +463,7 @@ pub mod answers {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::address;
+    use alloy_primitives::{Bytes, address, b256, hex};
 
     use super::*;
 
@@ -454,6 +477,61 @@ mod tests {
             BASE.pool_address(WETH, USDC, 500),
             address!("d0b53d9277642d899df5c87a3966a349a798f224")
         );
+    }
+
+    /// The factory's `PoolCreated` for the WETH/USDC 0.05% pool, in block 3,620,407 (log 13),
+    /// read with eth_getLogs on 2026-10-01. Real, so it checks the event's signature and
+    /// layout against the deployed factory, not against this crate's own encoder.
+    fn base_pool_created() -> Log {
+        Log {
+            address: BASE.factory,
+            topics: vec![
+                b256!("783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118"),
+                b256!("0000000000000000000000004200000000000000000000000000000000000006"),
+                b256!("000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda02913"),
+                b256!("00000000000000000000000000000000000000000000000000000000000001f4"),
+            ],
+            data: Bytes::from_static(&hex!(
+                "000000000000000000000000000000000000000000000000000000000000000a"
+                "000000000000000000000000d0b53d9277642d899df5c87a3966a349a798f224"
+            )),
+            log_index: 13,
+            transaction_hash: b256!(
+                "edb1f442fbc11aa4c0b46d4301ffd50304bc39f6abf125636088c227af75e6e6"
+            ),
+        }
+    }
+
+    #[test]
+    fn a_pool_created_from_base_decodes_to_its_pool() {
+        let created = base_pool_created();
+        assert!(is_pool_created(&created));
+        assert_eq!(
+            decode_pool_created(&created),
+            Some(Created {
+                pool: address!("d0b53d9277642d899df5c87a3966a349a798f224"),
+                token0: WETH,
+                token1: USDC,
+                fee: 500,
+                tick_spacing: 10,
+            })
+        );
+    }
+
+    #[test]
+    fn a_pool_event_is_not_a_pool_creation() {
+        // Swap's topic, keccak-256 of its signature, computed outside this crate.
+        let swap = Log {
+            topics: vec![b256!(
+                "c42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+            )],
+            ..base_pool_created()
+        };
+        assert!(!is_pool_created(&swap));
+        assert!(!is_pool_created(&Log {
+            topics: vec![],
+            ..base_pool_created()
+        }));
     }
 
     fn price(tick: i32) -> Price {
@@ -552,5 +630,42 @@ mod tests {
         );
         let t = TickLiquidity { gross: 9, net: 3 };
         assert_eq!(decode_tick(&answers::tick(t)), Some(t));
+    }
+
+    #[test]
+    fn decodes_a_swaps_signed_amounts() {
+        let sender = address!("5000000000000000000000000000000000000005");
+        let recipient = address!("6000000000000000000000000000000000000006");
+        let data = (
+            I256::try_from(-25).unwrap(),
+            I256::try_from(40).unwrap(),
+            alloy_primitives::aliases::U160::from(1u64) << 96,
+            7u128,
+            alloy_primitives::aliases::I24::try_from(-3).unwrap(),
+        )
+            .abi_encode_params();
+        let log = Log {
+            address: Address::ZERO,
+            topics: vec![
+                Swap::SIGNATURE_HASH,
+                sender.into_word(),
+                recipient.into_word(),
+            ],
+            data: alloy_primitives::Bytes::from(data),
+            log_index: 0,
+            transaction_hash: B256::ZERO,
+        };
+        assert_eq!(
+            decode_swap(&log),
+            Some(SwapLog {
+                sender,
+                recipient,
+                amount0: I256::try_from(-25).unwrap(),
+                amount1: I256::try_from(40).unwrap(),
+            })
+        );
+        let mut mint = log.clone();
+        mint.topics[0] = Mint::SIGNATURE_HASH;
+        assert_eq!(decode_swap(&mint), None);
     }
 }

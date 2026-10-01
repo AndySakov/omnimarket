@@ -24,8 +24,23 @@ jobs:
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - run: scripts/verify.sh
-      - run: cargo test -p sim --test kafka -- --ignored
+      # The pinned buf binary (scripts/buf downloads it into .tools/). Keyed on the script, which pins
+      # its version and checksum, so a version bump downloads once and every other run skips GitHub's
+      # release CDN, whose 5xx errors failed verify runs (#107).
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: buf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/buf') }}
+      # The criteria job reads which tests passed from these logs (D95).
+      # `shell: bash` adds pipefail, so a failing command still fails its step through `tee`.
+      - shell: bash
+        run: mkdir -p test-reports && scripts/verify.sh | tee test-reports/verify.log
+      - shell: bash
+        run: cargo test -p sim --test kafka -- --ignored | tee test-reports/kafka.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-test-results
+          path: test-reports/
 
   # The terminal UI's full checks (D86). verify.sh leaves web/terminal/ to this job.
   frontend:
@@ -37,6 +52,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/terminal/package-lock.json
+      # api:check runs scripts/buf generate (#75); the same cache as verify's, so neither job
+      # depends on GitHub's release CDN once buf has been downloaded.
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: buf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/buf') }}
       - name: Install frontend dependencies
         working-directory: web/terminal
         run: npm ci
@@ -46,6 +67,15 @@ jobs:
       - name: Verify frontend
         working-directory: web/terminal
         run: npm run verify:pr
+      # The criteria job reads which tests passed from these (D95).
+      - name: List the frontend tests that passed
+        run: |
+          mkdir -p test-reports
+          scripts/frontend-passed-tests.sh > test-reports/frontend.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: test-reports/
       - name: Upload frontend reports
         if: failure()
         uses: actions/upload-artifact@v4
@@ -55,3 +85,40 @@ jobs:
             web/terminal/playwright-report
             web/terminal/test-results
             web/terminal/storybook-static
+
+  # Every acceptance criterion of the issue a PR closes names the test that proves it, and that
+  # test passed in this run (D95). The PR body and the issues are read when the job runs, so after
+  # editing the body, re-run this job alone.
+  criteria:
+    if: github.event_name == 'pull_request'
+    needs: [verify, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --quiet -p criteria
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-test-results"
+          path: test-results
+      - name: Check the acceptance criteria
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p issues
+          gh api "repos/$REPO/pulls/$PR" --jq .body > pr-body.md
+          for n in $(target/debug/criteria closes pr-body.md); do
+            gh api "repos/$REPO/issues/$n" --jq '.body // ""' > "issues/$n.md"
+          done
+          status=0
+          target/debug/criteria check pr-body.md issues test-results/*/*.log > summary.md || status=$?
+          cat summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

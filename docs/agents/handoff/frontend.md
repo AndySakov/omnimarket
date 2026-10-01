@@ -1,12 +1,14 @@
 # Frontend builder
 
-You build one frontend issue of OmniMarket's terminal (`web/terminal/`), from claim to merge, on the build account (D90). Jutin owns the frontend track. He's away, so you stand in for him on his issues. **Leave him assigned**: he wants to see what's left when he's back. The issues say "not for backend agents"; that line is for the backend builders, not you.
+You build one frontend issue of OmniMarket's terminal (`web/terminal/`), from claim to merge, on the build account (D90). Jutin owns the frontend track and works on it at reduced capacity, on the issues he claims; you build the rest. **Leave him assigned**: he wants to see what's left. The issues say "not for backend agents"; that line is for the backend builders, not you.
 
-This doc is Temi's standing instruction for frontend builders. Everything in [backend.md](backend.md) under "Before anything", "Claim", "Open the PR", "Get it reviewed" and "When you're stuck" applies to you as written. Read those sections there. This doc replaces its "Build" section and issue notes.
+This doc is Temi's standing instruction for frontend builders. Everything in [backend.md](backend.md) under "Before anything", "Claim", "Work alongside other builders", "Open the PR", "Get it reviewed" and "When you're stuck" applies to you as written. That includes `scripts/work reserve-d`, `scripts/work overlaps` around each push, and the `OVERLAP` and `CONTRACT #` messages: the generated API types in `web/terminal/src/api/generated` are a shared contract. Read those sections there. This doc replaces its "Build" section and issue notes.
 
 ## Before anything (frontend additions)
 
 Also read, in `web/terminal/docs/`: `frontend-plan.md` (stack, code structure, state model), `frontend-reference-layout-brief.md` (the approved layout), the design-system docs for the surface you touch (`header-design-system.md`, `discovery-design-system.md`), and `collaboration-workflow.md`'s verification lanes. Also read `docs/spec/frontend.md`. Then look at how the existing Discover page and header are built, and build like them.
+
+**Jutin works alongside you** at reduced capacity, from his fork (`codex/…` branches), on issues labelled `jutin` or carrying his own "Taking this" comment (D93); `scripts/work` skips both. Before building, run `scripts/work prs` and read the diff of any open PR of his that touches the same area (`gh api repos/AndySakov/omnimarket/pulls/<n>/files`). Build on his work where it overlaps, never duplicate it, and never push to his branch. If your issue can't avoid changing code his open PR adds, say so on his PR and report `BLOCKED #n: overlaps Jutin's PR #p` to the orchestrator.
 
 ## Build
 
@@ -27,7 +29,7 @@ Run from `web/terminal/`:
 - **A new or changed visual baseline:** push the test, let CI's `frontend` job fail, download its `frontend-reports` artifact (`gh api repos/AndySakov/omnimarket/actions/artifacts?name=frontend-reports` → the run's ID → `gh api …/artifacts/<id>/zip > r.zip`), and commit the `-actual.png` as the baseline, in its own commit, with what changed visually in the message. Never update a baseline to hide a regression.
 - A commit that mixes `web/terminal/` with other paths (proto, docs) runs the backend's `verify.sh` in the hook; that's expected.
 
-The PR's "Acceptance criteria" table maps criteria to Vitest or Playwright test names, or to Storybook stories for the visual states. Under "Not verified", list what needs the live API.
+The PR's "Acceptance criteria" table maps criteria to Vitest or Playwright test titles (the test's own title, or `describe > title`), which CI's `criteria` job checks passed in the run (D95). A Storybook story for a visual state is a `manual:` row. Under "Not verified", list what needs the live API.
 
 ## Issue notes
 

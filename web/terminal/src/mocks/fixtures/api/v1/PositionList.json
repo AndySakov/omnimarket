@@ -1,0 +1,37 @@
+{
+  "lineage": {
+    "id": "66AnLGSv1hDq7beXwUnzPQ==",
+    "causedBy": [
+      "sl7LUuAmumQWEd/TPgD/xA=="
+    ]
+  },
+  "positions": [
+    {
+      "lineage": {
+        "id": "sl7LUuAmumQWEd/TPgD/xA==",
+        "causedBy": [
+          "i6LIqkjNo0Z9cArgH1b7tA==",
+          "pJ8Wy4P5p8Rn14UKDDFbXw=="
+        ]
+      },
+      "accountId": "acct_guest_7f3a",
+      "token": {
+        "chainId": "8453",
+        "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+        "symbol": "NOVA",
+        "name": "NovaSet (fixture)",
+        "decimals": 18
+      },
+      "mode": "EXECUTION_MODE_SHADOW",
+      "amount": "19871.2034",
+      "averageEntryPriceUsd": "0.0125810196",
+      "costBasisUsd": "250",
+      "markPriceUsd": "0.0124",
+      "valueUsd": "246.40292216",
+      "unrealizedPnlUsd": "-3.59707784",
+      "unrealizedPnlPct": "-1.438831136",
+      "openedAtMs": "1790000001151",
+      "updatedAtMs": "1790000000000"
+    }
+  ]
+}

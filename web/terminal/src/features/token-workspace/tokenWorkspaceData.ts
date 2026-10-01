@@ -22,6 +22,12 @@ export type TokenWorkspaceSnapshot = {
   updatedLabel: string
 }
 
+// The live discovery fixture identifies NovaSet by its canonical contract address rather than
+// the design fixture's short id. Keep that bridge local until the token-detail REST route is wired.
+const canonicalWorkspaceAddresses: Record<string, string> = {
+  '0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567': tokenWorkspace.id,
+}
+
 const chartGroupSizes: Record<TokenChartInterval, number> = {
   '1s': 1,
   '1m': 1,
@@ -87,6 +93,8 @@ export function getTokenRouteAddress(tokenId: string): string {
 
 export function resolveTokenIdByAddress(address: string): string | undefined {
   const normalisedAddress = address.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const canonicalId = Object.entries(canonicalWorkspaceAddresses).find(([knownAddress]) => knownAddress.replace(/[^a-z0-9]/g, '') === normalisedAddress)?.[1]
+  if (canonicalId) return canonicalId
   const candidates = [tokenWorkspace, ...discoveryTokens.map((token) => resolveToken(token.id)).filter((token): token is TokenWorkspaceFixture => Boolean(token))]
   return candidates.find((token) => token.address.toLowerCase().replace(/[^a-z0-9]/g, '') === normalisedAddress)?.id
 }
@@ -266,6 +274,10 @@ function aggregateChartData(chart: TokenChartData, groupSize: number): TokenChar
 
 function resolveToken(tokenId?: string): TokenWorkspaceFixture | undefined {
   if (!tokenId || tokenId === tokenWorkspace.id) return tokenWorkspace
+
+  const normalisedId = tokenId.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const canonicalId = Object.entries(canonicalWorkspaceAddresses).find(([knownAddress]) => knownAddress.replace(/[^a-z0-9]/g, '') === normalisedId)?.[1]
+  if (canonicalId === tokenWorkspace.id) return tokenWorkspace
 
   const source = discoveryTokens.find((candidate) => candidate.id === tokenId)
   if (!source) return undefined

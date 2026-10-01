@@ -249,3 +249,47 @@
 @media (prefers-reduced-motion: reduce) {
   .stream-tab, .toolbar-icon-button, .toolbar-control, .quick-buy-button { transition-duration: 0.01ms; }
 }
+
+/* Live Discover (#65): sort and filter controls, the chain selector's live and coming chains, row
+   motion (insert highlight, price flash, departed rows), and the stale state. */
+.sort-control { display: inline-flex; align-items: center; gap: 4px; }
+.sort-control__select { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 4px 0 10px; border: 1px solid var(--omni-border); border-radius: 8px; background: #0a0d13; color: var(--omni-text-muted); }
+.sort-control__select:focus-within, .filter-select select:focus-visible { border-color: var(--omni-border-strong); outline: 2px solid var(--omni-blue); outline-offset: 1px; }
+.sort-control__select select { min-height: 34px; padding: 0 4px; border: 0; background: transparent; color: var(--omni-text); font: inherit; font-size: 13px; cursor: pointer; }
+.sort-control__select select:focus-visible { outline: none; }
+.filter-select { cursor: pointer; }
+.filter-select select { min-height: 30px; padding: 0 6px; border: 1px solid var(--omni-border); border-radius: 6px; background: #0a0d13; color: var(--omni-text); font: inherit; font-size: 12px; cursor: pointer; }
+.sort-control select option, .filter-select select option { background: #0b0e14; color: var(--omni-text); }
+.filter-select .filter-panel__label { display: inline-flex; align-items: center; gap: 5px; }
+
+.chain-rail__status { color: var(--omni-text-subtle); font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.chain-rail__status--live { color: var(--omni-green); }
+.chain-rail__item--coming { cursor: not-allowed; opacity: 0.6; }
+.chain-rail__item--coming:hover { background: transparent; color: var(--omni-text-muted); }
+.chain-rail__item--coming .chain-rail__mark { filter: grayscale(1); }
+.chain-rail__mark--megaeth { color: #e9e4d8; }
+
+.metric-price { justify-self: start; margin-left: -3px; padding: 0 3px; border-radius: 3px; color: var(--omni-text-muted); font-family: "JetBrains Mono Variable", "SFMono-Regular", Consolas, monospace; font-size: 12px; white-space: nowrap; }
+.price-flash--up { color: var(--omni-green); animation: discovery-flash-up 900ms ease-out; }
+.price-flash--down { color: var(--omni-red); animation: discovery-flash-down 900ms ease-out; }
+@keyframes discovery-flash-up { from { background: rgba(67, 214, 154, 0.3); } to { background: transparent; } }
+@keyframes discovery-flash-down { from { background: rgba(255, 102, 120, 0.3); } to { background: transparent; } }
+.token-row:has(.row-motion--inserted) { animation: discovery-row-insert 2000ms ease-out; }
+@keyframes discovery-row-insert { from { background: rgba(109, 124, 255, 0.24); box-shadow: inset 2px 0 0 var(--omni-blue); } to { background: transparent; box-shadow: inset 2px 0 0 transparent; } }
+.token-row:has(.row-motion--departed) { opacity: 0.45; }
+.metric-departed { color: var(--omni-amber); font-size: 11px; }
+.sparkline--flat { color: var(--omni-text-subtle); }
+.txn-cell__split--none span:first-child { color: var(--omni-text-muted); }
+.evidence-line--unchecked { border-style: dashed; color: var(--omni-text-muted); }
+
+.discovery-stale-banner { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid rgba(244, 189, 93, 0.35); background: rgba(244, 189, 93, 0.08); color: var(--omni-amber); font-size: 12px; }
+.discovery-table-shell--stale .discovery-table-scroll { opacity: 0.62; filter: grayscale(0.5); }
+.table-footer__summary { gap: 10px; }
+.table-footer__hold { display: inline-flex; align-items: center; gap: 6px; color: var(--omni-amber); white-space: nowrap; }
+.table-footer__notice { min-width: 0; overflow: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The colour change still marks a move or an insert; only the fade is dropped. */
+  .price-flash--up, .price-flash--down, .token-row:has(.row-motion--inserted) { animation: none; }
+  .token-row:has(.row-motion--inserted) { background: rgba(109, 124, 255, 0.16); }
+}

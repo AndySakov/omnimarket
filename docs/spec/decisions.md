@@ -1,6 +1,6 @@
 # Decision Log
 
-Newest last. Format: decision, alternatives rejected, reasoning.
+Newest last. Format: decision, alternatives rejected, reasoning. Entries record OmniMarket's behaviour and architecture; how the work is coordinated lives in [docs/agents/process.md](../agents/process.md) (CLAUDE.md, Decisions).
 
 ---
 
@@ -50,6 +50,8 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 
 ## D4 — Wallet vendor: Privy, behind our own Signer boundary
 
+*(Amended by D96: in the demo, the local keystore also signs guest trades and trigger fills, in shadow only.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Privy embedded wallets with server-side signing via authorization keys and policies. All signing goes through an internal `Signer` boundary with two implementations: Privy (product/demo path) and a local encrypted keystore (load tests, mainnet forks).
@@ -64,6 +66,8 @@ Newest last. Format: decision, alternatives rejected, reasoning.
 ---
 
 ## D5 — Environments: live reads, shadow execution, real-funds proof
+
+*(Amended by D96: for the demo, shadow trades in replay mode simulate in memory, since free RPC can't simulate past blocks.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -954,6 +958,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 *(Amended by D61: execution's nonce ledger and firing dedupe move to a regional Postgres per chain. Amended by D75: RustFS replaces MinIO.)*
 
+*(Amended by D96: for the demo, candles and read models are held in memory by the API, not in ClickHouse.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -995,6 +1001,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 *(Amended by D59: intents carry a maximum amount and a minimum rate.)*
 
 *(Amended by D57: intents are signed in the user's own session when they're present; server signing only for absent flows. Amended by D58: submitter field.)*
+
+*(Amended by D96: until the router is deployed (M3), demo intents are signed against a placeholder EIP-712 domain.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (supersedes D31; amends D26, D32, D33)
 
@@ -1404,6 +1412,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 *(Amended by D85: no audit contest or bug bounty for the router; there are no user funds.)*
 
+*(Amended by D96: the demo adds guest accounts with shadow balances, and the server's local signer signs their trades and all trigger fills, in shadow only.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D42, D46)
 
 **Decision:**
@@ -1447,6 +1457,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D59 — Intent terms: maximum amount, minimum rate, submitter may only tighten
+
+*(Amended by D96: demo intents carry these terms against a placeholder EIP-712 domain until M3.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (amends D27, D42; from the final consistency review, G1)
 
@@ -1509,6 +1521,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D62 — Frontend: thin prototyping UI and a full terminal UI; mirror the leaders, then do better
 
+*(Extended by D91: the API contract v0, its wire format and generated types.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (closes product.md question 3)
 
 **Decision:**
@@ -1524,6 +1538,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
 
 *(Amended by D70: M0 scope trimmed. Amended by D85: the last milestone is production readiness, not launch.)*
+
+*(Amended by D96: the demo is a thin slice through M2, M4, M5 and M6 ahead of milestone order, and the frontend track starts before M2.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -1857,25 +1873,7 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D81 — PRs merge only after a watchdog review
 
-*(Amended by D90: the watchdog posts its verdict as a PR comment, and the `watchdog-status` workflow turns it into the `watchdog/review` status; the watchdog runs on the build account; builders merge once `verify`, `frontend` and `watchdog/review` pass.)*
-
-**Date:** 2026-09-30 · **Status:** Decided (process; from auditing M0 and M1)
-
-**Decision:** A separate watchdog agent session reviews every PR before it merges. It checks the change against its issue, the D-entries and CLAUDE.md's update table, runs the tests, and posts a `watchdog/review` commit status on the PR's head commit (`pending`, then `success` or `failure`) with its findings as a PR comment. Branch protection on `main` requires `verify` and `watchdog/review`, and applies to admins. Each push needs a fresh review. The protocol is in CLAUDE.md.
-
-**Found while auditing:** PRs #32 to #44 had no reviews. The builder merged each one 1 to 8 minutes after opening it, so CI was the only gate. #44 landed without the D-entry and `pricing.md` update CLAUDE.md requires (#48), and a follower stall on reorged-out blocks went unnoticed (#46).
-
-**Rejected:**
-- *Required approving reviews.* Every agent acts as the one GitHub account, and GitHub doesn't let an account approve its own PR.
-- *A soft gate (the builder waits a while, then merges).* Relies on the builder following a rule it already skipped: CLAUDE.md asked for `/meta-review` before merging.
-- *Review after merge.* Defects reach `main` first.
-- *A paid CI review bot.* Free resources only for now.
-
-**Why:** The builder moves faster than anyone can read its PRs. A gate that blocks the merge is the only review that reliably happens.
-
-**Consequence:**
-- When the watchdog is down, nothing merges. Temi can lift the gate by turning off admin enforcement on `main`.
-- GitHub can't tell who posted a status, so the builder's token could post `watchdog/review` itself; only CLAUDE.md forbids it. Binding the required check to a GitHub App that only the watchdog holds closes this gap. **(Follow-up: needs Temi to create the App.)**
+*Moved to [docs/agents/process.md](../agents/process.md#d81) with the other entries about how the work is coordinated. D-entries record OmniMarket's behaviour and architecture.*
 
 ---
 
@@ -1967,51 +1965,13 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D86 — The commit gate splits by path, and fails closed
 
-**Date:** 2026-09-30 · **Status:** Decided (process; from the terminal foundation, #56)
-
-**Decision:** The git pre-commit hook runs `scripts/verify-fast.sh`. A commit whose staged files are all under `web/terminal/` runs the frontend's fast checks (`npm run verify:fast`: typecheck, lint, unit tests). Every other commit, an empty one included, runs `scripts/verify.sh` as before. `verify.sh` stays backend-only (Rust, contracts, proto) and needs no Node. CI runs the frontend's full checks (`npm run verify:pr`) in its own `frontend` job, beside `verify`.
-
-**Found while reviewing:** #56's first version added the frontend to `verify.sh`, so every backend commit and CI's `verify` job needed Node and `web/terminal/node_modules`. Its fast hook ran the backend checks only when a staged path matched a fixed list, so a commit touching only `clippy.toml` (D73) or `.github/` ran nothing and passed.
-
-**Rejected:**
-- *The frontend inside `verify.sh`.* Every backend clone needs `npm ci` before it can commit, and CI installs Node for `verify` as well as for `frontend`.
-- *Backend checks only for a list of backend paths.* Fails open: a path nobody listed skips the gate.
-- *Full `verify.sh` on every commit, frontend commits included.* Minutes of cargo on each frontend commit, for checks that can't see the frontend.
-
-**Why:** Each side's gate needs only its own toolchain, and anything not provably frontend-only gets the full backend checks, so the local gate fails closed.
-
-**Consequence:**
-- A commit that mixes frontend and other files runs only `verify.sh` locally; CI's `frontend` job checks its frontend half.
-- `frontend` isn't a required check on `main` yet, so a red `frontend` job doesn't block a merge. **(Follow-up: Temi adds it to branch protection.)**
-- The Claude Code hook still runs the full `verify.sh` when the git hook isn't installed: it runs before the files are necessarily staged.
+*Moved to [docs/agents/process.md](../agents/process.md#d86) with the other entries about how the work is coordinated. D-entries record OmniMarket's behaviour and architecture.*
 
 ---
 
 ## D87 — Work order: critical work first, then the demo sprint, then M1
 
-*(Amended by D90: `scripts/work next` applies this order over REST; the build account's frontend builder takes Jutin's frontend issues while he's away, claimed by the `wip` label instead of reassignment.)*
-
-**Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
-
-**Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
-1. Stalled open PRs (red CI, a conflict or a failed `watchdog/review`), whoever opened them, oldest first. A claim on one lapses after 2 hours without a push.
-2. Issues labelled `critical`, in any milestone.
-3. Backend issues in the demo sprint (#62), lowest demo stage first. M1 issues in the blocking chain of the next demo issue count as demo work.
-4. The rest of M1, only when no demo issue is left to take.
-
-`critical` means red CI on `main`, a bug that stops or corrupts the live read path (following, pool state, recording or replay), or a security problem. An agent that applies the label says which part of the bar the issue meets. An issue is claimed by an assignee and a claim comment before the first commit, and it counts as taken once it has an assignee or an open PR that closes it. That lets several sessions pick work at the same time without a coordinator.
-
-**Rejected:**
-- *The demo sprint only, until it ships.* A stalled follower or a red `main` would wait behind features that depend on them. The demo shows the M0 and M1 engine, so a critical bug there breaks the demo too.
-- *A fixed share of sessions per track (e.g. one in three on M1).* Sessions don't see what the others picked, so nothing could enforce the share.
-- *Milestone order: finish M1, then M2.* It delays anything showable by weeks, and M1's open issues (#40, #41) don't affect the demo until replay mode (#88).
-
-**Why:** The demo is the priority, and the engine it runs on must stay correct. A written order lets every session choose the same way. Rule 1 covers every stalled PR, not only a session's own: sessions restart and share one GitHub account, so none can know which PRs it opened. Scoping it to "your own" left #57, the fix for the one critical bug (#46), unattended while #46 counted as taken.
-
-**Consequence:**
-- Non-critical M1 work waits until the demo sprint has no backend issue left to take. When the sprint reaches replay mode (#88), its chain pulls #42 forward, and through #42, #40 and #41. #46 is `critical`, since the follower stalls forever.
-- The sprint's scope and shortcuts are recorded separately (#74).
-- When the sprint ends, this entry gets an amendment note and CLAUDE.md's current mode returns to milestone order.
+*Moved to [docs/agents/process.md](../agents/process.md#d87) with the other entries about how the work is coordinated. D-entries record OmniMarket's behaviour and architecture.*
 
 ---
 
@@ -2085,34 +2045,262 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
 
-**Date:** 2026-10-01 · **Status:** Decided by Temi (process)
+*Moved to [docs/agents/process.md](../agents/process.md#d90) with the other entries about how the work is coordinated. D-entries record OmniMarket's behaviour and architecture.*
 
-**Decision:** Most build work moves to Claude Code cloud sessions on a second Claude account (the **build account**), whose GitHub connection acts as `AndySakov`, like Temi's own sessions. Temi steers it through one long-lived **orchestrator** session on that account, which starts and tracks the other sessions. The protocol is in `docs/agents/handoff/`.
-- **Roles.** One backend builder and one frontend builder at a time, one session per issue, and one watchdog session per PR (D81's separate reviewer). The orchestrator picks work with `scripts/work next`, which applies D87's order, starts sessions, dispatches reviews and reports to Temi. It writes no code.
-- **The gate.** The watchdog posts its verdict as a PR comment whose first line names the head commit and passes or fails. The `watchdog-status` workflow turns that line into the `watchdog/review` commit status, linked to the comment, and only for the PR's current head. Branch protection is unchanged.
-- **Merging.** The builder merges with a merge commit (`scripts/work merge`), which refuses unless `verify`, `frontend` and `watchdog/review` all pass on the head, there's no conflict and nothing is labelled `hold`. `frontend` gates merges this way, though branch protection doesn't require it yet (D86).
-- **Claims.** `scripts/work claim` adds the `wip` label, assigns the claimer if nobody is assigned, and comments with the session link. While Jutin is away, the frontend builder takes his frontend issues and leaves him assigned, so he sees what's left when he's back; `wip` is the claim there. An acceptance criterion that names Jutin's review is met by Temi's review while he's away, and Jutin is tagged for a look.
-- **Partial work.** An acceptance criterion that can't be met from the repo (a signup only Temi can do; a frontend slice waiting on its backend) moves to a new issue linked both ways, labelled `needs-temi` or blocked by the backend issue, and the original closes with the rest.
-- **Temi's brakes.** The `hold` label on an issue or PR stops agents taking or merging it. `needs-temi` marks work only Temi can unblock.
-- **Cloud sessions are readied by a SessionStart hook** (`.claude/hooks/session-start.sh`): dockerd, the git hooks, buf, npm deps, Playwright's Chromium (or the preinstalled one), and a cargo build warmed in the background.
+---
 
-**Found while setting up (2026-10-01):**
-- In cloud sessions GitHub's GraphQL API is refused ("GraphQL is not available from Claude Code sessions"), so `gh issue list`, `gh pr view` and `gh pr checks` fail. REST through `gh api` works.
-- Commit-status and check-run writes are refused by the session proxy ("Write access to this GitHub API path is not permitted"), whatever the network level, token or GitHub account connected (a PAT stored as an environment credential changed nothing). Comments, labels, assignees, opening and merging PRs, and workflow dispatch are allowed.
-- A cold `scripts/verify.sh` takes 3.5 minutes on a cloud container, and Docker's daemon isn't running at start.
-- A session started by another session receives its brief as an automated message. It followed an ordinary work brief, but refused one that read like a credential probe.
+## D91 — API contract v0: proto3 JSON, decimal strings, generated TypeScript
+
+**Date:** 2026-10-01 · **Status:** Decided, pending Temi's review for Jutin (#75)
+
+**Decision:** The API between the backend and both UIs (D62) is defined in `proto/omnimarket/api/v1` and checked by `buf lint` and `buf breaking` like every other schema (D70). v0 covers the demo's screens (#62). Details and the REST paths are in `frontend.md`; the WebSocket topics are in `data.md`.
+- **Wire format:** proto3's JSON mapping, over REST and one WebSocket connection (one JSON object per text frame).
+- **Amounts, prices, USD values and percentages are decimal strings**: base 10, no exponent, exact. Token amounts are in whole-token units (already divided by the token's decimals). Percentages are in percent ("-3" is −3%); slippage and fees are basis points (`uint32`).
+- **Addresses and hashes are lowercase 0x hex strings**, not `bytes`. Lineage IDs stay `bytes` in the shared `omnimarket.lineage.v1.Lineage` (base64 in JSON).
+- **Times are Unix milliseconds** (`uint64 *_ms`), from block time or the det clock. Like every 64-bit integer in proto3 JSON, they travel as strings; the generated TypeScript makes them `bigint`.
+- **Lineage (D53, D71).** Every record the server sends carries `Lineage`. A message that presents one backend record (a trade, firing or receipt) carries that record's lineage; one the API assembles (a snapshot, list or feed) gets its own ID from its key and block, with `caused_by` naming what it was built from. Requests carry a client-chosen `client_request_id` instead: the server derives the request's lineage ID from it, and a repeat with the same ID is the same request, which makes quoting, trading and order edits idempotent (build rule 7). The WebSocket envelope (subscribe, snapshot, delta, heartbeat, error) and the parts that only appear inside a record (`TokenRef`, `RouteLeg`, `Fee` and the like) carry none.
+- **WebSocket protocol.** The client subscribes to topics; for each, the server sends one snapshot, then deltas, numbered by a per-topic `seq`. A gap means the client resubscribes. Deltas replace the record with the same key; trades append. A heartbeat every second; three missed mark the data stale.
+- **Generated code.** TypeScript is generated with `buf generate` and protobuf-es v2 into `web/terminal/src/api/generated` and committed; `npm run api:check` (part of the frontend's `verify`) fails when it's stale. Rust gets the same messages from the `proto` crate.
+- **Fixtures.** One proto3 JSON file per message in `web/terminal/src/mocks/fixtures/api/v1`, for MSW, stories and tests. A test checks that every message has one and that each is canonical: it parses, and re-serialises to the same JSON.
 
 **Rejected:**
-- *A PAT for `AndySakov` in the build account's environment.* The proxy ignored it, and still blocks status writes and GraphQL for every account.
-- *A watchdog that dispatches a workflow with the verdict as inputs.* Two steps that can disagree; a status from a comment can't exist without the findings it links to.
-- *Keeping the watchdog on Temi's account.* Temi's usage limits would cap how many PRs merge a day.
-- *Builders picking their own issues.* Two builders could race for one issue; one dispatcher can't.
-- *Reassigning Jutin's issues.* Temi wants Jutin to see what's left when he's back.
+- *Binary protobuf on the WebSocket.* Smaller, but unreadable in browser devtools, and the demo's rates (≤ 20 ticks a second per token, D43) don't need it. It can be added later as a negotiated encoding of the same messages.
+- *Raw integer amounts (wei) as strings.* Equally exact, but every value on screen then needs the token's decimals, and the scaling bugs move into the UI. The server converts once.
+- *JSON numbers for amounts.* A double can't hold a 256-bit amount or most prices exactly.
+- *`bytes` for addresses and hashes.* proto3 JSON writes them as base64, which no EVM tool or explorer reads.
+- *`google.protobuf.Timestamp`.* RFC 3339 strings read well, but block times and the det clock are integer milliseconds, so every conversion is a chance to drift.
+- *Hand-written TypeScript types, or OpenAPI.* Two definitions of one contract drift; D62 says the types come from the proto schemas.
+- *gRPC-web or Connect services.* A protocol runtime and a server framework the demo doesn't need; v0 documents plain REST paths.
+- *Generating the TypeScript at build time instead of committing it.* Every frontend install would need buf, and contract changes wouldn't show in the PR's diff.
 
-**Why:** The build account has the budget and Temi doesn't, so the token-heavy work (building, reviewing) runs there and Temi spends his limits only on steering and decisions. The gate and the work order stay as they were; only their mechanics change to fit what cloud sessions can do.
+**Why:** proto3 JSON keeps one schema for Rust and TypeScript (D41, D62) while staying readable in a browser. Decimal strings are the only JSON form that's exact for both 18-decimal token amounts and USD values, and lowercase hex is what users paste into explorers.
 
 **Consequence:**
-- The gate has the same trust gap D81 records: any session with write access could post a fake verdict comment, as it could post a status before. CLAUDE.md forbids it, and the status now links to the comment that set it.
-- Both Claude accounts act on GitHub as `AndySakov`, so GitHub alone can't tell their work apart; the claim comment's session link can.
-- When the build account's budget runs out, the orchestrator stops starting sessions, and Temi's watchdog (or Temi) reviews again.
-- When Jutin is back, frontend issues return to him one by one, as he takes them.
+- From merge on, `buf breaking` holds the contract: changes are additive, or go to `v2`.
+- The UI parses amounts into `decimal.js` (or its fixed-decimal type) and never into `number` (frontend-plan.md).
+- #78's server and #63's client follow this protocol; the fixtures are the shared example of each message.
+
+---
+
+## D92 — CI proves a fix's regression test fails on main's code
+
+**Date:** 2026-10-01 · **Status:** Decided (#97)
+
+**Decision:** A PR whose body closes an issue labelled `bug` (GitHub's closing keywords: `Fixes #n`, `Closes #n`, `Resolves #n` and their tenses, with `#n` or this repository's `owner/repo#n`; a number that isn't an issue here doesn't count) gets the `regression-check` CI job, which runs `scripts/regression-check`:
+- **Which tests.** The Rust test functions (`#[test]`, `#[tokio::test]`, ...) the PR adds or whose text it changes, since its merge base with `main`, in files under a `tests/` directory and in source files' `#[cfg(test)]` items. `#[ignore]`d ones are skipped.
+- **Main's code with the PR's tests**, the way the watchdog did it by hand: a worktree of `main`, given the PR's version of every changed test file, and in every other changed source file `main`'s code with the PR's `#[cfg(test)]` items in place of `main`'s.
+- **The verdict.** Every test must pass on the PR's head, and at least one must fail on `main`'s code. A test that doesn't build on `main`'s code (it calls API the fix adds) is reported but doesn't count: it shows the API changed, not that the bug was there. If one source file's test module doesn't build on `main`'s code, each file's tests run again with only its own module put in, so one file can't hide the others.
+- **The report** in the job summary: each test's result on both sides, the panic of each test failing on `main` (so a reviewer can see it fails for the bug's reason), and build errors.
+- **Not yet required.** Once it has passed on two fix PRs it joins `verify` and `watchdog/review` in branch protection. On a PR that isn't a fix it passes at once, so it can be required on every PR.
+
+**Found while building (2026-10-01):**
+- Replayed on #57's history (`--base 19e1874 --head a09f080`, also a `workflow_dispatch` input): it passes, with `follower::tests::a_lagging_node_is_asked_again_with_backoff` failing on the old code (`left: [0, 0, 0, 0]`, `right: [250, 500, 1000, 2000]`: no backoff). Because `a09f080` merged `main` since `19e1874`, `main`'s own new tests come along too: `http.rs`'s test module doesn't build on `19e1874` (it calls `is_retryable`, which `main` added), and without the per-file retry it hid the follower's tests.
+- Run as CI would have run it on #57's final head (`--base 000c733 --head a09f080`, `000c733` being `main` then), it passes on the PR's reorg tests (`a_block_replaced_between_its_header_and_logs_is_read_again`, `a_block_reorged_out_between_header_and_logs_does_not_stall_the_follower`), and `a_lagging_node_is_asked_again_with_backoff` passes on `main` too: that bug came in with the PR's own first commit, so only the replay from `19e1874` shows it. The check is per PR, against `main`.
+- A shared target dir for both trees made `main`'s code look fixed: cargo's fingerprints name sources relative to the workspace root, so the second tree reused the first tree's test binaries. Each tree now has its own target dir. The self-test caught it.
+- The replay takes about 6 minutes on a 4-core cloud container, from a cold build of both trees.
+
+**Rejected:**
+- *Reverting the fix's non-test files whole and keeping the PR's test files.* Unit tests live in `#[cfg(test)]` modules inside source files, as #57's did, so whole-file reverts would drop them or keep the fix.
+- *Counting a test that doesn't build on `main` as failing.* Any fix that adds a function and tests it would pass without showing the bug.
+- *Running every test in the workspace on `main`'s code.* Slower, and a failure unrelated to the PR would pass the check.
+- *Requiring it now.* #97 asks for two green fix PRs first, so a false failure can't block merges before it's been seen working.
+- *Leaving it to the watchdog.* That's the gap #97 names: if the watchdog is down or wrong, a test that never showed the bug merges.
+
+**Why:** CLAUDE.md requires a fix's regression test to fail on `main`, and until now only the watchdog checked it, by hand. A check in CI runs on every fix PR the same way, and its report shows the reviewer the failure on `main`.
+
+**Consequence:**
+- Fix PRs should keep `Fixes #n` / `Closes #n` in the body: without a closing reference to the `bug` issue the job doesn't check anything.
+- A fix whose only possible test needs new API (it can't build on `main`) fails the job; its author explains in the PR, and the watchdog and Temi decide.
+- Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
+- The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
+- The watchdog still reads the failure on `main` to confirm it's the bug's.
+
+---
+
+## D93 — Jutin and the build account share the frontend track, issue by issue
+
+*Moved to [docs/agents/process.md](../agents/process.md#d93) with the other entries about how the work is coordinated. D-entries record OmniMarket's behaviour and architecture.*
+
+---
+
+## D94 — The terminal's data layer: one client for fixtures, replay and live
+
+**Date:** 2026-10-01 · **Status:** Decided (#63)
+
+**Decision:** The terminal (`web/terminal`) reads all its data through one REST client and one WebSocket stream manager, both on the generated contract types (D91). A build-time env variable, `VITE_DATA_SOURCE`, picks the source: `fixtures` (the default), `replay` or `live`; replay and live also take `VITE_API_URL`. Nothing else changes between sources.
+- **Fixtures run through MSW**, in the browser, for REST and the WebSocket alike. The fixture stream answers each subscribe with the D91 fixture as its snapshot, then sends a heartbeat every second and deterministic price ticks on token topics. So the client code that runs offline is the code that runs live.
+- **The stream is at `/v1/stream`** on the API's host (`ws://` or `wss://`), unless `VITE_WS_URL` says otherwise.
+- **Visible topics only.** Components subscribe while mounted; the manager reference-counts topics and unsubscribes when the last one unmounts, dropping the topic's data.
+- **Sequencing.** A delta before its topic's snapshot, or at or below the last applied `seq`, is dropped. A delta more than one ahead is a gap: the topic's data is discarded and the topic resubscribed (unsubscribe, then subscribe).
+- **Drops.** On a close the manager reconnects with backoff (500 ms, doubling to 10 s; no jitter, as each browser tab holds one connection) and resubscribes every wanted topic. Data stays on screen labelled *reconnecting* until each new snapshot replaces it. After five failed attempts in a row the connection shows *unavailable*, and it keeps retrying. An attempt counts as working once the server sends its first message, not when the socket opens, so a server that accepts and closes at once still escalates; a socket the browser refuses to create counts as a failure too.
+- **Heartbeats.** Three seconds without one marks the connection *stale*; the next one clears it. Ten seconds without one counts as a dead connection: it is closed and replaced.
+- **Data states.** Every streamed region shows one of loading, live, stale, reconnecting or unavailable, derived from the connection and the topic. A `StreamError` for a topic makes it unavailable and drops its data.
+- **Rendering.** One Zustand store, with each topic's data in its own slice keyed by the topic string. Hooks select their own slice, so a tick on one token rerenders only that token's components.
+- **The header** shows Live or Replay from the engine's own mode on the `status` topic (the env's source until it arrives), Fixtures in fixture mode whatever the fixture says, and Connecting, Stale, Reconnecting or Unavailable otherwise.
+
+**Rejected:**
+- *A separate mock client for fixture mode.* Two code paths, and the one the demo runs offline wouldn't be the one it runs live.
+- *A mock server process for fixtures.* A second process to start, and it doesn't work in Storybook or on static hosting (#73).
+- *Choosing the source at runtime (a URL parameter or a toggle).* A shared demo link could then show sample data as if it were live. The source is fixed per build, and the header always names it.
+- *Blanking data on every drop.* A brief blip would empty every screen. Keeping the old numbers, labelled reconnecting, is more useful as long as the label is there; a gap or a topic error does blank, because there the data is known to be wrong.
+- *Waiting out a seq gap for the missing delta.* The WebSocket is ordered, so a gap means a lost message, not a late one.
+
+**Why:** The demo has to run before the API server (#78) and replay (#88) exist, and switch to them without code changes. Labelling every region's data state is what lets the UI keep showing numbers through a reconnect without passing old ones off as current.
+
+**Consequence:**
+- #78's server must serve the stream at `/v1/stream`, and #88's replay server the same API.
+- A screen built on the stream hooks gets its data states and resubscription for free; it only has to render the state.
+
+---
+
+## D95 — Every acceptance criterion names the test that proves it, and CI checks it passed
+
+**Date:** 2026-10-01 · **Status:** Decided (test tooling; #98)
+
+**Decision:** A PR body carries an "Acceptance criteria" table (`.github/pull_request_template.md`): one row per acceptance criterion of the issue it closes, quoting the criterion, and the tests that prove it in backticks, or `manual: <evidence>` where no test can. CI's `criteria` job checks the table:
+- **Every criterion has a row.** The criteria are the checkbox items under the closed issue's "Acceptance criteria" heading (`##` or any other level). A row matches a criterion when its text is the same, ignoring case, runs of whitespace, surrounding quotes and a final full stop. A criterion with no row fails the job, and so does a row that names neither a test nor `manual:` evidence. A row that quotes no criterion is listed in the summary but doesn't fail the job: PRs add rows for requirements in an issue's text (#103 did), and a misquote already fails as a criterion with no row. Its tests are still checked.
+- **Every named test passed in this CI run.** The job reads `cargo test`'s output from the `verify` job (the workspace tests and the Kafka test) and the frontend's Vitest and Playwright JSON reports from the `frontend` job (`scripts/frontend-passed-tests.sh` turns them into the same `test <name> ... ok` lines). A name matches a passed test's full name or its trailing segments (`::` for Rust paths, ` > ` for frontend titles), so a test that doesn't exist, failed or was ignored fails the job. A backticked file path says where a test is and isn't checked.
+- **`manual:` rows are listed** in the job summary for the watchdog, which checks their evidence. A criterion moved to a follow-up issue (D90) is a `manual:` row naming that issue.
+- The parsing and checking live in the `criteria` crate (a binary the job builds), so `cargo test` covers them and mutation testing (D89) reaches them. The job reads the PR body and the issues through the REST API when it runs, so after editing the body, re-running the `criteria` job alone picks the edit up. A PR that closes no issue only has its named tests checked.
+- It joins `main`'s required checks once it has run green on two PRs (Temi changes branch protection). `scripts/work merge` doesn't require it until then.
+
+**Rejected:**
+- *Ticking the issue's checkboxes.* Nobody ticked them, and a tick proves nothing.
+- *Test names in the issue instead of the PR.* The tests don't exist when the issue is written.
+- *Checking that the named test exists by searching the source.* A test that exists but is ignored, or fails, would pass; the run's output shows what actually passed.
+- *A step inside the `verify` job.* It couldn't become a separate required check, and an edited PR body would mean re-running every test.
+- *Failing on a row that quotes no criterion.* Run over #103's body, it failed rows that claimed requirements from #75's text, which are worth keeping. A misquote is already caught as a missing row.
+- *Parsing JUnit XML from every runner.* `cargo test` has no stable JUnit output yet; libtest's plain lines and the frontend's JSON reports are already there.
+
+**Why:** PR bodies claimed criteria in prose, and the watchdog mapped each criterion to a test by hand. A criterion with no test could be claimed and merged. A job that fails on a missing row or a test that didn't pass makes the claim checkable, and leaves the watchdog to judge whether the test proves the criterion and to check the manual evidence.
+
+**Consequence:**
+- A criterion only Storybook, a live run or a doc can show needs a `manual:` row, and the watchdog is the only check on it.
+- Rewording a criterion in the issue after the PR is open fails the job until the row is updated.
+- Contract tests (`forge test`) aren't read yet: `contracts/` doesn't exist. When it does, its output needs adding to the job.
+- Whether `actions/download-artifact` finds the earlier attempt's test results when only the `criteria` job is re-run is **(verify)**. If it doesn't, re-run the whole workflow after editing the body.
+
+---
+
+## D96 — The demo is a thin slice through M2, M4, M5 and M6 on live Base, ahead of milestone order
+
+**Date:** 2026-10-01 · **Status:** Decided (#74; amends D4, D5, D41, D42, D57, D59, D63)
+
+**Decision:** The demo in #62 is built as a thin vertical slice on live Base, ahead of the milestone order in D63 and the build plan. The frontend track starts now, against the API contract v0 (D91) and its fixtures, rather than at M2.
+- **Scope.** Thin parts of four milestones, each named by the #62 issue that builds it:
+  - **M2:** API contract v0 (#75), API server (#78), pricing in USD (#76), trade records (#77), engine status (#79), candles with backfill (#80), discovery feed (#81), and replay mode as frontend.md's mock server (#88).
+  - **M4:** quotes from in-memory v2/v3 pool state over one pool or two hops (#83). No splits, no cues (D25), no shadow check (D21).
+  - **M5:** shadow execution only (#84): build, sign, simulate against live state, stop before broadcast. No router contract (M3), no executor pool, nonce ledger or broadcast.
+  - **M6:** take-profit, stop-loss and limit orders (#86), with explanations from lineage (#87). The rest of the catalogue (multi-level TP, trailing, auto-sell) stays in M6.
+  - Plus M7's first safety layer only: a round-trip sell simulation (#89, D29 layer 1).
+- **Shortcuts, and what each defers.** Each holds only for the demo, and each record it touches says so (`mode` is `EXECUTION_MODE_SHADOW`, D91):
+
+| Shortcut | Bends | Until |
+|---|---|---|
+| Intents are signed against a placeholder EIP-712 domain (`verifyingContract` isn't a deployed router) and marked demo | D42, D59: intents are verified by our router | The router is deployed (M3) |
+| Candles and read models are held in memory by the API, rebuilt from records and backfill on restart | D41: candles and swaps live in ClickHouse | The cold path's ClickHouse services (`candles/`, `history/`) |
+| **Demo accounts**: a guest account with no signup, alongside Privy logins, each holding a **shadow balance**. A Privy login's embedded wallet signs its intents in the browser (D57) and identifies the account; trades debit and credit the shadow balance, never the wallet | D57: user accounts are Privy accounts | Real wallets (D3, D4) and real funds (M5's real-funds trade) |
+| Trigger fills, and a guest's manual trades, are signed by the server's local signer, in shadow only | D4: the local keystore signs only for load tests and forks, Privy on the product path. D57: the server key signs only for absent users, under Privy policy | Privy server signing behind policy (M5, M6) |
+| In replay mode, shadow trades simulate in memory, not with `eth_call` (PublicNode serves only ~90 blocks back, D82), and receipts say so | D5: shadow execution simulates against live state | Archive RPC or our own node (D44) |
+
+- **Order against M1's open issues.**
+  - **#46** (the follower stalling on a reorg, fixed by #57) stays ahead of the demo: a live demo must not stall. It's closed.
+  - **#42** (a recorded hour replays exactly) stays ahead of replay mode (#88), which needs a recording to serve.
+  - **#40** (undo reorgs from memory, then Kafka, then rebuild) and **#41** (promote and demote pools between known and active) can follow the rest of the demo: #42 depends on them, so they come forward only when the sprint reaches #88 (D87).
+- **What stays the same.** Shadow mode by default (D5), determinism through `det` (D49, D54), lineage on every record (D53), and triggers firing on canonical blocks only (D77). The demo's code is the first cut of each crate, not a throwaway: later milestones deepen it.
+
+**Rejected:**
+- *A fixture-only frontend demo.* Faster, but it shows a UI, not the backend this project exists to prove: live state, pricing and shadow execution against real chain data (D5, D85).
+- *Finish M1–M6 in order first.* Nothing showable for weeks, and M3's router and M5's real-funds trade don't change what a visitor sees in shadow mode. D87 ([process.md](../agents/process.md#d87)) already rejected milestone order for the same reason.
+- *A separate demo backend* (scripted endpoints that skip the engine). It would have to be thrown away, and it would bypass the determinism and lineage rules that let a demo session replay exactly.
+- *Waiting for the router to sign real-domain intents.* Shadow mode never broadcasts, so a placeholder domain loses nothing a visitor can see, and the intent's shape (D59's terms) is the same.
+- *ClickHouse for the demo's candles.* One more service to host on the demo VM (#82) for a few hours of data that memory holds easily.
+
+**Why:** The demo shows the core trader flows end to end on live data, which is the proof of concept's point (D85), and building the thinnest version of each layer first is D63's walking skeleton, applied across milestones instead of along them. Each shortcut defers infrastructure a visitor can't see in shadow mode, and none relaxes a build-mode rule.
+
+**Consequence:**
+- The build plan's frontend track and milestone table point here; the demo's API scope is #62's, in frontend.md.
+- Each shortcut is undone by the milestone named in its row, which then amends this entry.
+- D87's work order ([process.md](../agents/process.md#d87)) puts the sprint ahead of the rest of M1; when the sprint ends, this entry gets an amendment note and D87 a dated note in place.
+
+## D99 — CI replays a pinned real Base recording to its recorded summary
+
+**Date:** 2026-10-01 · **Status:** Decided (#99)
+
+**Decision:** A real Base recording lives in the repository as a test fixture, and `cargo test --workspace` replays it through the current engine and asserts the summary it was recorded with.
+- **Format.** `det::file` writes one core instance's input log as one file: the archive's length-delimited `omnimarket.det.v1.InputRecord`s in log order (D54, D72), compressed with zstd (level 19). Reading it rejects a gap in `seq`, as the archive and Kafka readers do.
+- **Recording.** `engine follow --record-to DIR` (not with `--kafka`) writes `inputs.pb.zst` and `summary.txt`, the summary text `engine follow` and `engine replay` print (now `Summary`'s `Display`), so the fixture's expected value is exactly what the live run printed.
+- **The fixture.** `crates/engine/tests/fixtures/base-replay/`: 2 minutes of Base with `--check-every 10` (61 blocks, 1,077 inputs, 541 KB; re-recorded 2026-10-01 after trade records, D102, added v2 Swap logs and `quote_assets` to what the engine follows). It contains v3 pools with a same-block event after their bootstrap, so the bootstrap guard's `>=` mutant fails it.
+- **The test.** `crates/engine/tests/pinned_replay.rs` compares the replayed summary text with `summary.txt`. A PR that changes the engine's decisions re-records the fixture (observability.md says how) and says why the digests moved.
+
+**Rejected:**
+- *Kafka or the object-storage archive as the fixture's home.* The test must run offline in `cargo test --workspace`; a file in the repository needs no service.
+- *Uncompressed records.* This recording is 52.5 MB raw against 541 KB compressed (97×). The fixture is read on every test run but written rarely, so zstd's slow level 19 costs nothing that matters.
+- *Gzip (`flate2`).* Pure Rust, but gzip -9 makes this recording 1.65 MB, 3× zstd's. zstd is as well known, and its build needs only a C compiler, which `rdkafka` already requires.
+- *A longer recording (5 minutes).* 2 minutes already holds the same-block case the issue asks for and replays in about a second; longer means a bigger file in git for each re-record.
+- *Asserting only the digests.* The counts make a failure readable: which part of the engine decided differently.
+
+**Why:** Exact replay (D54) is what everything later relies on, and until now CI proved it only for the M0 toy core. The engine's replay equality rested on simulated-chain tests and on live numbers quoted in PR bodies, which nobody reruns. A pinned real recording makes any change to the engine's decisions on real data visible in CI.
+
+**Consequence:**
+- Every intended change to the engine's decisions, config encoding or calls means re-recording, and the new fixture comes from a different stretch of the chain, so the PR's diff shows new digests, not a comparison on the same blocks. The PR explains why they moved; the replay of the old fixture failing is the evidence that they did.
+- Each re-record adds about 0.6 MB to the repository's history.
+
+---
+
+## D102 — Trade records: one per Swap, quoted by a preference list, priced in base units
+
+**Date:** 2026-10-01 · **Status:** Decided (#77)
+
+**Decision:** The engine publishes every Swap on a tracked pool as a `omnimarket.trade.v1.Trade` on `trades.<chain>`, keyed by pool. A trade is the log's fact and nothing more:
+- **Token and quote.** The engine config carries a list of quote assets, most preferred first; Base's is USDC, USDT, WETH (the reference stablecoins, then the native token, D18). A pool's quote is whichever of its tokens comes first in the list, and the other is the token, so WETH/USDC is WETH against USDC. When neither is listed, the token is token0 and the quote token1. The list is part of the recorded config (D83), so a replay quotes the same way.
+- **Side and amounts** come from the pool's net change in each token: v3's signed `amount0` and `amount1`, and v2's `amountIn − amountOut` per token, which also nets a flash swap. The pool paying out the token is a buy; taking it in is a sell. A swap that moves none of the token is a buy if the quote went in, a sell otherwise. Amounts are unsigned, in base units.
+- **Price** is quote base units per token base unit, times 10^36, rounded down: the engine doesn't know decimals (token metadata is #76's), and the scale keeps a memecoin's tiny price significant. Unset when the token amount is zero.
+- **Keys and lineage.** Natural key (chain, block hash, log index), kind `trade`, caused by the chain event at the same key (D71). Block number, hash and timestamp, tx hash, and the log's sender and recipient go with it.
+- **Pools not yet tracked.** A v2 pair waiting for its CREATE2 proof, or a v3 pool whose state is being read, buffers its swaps (for v3, including those in the block of the read) and publishes them in order once the pool is tracked. If the proof or read fails, its buffered swaps are dropped and counted (`trades_dropped`); the pool is read again when it next trades. Fakes and forks publish nothing.
+- **Not in the record:** USD (the API adds it from the display price at the trade's block), and the trader, `tx.from`, which costs a read per block (`eth_getBlockByNumber` with full transactions) or per transaction **(verify)**. Left out for the demo.
+- The engine now also follows v2's `Swap` (the follower's topic list grows from seven to eight).
+
+**Rejected:**
+- *USD in the record.* It would make a fact depend on a price model, and a pricing fix would mean rewriting history instead of re-deriving it.
+- *A decimal price.* Needs token decimals the engine doesn't have, and a float isn't exact across languages.
+- *The deeper or older token as the quote.* Changes as liquidity moves, so the same pool's trades would flip sides over time; a fixed list doesn't.
+- *Dropping swaps on untracked pools until tracked.* A pool first seen trading would lose the very trades that put it on screen.
+- *Keeping buffered swaps across a failed read.* The pool's state restarts from a new read anyway; carrying a partial history across attempts adds a second buffer for a rare failure, and the count shows how rare.
+
+**Why:** The demo's live market (#64, #65) needs a trade tape and candles from the chain, and the API needs facts it can price and re-price without touching the engine.
+
+**Consequence:**
+- `trades.<chain>` replaces the planned `swaps.<chain>` topic (data.md).
+- Trades follow pool updates through reorgs: they share the block-hash key, so tiered undo (#40, D12) retracts a reorged-out block's trades with its pool updates. Base follows canonical blocks only (D77), so until then a reorg is only counted.
+- Recordings made before this have no quote-asset list and no v2 `Swap` logs; replaying one publishes only v3 trades, token0 against token1.
+
+---
+
+## D100 — Pricing runs in the engine, in f64 from exact pool state, published per canonical block
+
+**Date:** 2026-10-01 · **Status:** Decided (#76; builds D18, D19, D22, D24 for Base)
+
+**Decision:**
+- **Where.** `crates/pricing` holds pure functions: a pool's mid and ±2% depth, a token's display price across its pools, ERC-20 metadata decoding. The Chain Engine runs them (D6). It reads token metadata (`name`, `symbol`, `decimals`, `totalSupply`) through its own recorded calls, so through the call worker's rate limits (D82): one Multicall3 call per 50 new tokens, at the block they were first wanted.
+- **When.** After applying a canonical block (D77), the engine prices every token whose pools changed since the last block, the native token first, and publishes one `omnimarket.price.v1.PriceUpdate` per token on `prices.base`, keyed by token. Its lineage: the latest update of each pool it was priced from, and the native token's price update when a pool quotes in it (D53).
+- **Arithmetic.** Exact integer pool state in; `f64` out, using only operations IEEE 754 rounds exactly (+, −, ×, ÷, `sqrt`). v3 tick boundaries come from Uniswap's integer `getSqrtRatioAtTick`, and 10ⁿ from repeated multiplication, never `powf` or `powi`. The same state gives the same bits on any machine, so a replay reprices identically.
+- **Depth (D24).** Fee-free: the token1 that moves the price up 2%, plus the token0 that moves it down 2% valued at the mid. v2 in closed form; v3 by walking the initialized ticks.
+- **Base's quote assets and reference pools (D19).** The engine's one quote-asset list, shared with trade records (`EngineConfig::quote_assets`, D102): USDC, USDT and WETH. Pricing's config names which of them is the native token (WETH); every other one is a stablecoin pinned at $1. A token is priced only from its pools against one of these. WETH is priced only from four reference pools: Uniswap v3 WETH/USDC at 0.05% and 0.3%, WETH/USDT at 0.05%, and the v2 WETH/USDC pair. Stablecoins publish no price update.
+- **Liquidity floor** $10,000 of ±2% depth, a tuning value (D11). Below it on every pool: the deepest pool's price, flagged thin (D18).
+- **Market cap** is total supply × display price, published as `fdv_usd`: total supply counts locked and unvested tokens. Supply is read again every 1,800 blocks (about an hour) for priced tokens, since the engine doesn't follow `Transfer` logs.
+- **Recorded config (D83).** The pricing config is part of the engine config (field 10). A config without it prices nothing and makes no metadata calls, so recordings from before pricing still replay.
+
+**Rejected:**
+- *Fixed-point or decimal arithmetic.* Exact, but memecoin prices span 10⁻¹² to 10⁶ dollars and their products with 10²⁷-unit supplies overflow `rust_decimal`'s 28 digits; a U256 fixed point needs its own square root and scaling rules. `f64` holds 15 significant digits, more than any display needs, and is deterministic under the rule above.
+- *`f64::powf` or `powi` for 1.0001^tick and 10ⁿ.* They call the platform's maths library, whose results differ between machines: a replay elsewhere could reprice differently.
+- *Republishing every native-quoted token when WETH moves.* Every block moves WETH, so it would republish every token every block. D22's lazy path instead: a token's USD price is computed at its own update, which names the WETH price it used.
+- *Reading metadata outside the engine.* A separate service's answers aren't in the engine's input log, so a replay couldn't reproduce them.
+- *Following `Transfer` logs for supply.* Base's busiest log, for a figure that changes rarely on most tokens.
+
+**Why:** pricing.md puts the display price in the engine, recomputed on every pool update; doing it from the state the engine already holds, with its inputs recorded, keeps it inside the det rules at the cost of nothing new to run.
+
+**Consequence:**
+- D19's depeg check isn't built: stablecoins are always pinned at $1 for now. #117 holds it.
+- Quote-asset coverage on Base is measured in verification.md; a token trading only against another token (cbBTC, a launchpad's base token) is unpriced until that token joins the quote assets.
+- D11's tiers aren't built (#41): every pool the engine tracks is priced. The floor applies already.

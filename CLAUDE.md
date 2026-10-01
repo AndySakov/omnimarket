@@ -13,7 +13,7 @@ Take your next issue in this order. The first rule that yields an issue wins:
 3. **The demo sprint.** Open issues labelled `demo` and `backend`, lowest demo stage first (each issue's first line names its stage), then lowest number. If the one you'd take is blocked by M1 issues, follow that chain of blockers to the first M1 issue that is unblocked and untaken, and take it.
 4. **M1**, only when no demo issue is left to take.
 
-At every step, skip issues that are assigned, labelled `wip`, `hold` or `needs-temi`, claimed by an open PR, or blocked by an open issue. The `frontend` issues are Jutin's; while he's away, only the build account's frontend builder takes them, leaving him assigned (D90). An issue whose closing PR is stalled is picked up through that PR, at rule 1. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. `scripts/work next backend|frontend` applies this order, and `scripts/work claim <n>` claims; the queries behind them are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue). Build-account sessions follow [docs/agents/handoff/](docs/agents/handoff/README.md).
+At every step, skip issues that are assigned, labelled `wip`, `hold`, `needs-temi` or `jutin`, worked on by an open PR (`Closes #n` or `Part of #n`), or blocked by an open issue. The `frontend` issues are Jutin's; while he works at reduced capacity, he builds the ones labelled `jutin` or claimed by his own `Taking this` comment, and only the build account's frontend builder takes the rest, leaving him assigned (D90, D93). An issue whose closing PR is stalled is picked up through that PR, at rule 1. Claim yours before your first commit. If nothing qualifies, stop and tell Temi. `scripts/work next backend|frontend` applies this order, and `scripts/work claim <n>` claims; the queries behind them are in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md#picking-the-next-issue). Build-account sessions follow [docs/agents/handoff/](docs/agents/handoff/README.md).
 
 A bug that meets rule 2's bar gets the `critical` label, and a comment saying which part of the bar it meets. Temi can remove the label.
 
@@ -29,8 +29,10 @@ A bug that meets rule 2's bar gets the `critical` label, and a comment saying wh
 
 ## Decisions
 
-- Every choice that changes behaviour or architecture gets a D-entry: the decision, the rejected options, and why.
-- To change an existing decision, add an amendment note to it and a new entry. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
+- A D-entry records a choice about OmniMarket itself, its behaviour or architecture (including the infrastructure and test tooling it's built and checked with): the decision, the rejected options, and why. Add one only when a reader would ask "why is it like this?" and the code can't answer.
+- How the work is coordinated (the work order, review and merge mechanics, agent sessions and their limits) isn't a D-entry. It lives in [docs/agents/process.md](docs/agents/process.md) and `docs/agents/handoff/`, changed in place; the PR records why.
+- Take a new entry's number from `scripts/work reserve-d "<title>"`, never by counting: parallel sessions share one D-number ledger ([process.md](docs/agents/process.md#coordination-between-workers)).
+- A refinement that keeps a decision's direction (a tighter limit, an extra retry, a renamed flag) is edited into that entry with a dated note. A new entry is for a reversal or a genuinely new choice, with an amendment note on the one it changes. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
 - Settle an empirical question by building a throwaway prototype, not by writing another D-entry.
 - Mark anything unverified **(verify)**.
 
@@ -116,7 +118,9 @@ Passing tests only show the code ran. To check that a change's tests would notic
 `main` merges only when two checks pass on the PR's head commit: CI's `verify` and `watchdog/review` (D81). A separate watchdog session reviews every PR against its issue, the D-entries and the update table above, and posts its verdict as a PR comment whose first line is ``## Watchdog review: `<sha>` passes`` (or `fails …`). The `watchdog-status` workflow turns that line into the `watchdog/review` status on that commit (D90). Branch protection enforces this for admins too.
 
 - After opening a PR or pushing to one, wait for the checks: `scripts/work checks <n>` (in cloud sessions `gh pr checks` fails: GraphQL is blocked there). While you wait, you may start the next issue in the "Current mode" order on a new branch off `main`.
+- A PR whose body closes an issue labelled `bug` (`Fixes #n`, `Closes #n`) also gets CI's `regression-check` job (D92): the PR's new or changed tests must fail on `main`'s code and pass on its head. On any other PR it passes at once. It isn't required yet; once it's green on two fix PRs it joins `verify` and `watchdog/review`. When it fails, read its job summary: a test that passes on `main` too doesn't show the bug.
 - On `failure`, read the latest watchdog comment (`scripts/work show <n>`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
+- CI's `criteria` job checks the PR body's "Acceptance criteria" table (`.github/pull_request_template.md`, D95): every criterion of the closed issue has a row, every row names tests or `manual:` evidence, and every test a row names passed in this run. `manual:` rows are listed in its summary, and the watchdog checks their evidence. After editing the body, re-run that job. It becomes a required check once it has run green on two PRs.
 - If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
 - Once `verify`, `frontend` and `watchdog/review` pass on the head, the builder merges with `scripts/work merge <n>` (a merge commit). It refuses anything short of that, and anything labelled `hold`.
 - Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself, and no watchdog verdict comment unless you are the watchdog.

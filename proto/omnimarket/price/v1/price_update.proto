@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package omnimarket.price.v1;
+
+import "omnimarket/lineage/v1/lineage.proto";
+
+// A token's display price (D18) in USD after a canonical block (D77), on `prices.<chain>`,
+// keyed by token. Natural key: (chain, token, block hash). Caused by the latest pool update of
+// each pool it was priced from, and by the native token's price update when one of those pools
+// quotes in the native token.
+//
+// Prices and USD values are doubles: the engine computes them in f64 from exact integer pool
+// state with correctly rounded operations only, so a replay gives the same bits (D100). The API
+// turns them into decimal strings (D91).
+message PriceUpdate {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  bytes token = 3;
+  uint64 block_number = 4;
+  bytes block_hash = 5;
+  // Block time, Unix seconds.
+  uint64 block_timestamp = 6;
+  TokenMetadata metadata = 7;
+  // Liquidity-weighted mid across the pools at or above the liquidity floor (D18, D24).
+  double price_usd = 8;
+  // ±2% depth in USD summed over every pool below (D24).
+  double depth_usd = 9;
+  // No pool reached the floor: the price is the deepest pool's (D18, D20).
+  bool thin = 10;
+  // The deepest pool, its quote asset, and the display price in that quote asset.
+  bytes main_pool = 11;
+  bytes quote_token = 12;
+  double price_in_quote = 13;
+  // Total supply × price: a fully diluted value, since total supply counts locked and
+  // unvested tokens. Unset when the supply isn't known.
+  optional double fdv_usd = 14;
+  repeated PoolPrice pools = 15;
+}
+
+// What a token said about itself. A field is unset when the token's call reverted or returned
+// something non-standard.
+message TokenMetadata {
+  optional string name = 1;
+  optional string symbol = 2;
+  optional uint32 decimals = 3;
+  // Raw units, big-endian bytes without leading zeros.
+  optional bytes total_supply = 4;
+}
+
+// The token in one of its pools.
+message PoolPrice {
+  bytes pool = 1;
+  bytes quote_token = 2;
+  double price_in_quote = 3;
+  double price_usd = 4;
+  double depth_usd = 5;
+  // At or above the liquidity floor, so it counts toward the display price.
+  bool counted = 6;
+}

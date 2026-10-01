@@ -1,0 +1,69 @@
+{
+  "lineage": {
+    "id": "VVQMKoJnpGilDSLNldizEg==",
+    "causedBy": [
+      "+naB06t1R8VmiegLRzBMeA=="
+    ]
+  },
+  "chainId": "8453",
+  "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+  "interval": "CANDLE_INTERVAL_1M",
+  "candles": [
+    {
+      "lineage": {
+        "id": "W/5VbZVyoOlQh/mXBdhBEw==",
+        "causedBy": [
+          "m4LZ7yxX5/PxlrqkW7OuYA=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_1M",
+      "openTimeMs": "1789999880000",
+      "openUsd": "0.01198",
+      "highUsd": "0.01215",
+      "lowUsd": "0.01190",
+      "closeUsd": "0.01211",
+      "volumeUsd": "8120.4",
+      "trades": "41",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "ntermg9gjit4iz80TNpdnQ==",
+        "causedBy": [
+          "/7wC9iZ7VKu+TZQxdowcQg=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_1M",
+      "openTimeMs": "1789999940000",
+      "openUsd": "0.01211",
+      "highUsd": "0.01236",
+      "lowUsd": "0.01207",
+      "closeUsd": "0.01229",
+      "volumeUsd": "9433.18",
+      "trades": "52",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "+naB06t1R8VmiegLRzBMeA==",
+        "causedBy": [
+          "Cw76JfqdtEXeh++F/Gnx7w=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_1M",
+      "openTimeMs": "1790000000000",
+      "openUsd": "0.01229",
+      "highUsd": "0.01252",
+      "lowUsd": "0.01225",
+      "closeUsd": "0.01248",
+      "volumeUsd": "3210.9",
+      "trades": "17"
+    }
+  ]
+}

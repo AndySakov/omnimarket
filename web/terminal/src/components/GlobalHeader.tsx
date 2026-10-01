@@ -10,6 +10,9 @@ import {
   Star,
   X,
 } from "lucide-react";
+import { EngineStatusBar } from '../features/engine-status/EngineStatusBar'
+import { HowItWorks } from '../features/engine-status/HowItWorks'
+import { ConnectionStatus } from './ConnectionStatus'
 
 const routes = ["Discover", "Portfolio", "Trackers", "Wallets", "Settings"];
 
@@ -149,19 +152,6 @@ function ChainSelector() {
   );
 }
 
-function ConnectionStatus() {
-  return (
-    <span
-      className="connection-status"
-      role="status"
-      aria-label="Wallet connection status: connected"
-    >
-      <span className="status-dot status-dot--green" aria-hidden="true" />
-      <span>Connected</span>
-    </span>
-  );
-}
-
 function WalletMenu() {
   return (
     <button className="wallet-menu" type="button" aria-label="Open wallet menu">
@@ -209,26 +199,13 @@ function UtilityRail() {
         >
           <History size={15} />
         </button>
+        <HowItWorks />
       </div>
       <div className="utility-rail__ticker" aria-label="Market status">
-        <span className="market-live">
-          <span className="status-dot status-dot--green" aria-hidden="true" />
-          Live
-        </span>
-        <span className="ticker-item">
-          <strong>BTC</strong>
-          <span>$63,241</span>
-          <span className="value-up">+1.24%</span>
-        </span>
-        <span className="ticker-item">
-          <strong>ETH</strong>
-          <span>$2,487.31</span>
-          <span className="value-down">−0.62%</span>
-        </span>
-        <span className="ticker-item ticker-item--gas">
-          <strong>Gas</strong>
-          <span className="value-up">0.21 Gwei</span>
-        </span>
+        <EngineStatusBar />
+        <span className="ticker-item"><strong>BTC</strong><span>$63,241</span><span className="value-up">+1.24%</span></span>
+        <span className="ticker-item"><strong>ETH</strong><span>$2,487.31</span><span className="value-down">−0.62%</span></span>
+        <span className="ticker-item ticker-item--gas"><strong>Gas</strong><span className="value-up">0.21 Gwei</span></span>
       </div>
     </div>
   );

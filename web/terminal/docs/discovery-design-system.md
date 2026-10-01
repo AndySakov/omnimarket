@@ -50,9 +50,24 @@ reference instead of making the whole page drift while rows are compared.
 
 ### Stream tabs
 
-Top, Trending, Radar, Callouts, and Streamers are route-local discovery modes.
-The active tab uses a restrained surface and visible text contrast. `NEW` is a
-semantic product label, not decoration.
+New and Trending are the discovery modes (#65). New lists pools by creation;
+Trending ranks by 5m volume and txns above a liquidity floor (#81). The active
+tab uses a restrained surface and visible text contrast.
+
+### Sort and filters
+
+Sort by feed order, age, volume, txns, liquidity or market cap; the direction
+toggles. Ties fall back to the newer pool, then the address, so the order is
+stable. Filters: minimum liquidity, maximum age, and "safety check passed". A
+token that hasn't been checked never counts as passed.
+
+### Live rows
+
+The order holds still while the pointer or keyboard focus is in the table: no row
+jumps under it. New rows wait (the footer counts them), and rows that leave the
+feed stay in place, dimmed, until the hold ends. A new row gets a brief
+highlight, and a price flashes up or down when it moves; both honour reduced
+motion. Ages count from the server's clock (the latest heartbeat).
 
 ### Timeframe controls
 
@@ -62,7 +77,8 @@ primary blue control state.
 
 ### Chain rail
 
-All, Base, BNB, Solana, and Ethereum are always reachable. On mobile the rail
+Base is live. BNB and MegaETH show as coming: `aria-disabled`, with the reason
+as their description. On mobile the rail
 becomes a horizontal chip strip; it never becomes an inaccessible icon-only
 column.
 
@@ -110,6 +126,8 @@ next step without implying a signed transaction.
 | Loading | Stable table region with a clear loading message |
 | Empty | Explains that filters removed results and suggests broadening them |
 | Error | Plain-language recovery message and retry action |
+| Stale | Banner says the rows may be out of date; rows dim and `DataStatus` reads Stale; rows stay until heartbeats return |
+| Inserted | New row highlights briefly; held rows wait, counted in the footer |
 | Disconnected | Connection banner belongs in the global shell; quick-buy actions pause |
 | Provisional | Amber `Provisional` label remains beside the token age/chain |
 | Selected | Blue inset edge and quiet row background |
@@ -127,7 +145,9 @@ next step without implying a signed transaction.
 
 ## Data boundary
 
-Fixtures live in `src/mocks/discoveryFixtures.ts` and use domain-shaped token
-types from `src/domains/market/token.ts`. The UI does not assume a backend
-response shape beyond those types. Streaming/query adapters can replace the
-fixtures later without changing the row components.
+The table reads the `discovery` topic through the stream client (#63), and
+`liveRows.ts` maps each `DiscoveryRow` to the domain `DiscoveryToken` in
+`src/domains/market/token.ts`, so the row components don't see the wire shape.
+In fixture mode `src/mocks/api/discoveryFeed.ts` serves a six-row feed that
+moves prices every second and adds a new pool every 6s. Stories for each state
+are in `DiscoveryPage.stories.tsx`.

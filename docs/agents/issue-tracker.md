@@ -15,7 +15,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Picking the next issue
 
-The order is CLAUDE.md's "Current mode" (D87). `scripts/work next backend|frontend` applies it and prints why it skipped the rest; the queries below are what it does. Several sessions run at once under the one GitHub account, from Temi's Claude account and the build account (D90), so an issue counts as taken once it has an assignee, the `wip` label, or an open PR that closes it.
+The order is CLAUDE.md's "Current mode" (D87). `scripts/work next backend|frontend` applies it and prints why it skipped the rest; the queries below are what it does. Several sessions run at once under the one GitHub account, from Temi's Claude account and the build account (D90), so an issue counts as taken once it has an assignee, the `wip` or `jutin` label, a `Taking this` comment from Jutin's own account, or an open PR that says `Closes #<n>` or `Part of #<n>`, from any author (D93). The queue matches `Part of #<n>` anywhere in a PR body, so write it only for an issue the PR works on: "part of #63's design" in prose would take #63.
 
 `scripts/work next frontend` can't tell which account runs it: only the build account's frontend builder calls it while Jutin is away (D90).
 
@@ -29,6 +29,8 @@ The order is CLAUDE.md's "Current mode" (D87). `scripts/work next backend|fronte
 | the claim commands below | `scripts/work claim <n>` |
 | `gh pr create` | `scripts/work open-pr <title> <body-file>` |
 | `gh pr merge` | `scripts/work merge <n>` |
+| counting D-entries by hand | `scripts/work reserve-d "<title>"` (the D-number ledger, [process.md](process.md#coordination-between-workers)) |
+| — | `scripts/work overlaps`: other live branches and PRs touching this branch's files, and who holds them |
 | `gh issue comment <n> --body …` | `gh api repos/AndySakov/omnimarket/issues/<n>/comments -f body=…` |
 
 1. **Stalled open PRs.** Any open PR from this account, not only ones this session remembers opening: sessions restart and share the account. List them oldest first, with their checks:

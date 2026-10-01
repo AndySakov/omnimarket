@@ -3,6 +3,8 @@ import { expect, test } from '@playwright/test'
 test('keeps the terminal fixed while the token stream scrolls', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
+  // Fixture mode starts its mock worker before the app renders.
+  await expect(page.locator('.discovery-table-scroll')).toBeVisible()
 
   const metrics = await page.evaluate(() => {
     const body = document.body
@@ -17,14 +19,14 @@ test('keeps the terminal fixed while the token stream scrolls', async ({ page })
   expect(metrics.documentFitsViewport).toBe(true)
   expect(metrics.tokenRegionScrolls).toBe(true)
   await expect(page.locator('.token-avatar img')).toHaveCount(6)
-  await expect(page.locator('.chain-rail__mark img')).toHaveCount(5)
+  await expect(page.locator('.chain-rail__mark img')).toHaveCount(3)
 })
 
 test('opens the selected Discover token in its token workspace', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
 
-  const novaSet = page.getByRole('button', { name: 'NovaSet', exact: true })
+  const novaSet = page.locator('.token-name').filter({ hasText: 'NovaSet' }).first()
   await expect(novaSet).toBeVisible()
   await novaSet.click()
 

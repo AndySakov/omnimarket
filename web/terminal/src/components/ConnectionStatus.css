@@ -1,0 +1,9 @@
+/* The header's market-data indicator (#63, D94). Kept out of styles.css so the shell's styles and
+   the data layer change independently, which is also why the tone rules are doubled up: they must
+   beat styles.css whatever order the two load in. A fixed width keeps the header steady between labels. */
+.connection-status { min-width: 100px; }
+.connection-status.connection-status--blue { color: var(--omni-blue); }
+.connection-status.connection-status--amber { color: var(--omni-amber); }
+.connection-status.connection-status--red { color: var(--omni-red); }
+.status-dot.status-dot--amber { color: var(--omni-amber); }
+.status-dot.status-dot--red { color: var(--omni-red); }

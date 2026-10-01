@@ -10,7 +10,7 @@ How the engineering skills should consume this repo's domain documentation. Sing
 
 ## Recording decisions
 
-Don't create `docs/adr/`. A new decision is a new D-entry in `docs/spec/decisions.md`: the decision, the rejected options, and why. To change an existing decision, add an amendment note to it and a new entry. Mark anything unverified **(verify)**.
+Don't create `docs/adr/`. A new decision about OmniMarket's behaviour or architecture is a new D-entry in `docs/spec/decisions.md`: the decision, the rejected options, and why, with its number from `scripts/work reserve-d`. A refinement edits the entry in place with a dated note; a reversal is a new entry with an amendment note on the old one. How the work is coordinated goes in `docs/agents/process.md`, not the decision log (CLAUDE.md, Decisions). Mark anything unverified **(verify)**.
 
 ## Use the glossary's vocabulary
 

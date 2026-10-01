@@ -32,6 +32,17 @@ Automatic rollback all the way to L1 finality, stored in three tiers: hot (engin
 **Known pool** / **Active pool**:
 A known pool is recorded from its creation event, metadata only. An active pool has full in-memory state and is priced and routed. Pools qualify as active by base-asset pairing and a liquidity floor, or by being new (D11).
 
+**Trade record**:
+One Swap on a tracked pool, as a fact: the token against its quote asset, side, amounts and execution price in base units, with no USD (D102).
+_Avoid_: swap (that's the log), fill (that's ours)
+
+**Discovery feed** / **New** / **Trending**:
+The API's ranked token lists (#81). New holds tokens whose pool was created during the session (the engine discovered it empty), newest first, within the new-pool window; Trending ranks tokens above a minimum depth by 5m USD volume, then 5m txns. Rows are published once per block.
+_Avoid_: pulse, trenches (other products' names for it)
+
+**Quote asset**:
+The token a trade or price is expressed in: on Base, USDC, USDT or WETH, in that order of preference (D18, D102).
+
 **Snapshot**:
 A periodic dump of all active pool state, stamped with its block. Recovery loads a snapshot, then replays Kafka updates since that block (D40).
 
@@ -46,6 +57,18 @@ The display price, or for a curated cross-chain asset list, a depth-weighted ave
 
 **Depth**:
 Liquidity measured as ±2% depth in USD (D24).
+
+**Quote asset**:
+A token other tokens are priced against: the native token and the reference stablecoins (on Base: WETH, USDC, USDT). A token with no pool against one is unpriced (D19, D100).
+
+**Reference pool**:
+One of a chain's fixed native/stablecoin pools whose weighted mid is the native token's USD price (D19, D100).
+
+**Thin**:
+A token with no pool above the liquidity floor: priced from its deepest pool and flagged in the UI (D18, D20).
+
+**FDV**:
+Total supply × display price, the market cap we show: total supply counts locked and unvested tokens (D100).
 
 **Cue**:
 A signal inferred from the order, market, pools or our own flow that sets the router's risk penalty per extra pool (D25).
@@ -85,6 +108,16 @@ The full pipeline (quote, build, simulate against live state, sign locally) that
 **Real-funds demo**:
 A recorded end-to-end run with a small funded wallet per chain (D5).
 
+**Demo slice**:
+The demo in #62: a thin slice through M2, M4, M5 and M6 on live Base, built ahead of milestone order, with each shortcut recorded (D96).
+
+**Demo account**:
+An account in the demo: a guest one with no signup, or one linked to a Privy login. It trades from a shadow balance, never with real funds, even when a Privy wallet is linked (D96).
+_Avoid_: wallet, test account
+
+**Shadow balance**:
+A demo account's starting balance, set by config (e.g. 1 ETH), that shadow fills debit and credit. It is never real funds (D96).
+
 **det runtime**:
 The `det` crate's traits (Clock, Rng, EventSource, Rpc, Signer, Broadcaster, Store). Each has a real, a simulated, a recording and a replay implementation, so core logic is deterministic and replays exactly (D49, D54, D74).
 
@@ -102,6 +135,13 @@ A separate service with its own code and RPC that reconciles every router and ex
 
 **Brakes**:
 Automatic breakers plus four manual levels that stop money paths at the smallest effective scope (D56).
+
+**Data source**:
+Where the terminal's data comes from, fixed per build by `VITE_DATA_SOURCE`: *fixtures* (the contract fixtures served by MSW in the browser), *replay* (a recorded session played back through the real API) or *live* (D94).
+_Avoid_: mock mode, backend mode
+
+**Data state**:
+What a streamed region of the UI says about its numbers: loading, live, stale (heartbeats stopped), reconnecting (from before a drop) or unavailable (D94).
 
 ## Relationships
 

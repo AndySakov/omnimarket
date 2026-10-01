@@ -1,18 +1,24 @@
 //! The Chain Engine core (D6): one task that follows a chain's canonical blocks (D10, D77)
-//! and keeps pool state from their logs. It reaches the outside only through `det`, so every
+//! and keeps pool state from their logs, and prices the tokens in its pools (M2). It reaches the outside only through `det`, so every
 //! run can be recorded and replayed.
 
 mod core;
 mod outbox;
+mod prices;
 mod state;
+mod trades;
 mod v2;
 mod v3;
 
 use types::chain::B256;
 
 pub use crate::core::Engine;
-pub use crate::outbox::{InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate, V3State};
+pub use crate::outbox::{
+    InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate, PriceUpdate, PricedPool, V3State,
+};
+pub use crate::prices::Coverage;
 pub use crate::state::{EngineConfig, EngineError, Stats, Summary};
+pub use crate::trades::{Side, Trade, Venue};
 
 /// Base's input log (D72): one partition, keyed by core instance.
 pub const INPUT_TOPIC: &str = "inputs.base";
@@ -20,8 +26,14 @@ pub const INPUT_TOPIC: &str = "inputs.base";
 /// Base's pool updates, before and after (D12, D41), keyed by pool.
 pub const POOL_UPDATES_TOPIC: &str = "pool-updates.base";
 
+/// Base's trade records, one per Swap on a tracked pool (D102), keyed by pool.
+pub const TRADES_TOPIC: &str = "trades.base";
+
+/// Base's display prices, one per touched token per canonical block (D18, D77), keyed by token.
+pub const PRICES_TOPIC: &str = "prices.base";
+
 /// First topics of the logs M1 follows: Uniswap v2 and v3 pool events.
-pub const M1_TOPICS: [B256; 7] = [
+pub const M1_TOPICS: [B256; 8] = [
     // PairCreated(address,address,address,uint256)
     B256::new(hex(
         "0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9",
@@ -29,6 +41,10 @@ pub const M1_TOPICS: [B256; 7] = [
     // Sync(uint112,uint112)
     B256::new(hex(
         "1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1",
+    )),
+    // Swap(address,uint256,uint256,uint256,uint256,address): v2, for trade records
+    B256::new(hex(
+        "d78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
     )),
     // PoolCreated(address,address,uint24,int24,address)
     B256::new(hex(
@@ -84,6 +100,7 @@ mod tests {
         let signatures = [
             "PairCreated(address,address,address,uint256)",
             "Sync(uint112,uint112)",
+            "Swap(address,uint256,uint256,uint256,uint256,address)",
             "PoolCreated(address,address,uint24,int24,address)",
             "Initialize(uint160,int24)",
             "Swap(address,address,int256,int256,uint160,uint128,int24)",

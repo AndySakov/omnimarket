@@ -1,6 +1,6 @@
 # Build Plan
 
-**Status:** Approved (D63). In build since 2026-09-29, at M0. Implements the decisions in [spec/decisions.md](spec/decisions.md).
+**Status:** Approved (D63). In build since 2026-09-29; M0 is done, and the demo slice (D96) runs ahead of milestone order. Implements the decisions in [spec/decisions.md](spec/decisions.md).
 
 ## Approach: one chain end to end, then widen
 
@@ -35,7 +35,8 @@ omnimarket/
 │   ├── api/                  REST + WebSocket gateway (D62)
 │   ├── candles/, history/    Cold-path services (D15, D41)
 │   ├── watcher/              Independent watcher: shares only proto/, by design (D55)
-│   └── sim/                  Deterministic simulation harness and chaos fuzzer (D49)
+│   ├── sim/                  Deterministic simulation harness and chaos fuzzer (D49)
+│   └── criteria/             CI tool: a PR's acceptance criteria name tests that passed (D95)
 ├── contracts/                Foundry: router, intent verification, invariant tests (D26, D58, D59)
 ├── web/thin/                 Thin prototyping UI (project lead)
 ├── web/terminal/             Full terminal UI (Jutin, D62)
@@ -77,7 +78,9 @@ Each milestone ends with a **shadow-mode demo**, tests, dashboards, and docs upd
 
 *(Order revised by D64 and D69 after the research in [market.md](market.md): BNB moves ahead of Base depth, MegaETH moves behind copy trading. M13 trimmed by D85: this is a proof of concept, so nothing launches.)*
 
-**Frontend track (parallel, Jutin):** starts at M2 against the mock server; switches to the real API per milestone.
+**Demo slice (D96):** the demo in #62 is built ahead of this order, as a thin slice through M2, M4 (1–2 hop quotes), M5 (shadow execution only) and M6 (TP, SL and limit) on live Base. Its shortcuts, and the milestone that undoes each, are in D96; the work order is D87's.
+
+**Frontend track (parallel, Jutin):** starts now with the demo slice (D96), against the API contract v0 (D91) and its fixtures, then replay mode (#88) and the live API as each demo stage lands.
 
 ## Measurement tasks (need live network access)
 

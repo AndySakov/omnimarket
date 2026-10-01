@@ -1,0 +1,281 @@
+syntax = "proto3";
+
+package omnimarket.api.v1;
+
+import "omnimarket/api/v1/common.proto";
+import "omnimarket/lineage/v1/lineage.proto";
+
+// The engine's live status, once per block (#79). `GET /v1/status`, topic `status`.
+message EngineStatus {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  Mode mode = 3;
+  uint64 head_block_number = 4;
+  string head_block_hash = 5;
+  uint64 head_block_time_ms = 6;
+  // Lag to the chain head, in blocks and in ms since the head block's timestamp.
+  uint64 lag_blocks = 7;
+  uint64 lag_ms = 8;
+  repeated VenuePools pools = 9;
+  // Shadow checks (D21) run since start, and how many disagreed with the on-chain result.
+  uint64 shadow_checks = 10;
+  uint64 shadow_check_mismatches = 11;
+  // Whether the engine's inputs are being recorded (D54), and by which core instance.
+  bool recording = 12;
+  string core_instance = 13;
+  uint64 uptime_ms = 14;
+
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    MODE_LIVE = 1;
+    // A recorded session played back (#88).
+    MODE_REPLAY = 2;
+  }
+
+  // Pools tracked on one venue, e.g. "uniswap-v2".
+  message VenuePools {
+    string venue = 1;
+    uint64 known = 2;
+    uint64 active = 3;
+  }
+}
+
+// One row of the discovery feed (#81). Rows are keyed by (chain_id, token.address).
+message DiscoveryRow {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  TokenRef token = 2;
+  // The token's main (deepest) pool.
+  string pool = 3;
+  string venue = 4;
+  TokenRef quote_token = 5;
+  // When the pool was created: block and block time.
+  uint64 pool_created_block = 6;
+  uint64 pool_created_at_ms = 7;
+  // Display price (D18) in USD.
+  string display_price_usd = 8;
+  string market_cap_usd = 9;
+  // True when market cap is total supply × price, i.e. a fully diluted value.
+  bool market_cap_is_fdv = 10;
+  // ±2% depth in USD, buy plus sell side (D24).
+  string depth_usd = 11;
+  WindowStats stats_5m = 12;
+  WindowStats stats_1h = 13;
+  // Since the engine began tracking the token.
+  WindowStats stats_tracked = 14;
+  // No pool above the liquidity floor: priced from its deepest pool (D18, D20).
+  bool thin = 15;
+  SafetySummary safety = 16;
+  // 1-based position within its list; rows move only when their rank changes.
+  uint32 rank = 17;
+  repeated DiscoveryList lists = 18;
+  uint64 block_number = 19;
+}
+
+// The lists a discovery row belongs to.
+enum DiscoveryList {
+  DISCOVERY_LIST_UNSPECIFIED = 0;
+  // Pools by creation block, within the new-pool window.
+  DISCOVERY_LIST_NEW = 1;
+  // Ranked by 5m USD volume and txns, above a minimum depth.
+  DISCOVERY_LIST_TRENDING = 2;
+}
+
+// Trading activity over a window ending at the row's block.
+message WindowStats {
+  string volume_usd = 1;
+  uint64 buys = 2;
+  uint64 sells = 3;
+  // Display price change over the window, in percent ("-3.5" is −3.5%).
+  string price_change_pct = 4;
+}
+
+// `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=`, and the `discovery` topic's snapshot.
+message DiscoveryFeed {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  repeated DiscoveryRow rows = 2;
+  uint64 block_number = 3;
+}
+
+// A row that left the feed (aged out or fell below the filters), as a `discovery` delta.
+message DiscoveryRowRemoved {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  string token = 3;
+}
+
+// Everything the token page opens with (#64, #76). `GET /v1/tokens/{chain_id}/{address}`, and the
+// `token:<address>` topic's snapshot.
+message TokenSnapshot {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  TokenRef token = 2;
+  // Display price (D18) in USD and in the main pool's quote asset.
+  string display_price_usd = 3;
+  string display_price_quote = 4;
+  TokenRef quote_token = 5;
+  // The main (deepest) pool's own price, so a gap with other sites can be explained (D18).
+  string main_pool_price_usd = 6;
+  string total_supply = 7;
+  string market_cap_usd = 8;
+  bool market_cap_is_fdv = 9;
+  string depth_usd = 10;
+  bool thin = 11;
+  repeated PoolSummary pools = 12;
+  WindowStats stats_5m = 13;
+  WindowStats stats_1h = 14;
+  WindowStats stats_tracked = 15;
+  SafetyReport safety = 16;
+  uint64 block_number = 17;
+  uint64 block_time_ms = 18;
+}
+
+// A display-price move, as a `token:<address>` delta (at most 20 a second per token, D43).
+message TokenTick {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  string token = 3;
+  string display_price_usd = 4;
+  string display_price_quote = 5;
+  string market_cap_usd = 6;
+  string depth_usd = 7;
+  bool thin = 8;
+  uint64 block_number = 9;
+  uint64 block_time_ms = 10;
+}
+
+// One of the token's pools.
+message PoolSummary {
+  string address = 1;
+  string venue = 2;
+  uint32 pool_fee_bps = 3;
+  TokenRef quote_token = 4;
+  // The token's price in this pool, in USD.
+  string price_usd = 5;
+  string depth_usd = 6;
+  // Active pools are priced and routed; known pools are recorded only (D11).
+  bool active = 7;
+  uint64 created_block = 8;
+}
+
+// The safety verdict a discovery row shows as a badge (D29).
+message SafetySummary {
+  SafetyVerdict verdict = 1;
+  string buy_tax_pct = 2;
+  string sell_tax_pct = 3;
+  uint64 checked_at_ms = 4;
+}
+
+enum SafetyVerdict {
+  // No check has run yet: the UI says "not checked yet", never "safe".
+  SAFETY_VERDICT_UNSPECIFIED = 0;
+  SAFETY_VERDICT_PASSED = 1;
+  // A red flag found; warn, never block (D29).
+  SAFETY_VERDICT_WARNING = 2;
+  // Buy simulates, sell reverts or returns dust: buys are blocked (D29).
+  SAFETY_VERDICT_HONEYPOT = 3;
+}
+
+// The safety panel's evidence (D29, #89).
+message SafetyReport {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  SafetyVerdict verdict = 2;
+  // Unset until the round-trip simulation has run.
+  RoundTrip round_trip = 3;
+  repeated Flag flags = 4;
+  uint64 checked_block = 5;
+  uint64 checked_at_ms = 6;
+
+  // D29 layer 1: a simulated buy then sell against the live pool.
+  message RoundTrip {
+    TokenRef spent_token = 1;
+    string amount_spent = 2;
+    string token_bought = 3;
+    // What selling it all back returned; zero or dust on a honeypot.
+    string amount_returned = 4;
+    string buy_tax_pct = 5;
+    string sell_tax_pct = 6;
+    bool sell_succeeded = 7;
+    // Set when the sell reverted.
+    string revert_reason = 8;
+    string pool = 9;
+  }
+
+  // A finding, e.g. code "mint_function" or "owner_not_renounced".
+  message Flag {
+    string code = 1;
+    string detail = 2;
+  }
+}
+
+enum CandleInterval {
+  CANDLE_INTERVAL_UNSPECIFIED = 0;
+  CANDLE_INTERVAL_1S = 1;
+  CANDLE_INTERVAL_1M = 2;
+  CANDLE_INTERVAL_5M = 3;
+  CANDLE_INTERVAL_1H = 4;
+}
+
+// One OHLCV candle built from trades, in USD (#80). Keyed by (chain_id, token, interval,
+// open_time_ms); a delta replaces the candle with the same key.
+message Candle {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  string token = 3;
+  CandleInterval interval = 4;
+  uint64 open_time_ms = 5;
+  string open_usd = 6;
+  string high_usd = 7;
+  string low_usd = 8;
+  string close_usd = 9;
+  string volume_usd = 10;
+  uint64 trades = 11;
+  // False while the interval is still open.
+  bool closed = 12;
+}
+
+// `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=`, and the
+// `candles:<address>:<interval>` topic's snapshot. Oldest first.
+message CandleSeries {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  string token = 3;
+  CandleInterval interval = 4;
+  repeated Candle candles = 5;
+}
+
+// One swap on a tracked pool (#77). Natural key (chain_id, block_hash, log_index).
+message Trade {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  TokenRef token = 3;
+  TokenRef quote_token = 4;
+  string pool = 5;
+  string venue = 6;
+  Side side = 7;
+  string token_amount = 8;
+  string quote_amount = 9;
+  // Execution price, in the quote asset and in USD at the trade's block.
+  string price_quote = 10;
+  string price_usd = 11;
+  string value_usd = 12;
+  string sender = 13;
+  string recipient = 14;
+  string tx_hash = 15;
+  uint64 block_number = 16;
+  string block_hash = 17;
+  uint64 log_index = 18;
+  uint64 block_time_ms = 19;
+
+  enum Side {
+    SIDE_UNSPECIFIED = 0;
+    // The token was bought with the quote asset.
+    SIDE_BUY = 1;
+    SIDE_SELL = 2;
+  }
+}
+
+// `GET /v1/trades?chain_id=&token=&limit=`, and the `trades:<address>` topic's snapshot. Newest
+// first.
+message TradeList {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  repeated Trade trades = 2;
+}
