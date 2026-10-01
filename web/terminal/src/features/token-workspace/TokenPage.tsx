@@ -48,7 +48,7 @@ import type {
 } from '../../domains/market/tokenWorkspace'
 import { nativeAssetForChain } from '../../domains/market/tokenWorkspace'
 import { discoveryTokens } from '../../mocks/discoveryFixtures'
-import { tokenWorkspace } from '../../mocks/tokenWorkspaceFixtures'
+import { getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
 
 const intervals = ['1m', '5m', '15m', '1h', '4h', '1D'] as const
 type ChartInterval = (typeof intervals)[number]
@@ -56,13 +56,14 @@ const marketTabs: TokenMarketTab[] = ['Trades', 'Positions', 'Orders', 'Holders'
 
 type TokenPageProps = { tokenId?: string; state?: TokenWorkspaceState; onBack: () => void }
 
-export function TokenPage({ tokenId = tokenWorkspace.id, state = 'ready', onBack }: TokenPageProps) {
-  const [activeTokenId, setActiveTokenId] = useState(tokenId)
+export function TokenPage({ tokenId, state = 'ready', onBack }: TokenPageProps) {
+  const [activeTokenId, setActiveTokenId] = useState(tokenId ?? '')
   const [activeTab, setActiveTab] = useState<TokenMarketTab>('Trades')
   const [activeInterval, setActiveInterval] = useState<ChartInterval>('5m')
-  const token = useMemo(() => getWorkspaceToken(activeTokenId), [activeTokenId])
+  const snapshot = useMemo(() => getTokenWorkspaceSnapshot(activeTokenId, state), [activeTokenId, state])
+  const token = snapshot.token
 
-  if (state !== 'ready') return <TokenStatePanel state={state} onBack={onBack} />
+  if (snapshot.state !== 'ready') return <TokenStatePanel state={snapshot.state} onBack={onBack} />
 
   return (
     <main className="token-page" aria-label={`${token.name} token workspace`}>
@@ -77,24 +78,6 @@ export function TokenPage({ tokenId = tokenWorkspace.id, state = 'ready', onBack
       </div>
     </main>
   )
-}
-
-function getWorkspaceToken(tokenId: string): TokenWorkspaceFixture {
-  if (tokenId === tokenWorkspace.id) return tokenWorkspace
-  const source = discoveryTokens.find((candidate) => candidate.id === tokenId)
-  if (!source) return tokenWorkspace
-  const asset = nativeAssetForChain(source.chain)
-  return {
-    ...tokenWorkspace,
-    ...source,
-    address: `0x${source.id.replaceAll('-', '').slice(0, 4)}…${source.id.replaceAll('-', '').slice(-4)}`,
-    price: source.marketCap,
-    priceChange: source.marketCapChange,
-    fdv: source.marketCap,
-    volume24h: source.volume,
-    pair: `${source.symbol} / ${asset}`,
-    safetyNote: source.safety.state === 'passed' ? 'Sell simulation passed in the latest fixture snapshot.' : 'This fixture needs review before a trade can be prepared.',
-  }
 }
 
 function TokenWorkspaceHeader({ token, onBack }: { token: TokenWorkspaceFixture; onBack: () => void }) {
