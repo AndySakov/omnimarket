@@ -50,6 +50,8 @@ Newest last. Format: decision, alternatives rejected, reasoning. Entries record 
 
 ## D4 — Wallet vendor: Privy, behind our own Signer boundary
 
+*(Amended by D96: in the demo, the local keystore also signs guest trades and trigger fills, in shadow only.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** Privy embedded wallets with server-side signing via authorization keys and policies. All signing goes through an internal `Signer` boundary with two implementations: Privy (product/demo path) and a local encrypted keystore (load tests, mainnet forks).
@@ -64,6 +66,8 @@ Newest last. Format: decision, alternatives rejected, reasoning. Entries record 
 ---
 
 ## D5 — Environments: live reads, shadow execution, real-funds proof
+
+*(Amended by D96: for the demo, shadow trades in replay mode simulate in memory, since free RPC can't simulate past blocks.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -954,6 +958,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 *(Amended by D61: execution's nonce ledger and firing dedupe move to a regional Postgres per chain. Amended by D75: RustFS replaces MinIO.)*
 
+*(Amended by D96: for the demo, candles and read models are held in memory by the API, not in ClickHouse.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:**
@@ -995,6 +1001,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 *(Amended by D59: intents carry a maximum amount and a minimum rate.)*
 
 *(Amended by D57: intents are signed in the user's own session when they're present; server signing only for absent flows. Amended by D58: submitter field.)*
+
+*(Amended by D96: until the router is deployed (M3), demo intents are signed against a placeholder EIP-712 domain.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (supersedes D31; amends D26, D32, D33)
 
@@ -1404,6 +1412,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 
 *(Amended by D85: no audit contest or bug bounty for the router; there are no user funds.)*
 
+*(Amended by D96: the demo adds guest accounts with shadow balances, and the server's local signer signs their trades and all trigger fills, in shadow only.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (amends D42, D46)
 
 **Decision:**
@@ -1447,6 +1457,8 @@ Quotes, `minOut` and the UI show amounts net of the fee.
 ---
 
 ## D59 — Intent terms: maximum amount, minimum rate, submitter may only tighten
+
+*(Amended by D96: demo intents carry these terms against a placeholder EIP-712 domain until M3.)*
 
 **Date:** 2026-09-28 · **Status:** Decided (amends D27, D42; from the final consistency review, G1)
 
@@ -1526,6 +1538,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 ## D63 — Build plan approved: Base-first walking skeleton, milestones M0–M12, no timeline commitment
 
 *(Amended by D70: M0 scope trimmed. Amended by D85: the last milestone is production readiness, not launch.)*
+
+*(Amended by D96: the demo is a thin slice through M2, M4, M5 and M6 ahead of milestone order, and the frontend track starts before M2.)*
 
 **Date:** 2026-09-28 · **Status:** Decided
 
@@ -2136,3 +2150,46 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Consequence:**
 - #78's server must serve the stream at `/v1/stream`, and #88's replay server the same API.
 - A screen built on the stream hooks gets its data states and resubscription for free; it only has to render the state.
+
+---
+
+## D96 — The demo is a thin slice through M2, M4, M5 and M6 on live Base, ahead of milestone order
+
+**Date:** 2026-10-01 · **Status:** Decided (#74; amends D4, D5, D41, D42, D57, D59, D63)
+
+**Decision:** The demo in #62 is built as a thin vertical slice on live Base, ahead of the milestone order in D63 and the build plan. The frontend track starts now, against the API contract v0 (D91) and its fixtures, rather than at M2.
+- **Scope.** Thin parts of four milestones, each named by the #62 issue that builds it:
+  - **M2:** API contract v0 (#75), API server (#78), pricing in USD (#76), trade records (#77), engine status (#79), candles with backfill (#80), discovery feed (#81), and replay mode as frontend.md's mock server (#88).
+  - **M4:** quotes from in-memory v2/v3 pool state over one pool or two hops (#83). No splits, no cues (D25), no shadow check (D21).
+  - **M5:** shadow execution only (#84): build, sign, simulate against live state, stop before broadcast. No router contract (M3), no executor pool, nonce ledger or broadcast.
+  - **M6:** take-profit, stop-loss and limit orders (#86), with explanations from lineage (#87). The rest of the catalogue (multi-level TP, trailing, auto-sell) stays in M6.
+  - Plus M7's first safety layer only: a round-trip sell simulation (#89, D29 layer 1).
+- **Shortcuts, and what each defers.** Each holds only for the demo, and each record it touches says so (`mode` is `EXECUTION_MODE_SHADOW`, D91):
+
+| Shortcut | Bends | Until |
+|---|---|---|
+| Intents are signed against a placeholder EIP-712 domain (`verifyingContract` isn't a deployed router) and marked demo | D42, D59: intents are verified by our router | The router is deployed (M3) |
+| Candles and read models are held in memory by the API, rebuilt from records and backfill on restart | D41: candles and swaps live in ClickHouse | The cold path's ClickHouse services (`candles/`, `history/`) |
+| **Demo accounts**: a guest account with no signup, alongside Privy logins, each holding a **shadow balance**. A Privy login's embedded wallet signs its intents in the browser (D57) and identifies the account; trades debit and credit the shadow balance, never the wallet | D57: user accounts are Privy accounts | Real wallets (D3, D4) and real funds (M5's real-funds trade) |
+| Trigger fills, and a guest's manual trades, are signed by the server's local signer, in shadow only | D4: the local keystore signs only for load tests and forks, Privy on the product path. D57: the server key signs only for absent users, under Privy policy | Privy server signing behind policy (M5, M6) |
+| In replay mode, shadow trades simulate in memory, not with `eth_call` (PublicNode serves only ~90 blocks back, D82), and receipts say so | D5: shadow execution simulates against live state | Archive RPC or our own node (D44) |
+
+- **Order against M1's open issues.**
+  - **#46** (the follower stalling on a reorg, fixed by #57) stays ahead of the demo: a live demo must not stall. It's closed.
+  - **#42** (a recorded hour replays exactly) stays ahead of replay mode (#88), which needs a recording to serve.
+  - **#40** (undo reorgs from memory, then Kafka, then rebuild) and **#41** (promote and demote pools between known and active) can follow the rest of the demo: #42 depends on them, so they come forward only when the sprint reaches #88 (D87).
+- **What stays the same.** Shadow mode by default (D5), determinism through `det` (D49, D54), lineage on every record (D53), and triggers firing on canonical blocks only (D77). The demo's code is the first cut of each crate, not a throwaway: later milestones deepen it.
+
+**Rejected:**
+- *A fixture-only frontend demo.* Faster, but it shows a UI, not the backend this project exists to prove: live state, pricing and shadow execution against real chain data (D5, D85).
+- *Finish M1–M6 in order first.* Nothing showable for weeks, and M3's router and M5's real-funds trade don't change what a visitor sees in shadow mode. D87 ([process.md](../agents/process.md#d87)) already rejected milestone order for the same reason.
+- *A separate demo backend* (scripted endpoints that skip the engine). It would have to be thrown away, and it would bypass the determinism and lineage rules that let a demo session replay exactly.
+- *Waiting for the router to sign real-domain intents.* Shadow mode never broadcasts, so a placeholder domain loses nothing a visitor can see, and the intent's shape (D59's terms) is the same.
+- *ClickHouse for the demo's candles.* One more service to host on the demo VM (#82) for a few hours of data that memory holds easily.
+
+**Why:** The demo shows the core trader flows end to end on live data, which is the proof of concept's point (D85), and building the thinnest version of each layer first is D63's walking skeleton, applied across milestones instead of along them. Each shortcut defers infrastructure a visitor can't see in shadow mode, and none relaxes a build-mode rule.
+
+**Consequence:**
+- The build plan's frontend track and milestone table point here; the demo's API scope is #62's, in frontend.md.
+- Each shortcut is undone by the milestone named in its row, which then amends this entry.
+- D87's work order ([process.md](../agents/process.md#d87)) puts the sprint ahead of the rest of M1; when the sprint ends, this entry gets an amendment note and D87 a dated note in place.

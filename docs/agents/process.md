@@ -60,6 +60,8 @@ The first five sections were D-entries before this file existed, and keep their 
 
 *(Amended by D90: `scripts/work next` applies this order over REST; the build account's frontend builder takes Jutin's frontend issues while he's away, claimed by the `wip` label instead of reassignment.)*
 
+*(Amended by D96: the sprint's scope and shortcuts are recorded there.)*
+
 **Date:** 2026-09-30 · **Status:** Decided (process; Temi's priority call)
 
 **Decision:** Agents take work in a fixed order, recorded in CLAUDE.md's "Current mode":
