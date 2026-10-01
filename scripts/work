@@ -472,7 +472,7 @@ def cmd_labels(_args):
 
 
 LEDGER_LABEL = "d-ledger"
-LEDGER_BODY = """Every D-entry number in docs/spec/decisions.md is reserved here first (D98), so parallel
+LEDGER_BODY = """Every D-entry number in docs/spec/decisions.md is reserved here first (docs/agents/process.md, "Coordination between workers"), so parallel
 sessions on any account never take the same one. Reserve with `scripts/work reserve-d "<title>"`:
 it takes the next number above everything on main, in open PRs and in this ledger, posts it here,
 and re-reads the ledger; if another comment claimed the same number first, it takes the next one.
@@ -490,7 +490,7 @@ def ledger_issue():
         return found[0]["number"]
     existing = {label["name"] for label in gh(f"repos/{REPO}/labels?per_page=100")}
     if LEDGER_LABEL not in existing:
-        gh(f"repos/{REPO}/labels", "POST", {"name": LEDGER_LABEL, "color": "0e8a16", "description": "The D-number ledger (D98)"})
+        gh(f"repos/{REPO}/labels", "POST", {"name": LEDGER_LABEL, "color": "0e8a16", "description": "The D-number ledger (docs/agents/process.md)"})
     issue = gh(f"repos/{REPO}/issues", "POST", {"title": "D-number ledger", "body": LEDGER_BODY, "labels": [LEDGER_LABEL]})
     return issue["number"]
 

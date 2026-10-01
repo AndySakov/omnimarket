@@ -29,7 +29,7 @@ The order is CLAUDE.md's "Current mode" (D87). `scripts/work next backend|fronte
 | the claim commands below | `scripts/work claim <n>` |
 | `gh pr create` | `scripts/work open-pr <title> <body-file>` |
 | `gh pr merge` | `scripts/work merge <n>` |
-| counting D-entries by hand | `scripts/work reserve-d "<title>"` (the D-number ledger, D98) |
+| counting D-entries by hand | `scripts/work reserve-d "<title>"` (the D-number ledger, [process.md](process.md#coordination-between-workers)) |
 | — | `scripts/work overlaps`: other live branches and PRs touching this branch's files, and who holds them |
 | `gh issue comment <n> --body …` | `gh api repos/AndySakov/omnimarket/issues/<n>/comments -f body=…` |
 

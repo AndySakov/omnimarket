@@ -29,9 +29,10 @@ A bug that meets rule 2's bar gets the `critical` label, and a comment saying wh
 
 ## Decisions
 
-- Every choice that changes behaviour or architecture gets a D-entry: the decision, the rejected options, and why.
-- Take a new entry's number from `scripts/work reserve-d "<title>"`, never by counting: parallel sessions share one D-number ledger (D98).
-- To change an existing decision, add an amendment note to it and a new entry. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
+- A D-entry records a choice about OmniMarket itself, its behaviour or architecture (including the infrastructure and test tooling it's built and checked with): the decision, the rejected options, and why. Add one only when a reader would ask "why is it like this?" and the code can't answer.
+- How the work is coordinated (the work order, review and merge mechanics, agent sessions and their limits) isn't a D-entry. It lives in [docs/agents/process.md](docs/agents/process.md) and `docs/agents/handoff/`, changed in place; the PR records why.
+- Take a new entry's number from `scripts/work reserve-d "<title>"`, never by counting: parallel sessions share one D-number ledger ([process.md](docs/agents/process.md#coordination-between-workers)).
+- A refinement that keeps a decision's direction (a tighter limit, an extra retry, a renamed flag) is edited into that entry with a dated note. A new entry is for a reversal or a genuinely new choice, with an amendment note on the one it changes. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
 - Settle an empirical question by building a throwaway prototype, not by writing another D-entry.
 - Mark anything unverified **(verify)**.
 
