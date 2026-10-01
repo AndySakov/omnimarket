@@ -1,0 +1,36 @@
+{
+  "topic": "status",
+  "seq": "1",
+  "status": {
+    "lineage": {
+      "id": "T8Kzx/NDEtUjZm7CGFxx4w==",
+      "causedBy": [
+        "5zJfOHpS2WZ11tmoITeKyA=="
+      ]
+    },
+    "chainId": "8453",
+    "mode": "MODE_LIVE",
+    "headBlockNumber": "36120450",
+    "headBlockHash": "0x8e1f6a0b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7",
+    "headBlockTimeMs": "1790000000000",
+    "lagBlocks": "1",
+    "lagMs": "2310",
+    "pools": [
+      {
+        "venue": "uniswap-v2",
+        "known": "48210",
+        "active": "1312"
+      },
+      {
+        "venue": "uniswap-v3",
+        "known": "21876",
+        "active": "904"
+      }
+    ],
+    "shadowChecks": "5120",
+    "shadowCheckMismatches": "3",
+    "recording": true,
+    "coreInstance": "engine-base-1",
+    "uptimeMs": "5400000"
+  }
+}

@@ -9,6 +9,11 @@ fn main() {
         "omnimarket/engine/v1/config.proto",
         "omnimarket/det/v1/input_record.proto",
         "omnimarket/sim/v1/toy.proto",
+        "omnimarket/api/v1/common.proto",
+        "omnimarket/api/v1/market.proto",
+        "omnimarket/api/v1/trading.proto",
+        "omnimarket/api/v1/automation.proto",
+        "omnimarket/api/v1/stream.proto",
     ];
     let descriptors = protox::compile(files, [root]).expect("proto/ compiles");
     prost_build::Config::new()

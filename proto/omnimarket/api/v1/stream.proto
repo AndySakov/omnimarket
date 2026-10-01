@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package omnimarket.api.v1;
+
+import "omnimarket/api/v1/automation.proto";
+import "omnimarket/api/v1/market.proto";
+import "omnimarket/api/v1/trading.proto";
+import "omnimarket/lineage/v1/lineage.proto";
+
+// The WebSocket protocol (#78, #63): one connection, one proto3 JSON object per text frame. The
+// client subscribes to topics; for each, the server sends one `Snapshot`, then `Delta`s.
+//
+// Topics (v0 is Base-only, so topics carry no chain):
+//   status                          EngineStatus
+//   discovery                       DiscoveryFeed, then DiscoveryRow / DiscoveryRowRemoved
+//   token:<address>                 TokenSnapshot, then TokenTick
+//   trades:<address>                TradeList, then Trade
+//   candles:<address>:<interval>    CandleSeries, then Candle; interval is 1s, 1m, 5m or 1h
+//   account                         AccountSnapshot, then Account, Position, Quote, TradeStatus,
+//                                   TradeReceipt, Order, OrderStatus or Firing. Needs the session
+//                                   token in the Subscribe.
+//
+// `seq` counts a topic's messages from its snapshot (the snapshot's own seq) upwards by one. A
+// client that sees a gap discards the topic's state and resubscribes.
+
+// Client to server.
+message ClientMessage {
+  oneof kind {
+    Subscribe subscribe = 1;
+    Unsubscribe unsubscribe = 2;
+  }
+}
+
+message Subscribe {
+  string topic = 1;
+  // The bearer token from `POST /v1/session`; only the `account` topic needs it.
+  string session_token = 2;
+}
+
+message Unsubscribe {
+  string topic = 1;
+}
+
+// Server to client.
+message ServerMessage {
+  oneof kind {
+    Snapshot snapshot = 1;
+    Delta delta = 2;
+    Heartbeat heartbeat = 3;
+    StreamError error = 4;
+  }
+}
+
+// A topic's full state, sent first after each subscribe (and resubscribe).
+message Snapshot {
+  string topic = 1;
+  uint64 seq = 2;
+  oneof payload {
+    EngineStatus status = 3;
+    DiscoveryFeed discovery = 4;
+    TokenSnapshot token = 5;
+    TradeList trades = 6;
+    CandleSeries candles = 7;
+    AccountSnapshot account = 8;
+  }
+}
+
+// One change to a topic. Records keyed by ID replace the client's copy (an upsert): a discovery
+// row by token, a candle by open time, a position by token, an order or trade by its ID. A trade
+// on `trades:<address>` is appended.
+message Delta {
+  string topic = 1;
+  uint64 seq = 2;
+  oneof payload {
+    EngineStatus status = 3;
+    DiscoveryRow discovery_row = 4;
+    DiscoveryRowRemoved discovery_row_removed = 5;
+    TokenTick token_tick = 6;
+    Trade trade = 7;
+    Candle candle = 8;
+    Account account = 9;
+    Position position = 10;
+    Quote quote = 11;
+    TradeStatus trade_status = 12;
+    TradeReceipt trade_receipt = 13;
+    Order order = 14;
+    OrderStatus order_status = 15;
+    Firing firing = 16;
+  }
+}
+
+// Sent every second. A client that misses three in a row marks its data stale.
+message Heartbeat {
+  uint64 server_time_ms = 1;
+  // The chain head the server has applied, so the client can tell a quiet market from a stall.
+  uint64 head_block_number = 2;
+}
+
+// A problem with one request or topic. The connection stays open unless `code` says otherwise.
+message StreamError {
+  Code code = 1;
+  // The topic it concerns; empty for the connection as a whole.
+  string topic = 2;
+  string message = 3;
+
+  enum Code {
+    CODE_UNSPECIFIED = 0;
+    CODE_UNKNOWN_TOPIC = 1;
+    CODE_UNAUTHENTICATED = 2;
+    // Too many subscriptions or messages; the server closes the connection after sending it.
+    CODE_RATE_LIMITED = 3;
+    // The topic's source stopped, e.g. the engine stalled; the client marks it unavailable.
+    CODE_UNAVAILABLE = 4;
+    CODE_INTERNAL = 5;
+  }
+}
+
+// The `account` topic's snapshot: everything the trade panel and portfolio open with.
+message AccountSnapshot {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  Account account = 2;
+  repeated Position positions = 3;
+  repeated Order orders = 4;
+  // Trades still running.
+  repeated TradeStatus open_trades = 5;
+}

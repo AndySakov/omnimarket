@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Proves a fix's regression test fails on main's code before the fix merges (D91).
+"""Proves a fix's regression test fails on main's code before the fix merges (D92).
 
   scripts/regression-check [--base <ref>] [--head <ref>] [--summary <file>] [--fixes-bug <body-file>]
 
@@ -34,7 +34,7 @@ from pathlib import Path
 REPO = os.environ.get("GITHUB_REPOSITORY", "AndySakov/omnimarket")
 # GitHub's closing keywords: https://docs.github.com/en/issues/tracking-your-work-with-issues/
 # using-issues/linking-a-pull-request-to-an-issue
-CLOSING_REF = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b", re.I)
+CLOSING_REF = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+([\w.-]+/[\w.-]+)?#(\d+)\b", re.I)
 
 
 # --- Reading Rust source -------------------------------------------------------------------------
@@ -120,11 +120,19 @@ MOD_BLOCK = re.compile(r"\bmod\s+(\w+)\s*\{")
 def item_end(masked, start):
     """The end of the item starting at `start` (its attributes included): its block's closing
     brace, or its `;` when one comes first."""
-    brace, semi = masked.find("{", start), masked.find(";", start)
-    # Skip the attributes' own brackets: `#[cfg(test)]` holds neither `{` nor `;`.
-    if brace >= 0 and (semi < 0 or brace < semi):
-        return block_end(masked, brace)
-    return len(masked) if semi < 0 else semi + 1
+    # Only a `{` or `;` outside brackets counts: `[u8; 2]` in a type holds a `;`.
+    depth = 0
+    for k in range(start, len(masked)):
+        c = masked[k]
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif depth == 0 and c == "{":
+            return block_end(masked, k)
+        elif depth == 0 and c == ";":
+            return k + 1
+    return len(masked)
 
 
 def cfg_test_items(text):
@@ -184,10 +192,16 @@ def is_test_file(path):
 # --- Git and cargo -------------------------------------------------------------------------------
 
 
+def fail(message):
+    """Stops on a usage, git or GitHub error: exit 2, told apart from a failed check's 1."""
+    print(f"regression-check: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
 def git(*args, cwd=None, check=True):
     done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     if check and done.returncode != 0:
-        sys.exit(f"regression-check: git {' '.join(args)}: {done.stderr.strip()}")
+        fail(f"git {' '.join(args)}: {done.stderr.strip()}")
     return done.stdout
 
 
@@ -362,7 +376,7 @@ def check(repo, base, head, target_dir):
         "## Regression check",
         "",
         f"The PR's new or changed tests, on its head (`{head_sha[:10]}`) and on main's code "
-        f"(`{base_sha[:10]}`) with the PR's tests put in (D91).",
+        f"(`{base_sha[:10]}`) with the PR's tests put in (D92).",
         "",
     ]
     if not targets:
@@ -434,7 +448,8 @@ def excerpt(out):
 
 def fixed_bugs(body, labels_of):
     """The issues `body` closes that are labelled `bug`. `labels_of(n)` returns issue n's labels."""
-    numbers = sorted({int(n) for n in CLOSING_REF.findall(body or "")})
+    refs = CLOSING_REF.findall(body or "")
+    numbers = sorted({int(n) for repo, n in refs if not repo or repo.lower() == REPO.lower()})
     return [n for n in numbers if "bug" in labels_of(n)]
 
 
@@ -442,8 +457,11 @@ def gh_labels(n):
     done = subprocess.run(
         ["gh", "api", f"repos/{REPO}/issues/{n}", "--jq", "[.labels[].name]"], capture_output=True, text=True
     )
+    if done.returncode != 0 and "HTTP 404" in done.stderr:
+        print(f"regression-check: #{n} isn't an issue here; not counted as a bug", file=sys.stderr)
+        return []
     if done.returncode != 0:
-        sys.exit(f"regression-check: reading issue #{n}'s labels: {done.stderr.strip()}")
+        fail(f"reading issue #{n}'s labels: {done.stderr.strip()}")
     return json.loads(done.stdout)
 
 

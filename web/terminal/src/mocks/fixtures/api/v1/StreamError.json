@@ -1,0 +1,5 @@
+{
+  "code": "CODE_UNAUTHENTICATED",
+  "topic": "account",
+  "message": "the account topic needs a session token"
+}

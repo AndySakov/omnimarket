@@ -1,0 +1,21 @@
+{
+  "pool": "0x1f2e3d4c5b6a79880716253443526170f0e1d2c3",
+  "venue": "uniswap-v3",
+  "poolFeeBps": 30,
+  "tokenIn": {
+    "chainId": "8453",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "decimals": 18
+  },
+  "tokenOut": {
+    "chainId": "8453",
+    "address": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+    "symbol": "NOVA",
+    "name": "NovaSet (fixture)",
+    "decimals": 18
+  },
+  "amountIn": "0.099",
+  "amountOut": "19879.8387"
+}

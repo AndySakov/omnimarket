@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for scripts/regression-check (D91). verify.sh runs them.
+"""Tests for scripts/regression-check (D92). verify.sh runs them.
 
 The end-to-end cases build a throwaway git repository holding one small crate with a bug on `main`,
 and a branch per kind of fix PR, then run the script on each branch as CI would."""
@@ -70,6 +70,10 @@ class ReadingRust(unittest.TestCase):
         self.assertEqual(rc.target_of(d, "crates/x/src/a/b.rs"), (("--lib",), ["a", "b"]))
         self.assertEqual(rc.target_of(d, "crates/x/src/main.rs"), (("--bins",), []))
 
+    def test_a_semicolon_inside_brackets_does_not_end_a_cfg_test_item(self):
+        text = "pub fn f() {}\n#[cfg(test)]\nconst X: [u8; 2] = [1, 2];\npub fn g() {}\n"
+        self.assertEqual(rc.splice(text, ""), "pub fn f() {}\n\npub fn g() {}\n")
+
     def test_only_closing_references_to_bug_issues_make_a_fix(self):
         labels = {1: ["bug"], 2: ["backend"], 3: ["bug", "critical"]}.get
         self.assertEqual(rc.fixed_bugs("Fixes #1", labels), [1])
@@ -77,6 +81,8 @@ class ReadingRust(unittest.TestCase):
         self.assertEqual(rc.fixed_bugs("Resolved: #3\nCloses #2", labels), [3])
         self.assertEqual(rc.fixed_bugs("See #1; related to #3", labels), [])
         self.assertEqual(rc.fixed_bugs("", labels), [])
+        self.assertEqual(rc.fixed_bugs(f"Fixes {rc.REPO}#1", labels), [1])
+        self.assertEqual(rc.fixed_bugs("Fixes someone/else#1", labels), [])
 
 
 LIB = """\

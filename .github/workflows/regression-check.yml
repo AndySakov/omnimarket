@@ -1,6 +1,6 @@
 name: Regression check
 
-# D91. On a PR that fixes a bug (its body closes an issue labelled `bug`), proves that the PR's new or
+# D92. On a PR that fixes a bug (its body closes an issue labelled `bug`), proves that the PR's new or
 # changed tests fail on main's code and pass on the PR's head: `scripts/regression-check`. On any
 # other PR it passes at once. The report is in the job summary.
 # `edited` re-runs it when the PR body starts or stops closing a bug.

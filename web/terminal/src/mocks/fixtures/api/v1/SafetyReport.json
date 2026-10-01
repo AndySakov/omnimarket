@@ -1,0 +1,33 @@
+{
+  "lineage": {
+    "id": "ThQ94lspu09ZflMCVinPRA==",
+    "causedBy": [
+      "UjEloKPh87+oduq/8aCvTQ=="
+    ]
+  },
+  "verdict": "SAFETY_VERDICT_PASSED",
+  "roundTrip": {
+    "spentToken": {
+      "chainId": "8453",
+      "address": "0x4200000000000000000000000000000000000006",
+      "symbol": "WETH",
+      "name": "Wrapped Ether",
+      "decimals": 18
+    },
+    "amountSpent": "0.01",
+    "tokenBought": "1998.3871",
+    "amountReturned": "0.00994",
+    "buyTaxPct": "0",
+    "sellTaxPct": "0",
+    "sellSucceeded": true,
+    "pool": "0x1f2e3d4c5b6a79880716253443526170f0e1d2c3"
+  },
+  "flags": [
+    {
+      "code": "owner_not_renounced",
+      "detail": "Owner 0x51a0…c3 can still call setFee"
+    }
+  ],
+  "checkedBlock": "36120380",
+  "checkedAtMs": "1789999860000"
+}

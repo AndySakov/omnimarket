@@ -1,0 +1,11 @@
+{
+  "token": {
+    "chainId": "8453",
+    "address": "0x0000000000000000000000000000000000000000",
+    "symbol": "ETH",
+    "name": "Ether",
+    "decimals": 18
+  },
+  "amount": "0.9",
+  "valueUsd": "2250"
+}

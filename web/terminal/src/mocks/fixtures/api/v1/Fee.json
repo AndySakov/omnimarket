@@ -1,0 +1,12 @@
+{
+  "feeBps": 100,
+  "amount": "0.001",
+  "token": {
+    "chainId": "8453",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "decimals": 18
+  },
+  "valueUsd": "2.5"
+}

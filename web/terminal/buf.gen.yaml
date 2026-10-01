@@ -1,0 +1,16 @@
+# Generates src/api/generated from proto/omnimarket/api (#75, D91). Run `npm run api:generate`;
+# `npm run api:check` (part of `npm run verify`) fails when the committed files are stale.
+version: v2
+# Deletes the output directory first, so a removed proto leaves no stale file behind.
+clean: true
+inputs:
+  - directory: ../../proto
+    paths:
+      - ../../proto/omnimarket/api
+plugins:
+  - local: node_modules/.bin/protoc-gen-es
+    out: src/api/generated
+    include_imports: true
+    opt:
+      - target=ts
+      - import_extension=none

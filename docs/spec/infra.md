@@ -45,13 +45,13 @@ Terraform · Helm · Argo CD · Prometheus · Grafana · Loki · Tempo · Pyrosc
 
 ## CI pipeline
 
-Unit tests · mutation testing (D89) · fix PRs' regression tests checked on `main`'s code (D91) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
+Unit tests · mutation testing (D89) · fix PRs' regression tests checked on `main`'s code (D92) · contract fork tests (Anvil) · Protobuf compatibility checks · nightly deterministic-simulation fuzz runs (D49).
 
 CI runs on GitHub-hosted runners (`.github/workflows/ci.yml`, D76). CI and the local commit gate run the same `scripts/verify.sh` on every commit that isn't frontend-only, so such a commit that passes locally passes the same checks in CI. Locally, a tracked git pre-commit hook (`.githooks/`, installed by `scripts/setup.sh`) gates every commit, and a Claude Code `PreToolUse` hook refuses agent commits with `--no-verify`. CI is the gate nothing can skip.
 
 The hook runs `scripts/verify-fast.sh` (D86). A commit whose staged files are all under `web/terminal/` gets the frontend's fast checks (`npm run verify:fast`: typecheck, lint, unit tests). Every other commit runs `scripts/verify.sh`: any path outside `web/terminal/`, including `clippy.toml`, `.github/`, docs or a new top-level directory, gets the full checks. `verify.sh` doesn't touch the frontend, so a backend clone needs no Node or `node_modules`.
 
-CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
+CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `web/terminal/`: typecheck, lint, unit tests, a check that the TypeScript generated from `proto/omnimarket/api` isn't stale (`npm run api:check`, D91), the production and Storybook builds, and Playwright's end-to-end, visual and accessibility tests in Chromium. It isn't a required check on `main` yet.
 
 Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, so local runs and CI use the same binary with nothing installed globally.
 
@@ -66,7 +66,7 @@ CI also runs a Kafka service container (the same `apache/kafka` image as the loc
 
 The `mutants` workflow (`.github/workflows/mutants.yml`) runs it on PRs that touch Rust, for the changed code only, and nightly on `main`. The nightly run tests every mutant not already caught. Its ledger is cached per ISO week, so the week's first run tests everything again. The workers' target dirs are cached from `main`'s runs. Missed mutants appear in the job summary and the `mutants` artifact, and turn a PR's run red. It isn't a required check: it reports to the author and the watchdog.
 
-**Regression check (D91).** On a PR whose body closes an issue labelled `bug` with a closing keyword (`Fixes #n`, `Closes #n`, ...), the `regression-check` workflow (`.github/workflows/regression-check.yml`) runs `scripts/regression-check`. It finds the Rust tests the PR adds or changes since its merge base with `main`, and runs them on the PR's head, where all must pass, and on `main`'s code with the PR's tests put in, where at least one must fail.
+**Regression check (D92).** On a PR whose body closes an issue labelled `bug` with a closing keyword (`Fixes #n`, `Closes #n`, ...), the `regression-check` workflow (`.github/workflows/regression-check.yml`) runs `scripts/regression-check`. It finds the Rust tests the PR adds or changes since its merge base with `main`, and runs them on the PR's head, where all must pass, and on `main`'s code with the PR's tests put in, where at least one must fail.
 - **The PR's tests on `main`'s code.** A worktree of `main` gets the PR's version of every changed file under a `tests/` directory (or named `tests.rs`). In every other changed source file it keeps `main`'s code and takes the PR's `#[cfg(test)]` items in place of `main`'s. A source file `main` doesn't have can't take its tests, so they're reported as new.
 - **What counts.** A test that fails on `main`'s code proves the bug. One that doesn't build there (it calls something the fix adds) is reported but doesn't count. When one file's test module doesn't build on `main`'s code, each file's tests run with only its own module put in, so it can't hide the others. `#[ignore]`d tests don't run.
 - **The report** goes to the job summary: each test's result on both sides, the panics of the tests failing on `main`, and the build errors.

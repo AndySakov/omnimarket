@@ -1509,6 +1509,8 @@ The submitter may pass a **tighter** minimum output than the signed one, never a
 
 ## D62 — Frontend: thin prototyping UI and a full terminal UI; mirror the leaders, then do better
 
+*(Extended by D91: the API contract v0, its wire format and generated types.)*
+
 **Date:** 2026-09-28 · **Status:** Decided (closes product.md question 3)
 
 **Decision:**
@@ -2119,11 +2121,44 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
-## D91 — CI proves a fix's regression test fails on main's code
+## D91 — API contract v0: proto3 JSON, decimal strings, generated TypeScript
+
+**Date:** 2026-10-01 · **Status:** Decided, pending Temi's review for Jutin (#75)
+
+**Decision:** The API between the backend and both UIs (D62) is defined in `proto/omnimarket/api/v1` and checked by `buf lint` and `buf breaking` like every other schema (D70). v0 covers the demo's screens (#62). Details and the REST paths are in `frontend.md`; the WebSocket topics are in `data.md`.
+- **Wire format:** proto3's JSON mapping, over REST and one WebSocket connection (one JSON object per text frame).
+- **Amounts, prices, USD values and percentages are decimal strings**: base 10, no exponent, exact. Token amounts are in whole-token units (already divided by the token's decimals). Percentages are in percent ("-3" is −3%); slippage and fees are basis points (`uint32`).
+- **Addresses and hashes are lowercase 0x hex strings**, not `bytes`. Lineage IDs stay `bytes` in the shared `omnimarket.lineage.v1.Lineage` (base64 in JSON).
+- **Times are Unix milliseconds** (`uint64 *_ms`), from block time or the det clock. Like every 64-bit integer in proto3 JSON, they travel as strings; the generated TypeScript makes them `bigint`.
+- **Lineage (D53, D71).** Every record the server sends carries `Lineage`. A message that presents one backend record (a trade, firing or receipt) carries that record's lineage; one the API assembles (a snapshot, list or feed) gets its own ID from its key and block, with `caused_by` naming what it was built from. Requests carry a client-chosen `client_request_id` instead: the server derives the request's lineage ID from it, and a repeat with the same ID is the same request, which makes quoting, trading and order edits idempotent (build rule 7). The WebSocket envelope (subscribe, snapshot, delta, heartbeat, error) and the parts that only appear inside a record (`TokenRef`, `RouteLeg`, `Fee` and the like) carry none.
+- **WebSocket protocol.** The client subscribes to topics; for each, the server sends one snapshot, then deltas, numbered by a per-topic `seq`. A gap means the client resubscribes. Deltas replace the record with the same key; trades append. A heartbeat every second; three missed mark the data stale.
+- **Generated code.** TypeScript is generated with `buf generate` and protobuf-es v2 into `web/terminal/src/api/generated` and committed; `npm run api:check` (part of the frontend's `verify`) fails when it's stale. Rust gets the same messages from the `proto` crate.
+- **Fixtures.** One proto3 JSON file per message in `web/terminal/src/mocks/fixtures/api/v1`, for MSW, stories and tests. A test checks that every message has one and that each is canonical: it parses, and re-serialises to the same JSON.
+
+**Rejected:**
+- *Binary protobuf on the WebSocket.* Smaller, but unreadable in browser devtools, and the demo's rates (≤ 20 ticks a second per token, D43) don't need it. It can be added later as a negotiated encoding of the same messages.
+- *Raw integer amounts (wei) as strings.* Equally exact, but every value on screen then needs the token's decimals, and the scaling bugs move into the UI. The server converts once.
+- *JSON numbers for amounts.* A double can't hold a 256-bit amount or most prices exactly.
+- *`bytes` for addresses and hashes.* proto3 JSON writes them as base64, which no EVM tool or explorer reads.
+- *`google.protobuf.Timestamp`.* RFC 3339 strings read well, but block times and the det clock are integer milliseconds, so every conversion is a chance to drift.
+- *Hand-written TypeScript types, or OpenAPI.* Two definitions of one contract drift; D62 says the types come from the proto schemas.
+- *gRPC-web or Connect services.* A protocol runtime and a server framework the demo doesn't need; v0 documents plain REST paths.
+- *Generating the TypeScript at build time instead of committing it.* Every frontend install would need buf, and contract changes wouldn't show in the PR's diff.
+
+**Why:** proto3 JSON keeps one schema for Rust and TypeScript (D41, D62) while staying readable in a browser. Decimal strings are the only JSON form that's exact for both 18-decimal token amounts and USD values, and lowercase hex is what users paste into explorers.
+
+**Consequence:**
+- From merge on, `buf breaking` holds the contract: changes are additive, or go to `v2`.
+- The UI parses amounts into `decimal.js` (or its fixed-decimal type) and never into `number` (frontend-plan.md).
+- #78's server and #63's client follow this protocol; the fixtures are the shared example of each message.
+
+---
+
+## D92 — CI proves a fix's regression test fails on main's code
 
 **Date:** 2026-10-01 · **Status:** Decided (#97)
 
-**Decision:** A PR whose body closes an issue labelled `bug` (GitHub's closing keywords: `Fixes #n`, `Closes #n`, `Resolves #n` and their tenses) gets the `regression-check` CI job, which runs `scripts/regression-check`:
+**Decision:** A PR whose body closes an issue labelled `bug` (GitHub's closing keywords: `Fixes #n`, `Closes #n`, `Resolves #n` and their tenses, with `#n` or this repository's `owner/repo#n`; a number that isn't an issue here doesn't count) gets the `regression-check` CI job, which runs `scripts/regression-check`:
 - **Which tests.** The Rust test functions (`#[test]`, `#[tokio::test]`, ...) the PR adds or whose text it changes, since its merge base with `main`, in files under a `tests/` directory and in source files' `#[cfg(test)]` items. `#[ignore]`d ones are skipped.
 - **Main's code with the PR's tests**, the way the watchdog did it by hand: a worktree of `main`, given the PR's version of every changed test file, and in every other changed source file `main`'s code with the PR's `#[cfg(test)]` items in place of `main`'s.
 - **The verdict.** Every test must pass on the PR's head, and at least one must fail on `main`'s code. A test that doesn't build on `main`'s code (it calls API the fix adds) is reported but doesn't count: it shows the API changed, not that the bug was there. If one source file's test module doesn't build on `main`'s code, each file's tests run again with only its own module put in, so one file can't hide the others.
@@ -2149,4 +2184,5 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Fix PRs should keep `Fixes #n` / `Closes #n` in the body: without a closing reference to the `bug` issue the job doesn't check anything.
 - A fix whose only possible test needs new API (it can't build on `main`) fails the job; its author explains in the PR, and the watchdog and Temi decide.
 - Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
+- The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
 - The watchdog still reads the failure on `main` to confirm it's the bug's.

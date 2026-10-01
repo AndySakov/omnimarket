@@ -1,0 +1,6 @@
+{
+  "step": "TRADE_STEP_SIMULATE",
+  "startedAtMs": "1790000001009",
+  "finishedAtMs": "1790000001151",
+  "outcome": "OUTCOME_SUCCEEDED"
+}
