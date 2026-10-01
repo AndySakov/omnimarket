@@ -61,7 +61,7 @@ pub fn spawn_call_worker(rpc_url: &str, calls_per_second: u32) -> Result<CallWor
     })
 }
 
-/// The check before a run (D86): the endpoint's latest block number, then a plain `eth_call`
+/// The check before a run (D88): the endpoint's latest block number, then a plain `eth_call`
 /// at that block (to the zero address, no data), which any node answers with empty bytes. A
 /// failure that isn't an answer is retried for up to `CHECK_LIMIT`. The node answering the
 /// call with an error fails the check at once.
@@ -88,7 +88,7 @@ pub async fn check_call_endpoint(endpoint: &dyn CallEndpoint) -> Result<(), Chai
 /// answer (a transport error, a rate limit, a node that is down) is retried with backoff, so
 /// the core only ever sees what the node answered.
 ///
-/// A call still unanswered after `ANSWER_LIMIT` means the endpoint is unusable (D86): the
+/// A call still unanswered after `ANSWER_LIMIT` means the endpoint is unusable (D88): the
 /// worker stops calling, sends the error on `report`, and holds every call it hasn't answered
 /// until `requests` closes. Returns once `requests` has closed and nothing is in flight.
 pub async fn answer_calls(

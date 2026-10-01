@@ -41,7 +41,7 @@ pub enum ChainError {
     Malformed(String),
     /// Every attempt at `what` failed for `waited` with something that isn't the node's
     /// answer (`last` is the latest): the endpoint is down, refusing calls, or rate limiting
-    /// without end (D86).
+    /// without end (D88).
     Unanswered {
         what: &'static str,
         waited: Duration,

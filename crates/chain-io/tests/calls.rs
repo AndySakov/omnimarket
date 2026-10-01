@@ -1,4 +1,4 @@
-//! The call worker against what indexer.md and D86 say it does, on scripted endpoints.
+//! The call worker against what indexer.md and D88 say it does, on scripted endpoints.
 
 use std::cell::Cell;
 use std::time::Duration;

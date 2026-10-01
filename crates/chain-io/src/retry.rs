@@ -1,5 +1,5 @@
 //! Retrying reads that fail with something other than the node's answer, up to a limit, so a
-//! dead endpoint stops the run instead of hanging it (D86).
+//! dead endpoint stops the run instead of hanging it (D88).
 
 use std::time::Duration;
 

@@ -26,3 +26,32 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: scripts/verify.sh
       - run: cargo test -p sim --test kafka -- --ignored
+
+  # The terminal UI's full checks (D86). verify.sh leaves web/terminal/ to this job.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/terminal/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: web/terminal
+        run: npm ci
+      - name: Install Playwright Chromium
+        working-directory: web/terminal
+        run: npx playwright install --with-deps chromium
+      - name: Verify frontend
+        working-directory: web/terminal
+        run: npm run verify:pr
+      - name: Upload frontend reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-reports
+          path: |
+            web/terminal/playwright-report
+            web/terminal/test-results
+            web/terminal/storybook-static

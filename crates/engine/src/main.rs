@@ -8,7 +8,7 @@
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`; otherwise both stay in
 //! memory. If `--rpc` or `--call-rpc` can't answer, before the run starts or during it, it
-//! stops with an error naming that flag (D86). `replay` runs the core again from a recording,
+//! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
 //! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
 //! (D54, D72).
 
@@ -37,10 +37,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Follow {
-        /// Where blocks and logs are read. Checked before the run starts (D86).
+        /// Where blocks and logs are read. Checked before the run starts (D88).
         #[arg(long, default_value = chain_io::BASE_PUBLIC_RPC)]
         rpc: String,
-        /// Where `eth_call`s go (D82). Checked before the run starts (D86).
+        /// Where `eth_call`s go (D82). Checked before the run starts (D88).
         #[arg(long, default_value = chain_io::BASE_PUBLICNODE_RPC)]
         call_rpc: String,
         #[arg(long, default_value_t = 10)]
@@ -87,11 +87,18 @@ struct S3Args {
     s3_endpoint: String,
     #[arg(long, default_value = "omnimarket-inputs")]
     s3_bucket: String,
-    #[arg(long, env = "OMNIMARKET_S3_ACCESS_KEY", default_value = "omnimarket")]
+    // hide_env_values: clap would otherwise print the keys' current values in --help.
+    #[arg(
+        long,
+        env = "OMNIMARKET_S3_ACCESS_KEY",
+        hide_env_values = true,
+        default_value = "omnimarket"
+    )]
     s3_access_key: String,
     #[arg(
         long,
         env = "OMNIMARKET_S3_SECRET_KEY",
+        hide_env_values = true,
         default_value = "omnimarket-dev"
     )]
     s3_secret_key: String,
@@ -218,7 +225,7 @@ fn follow(
         .transpose()?;
 
     // Both spawns check their endpoint before Kafka or the core start, so a dead one stops the
-    // run in seconds instead of failing every read the core depends on (D86).
+    // run in seconds instead of failing every read the core depends on (D88).
     let chain_io::CallWorker {
         requests: calls,
         gave_up: calls_gave_up,
@@ -279,7 +286,7 @@ fn follow(
     // have their own threads. If the call worker gives up on its endpoint mid-run, the core is
     // dropped here, unfinished, and the run stops with the worker's error. If the follower gives
     // up on its endpoint, the core's blocks end and it finishes what's in flight; the run then
-    // stops with the follower's error below (D86).
+    // stops with the follower's error below (D88).
     let runtime = tokio::runtime::Builder::new_current_thread().build()?;
     let outcome: Result<Summary, Box<dyn std::error::Error>> = runtime.block_on(async {
         tokio::select! {
@@ -313,7 +320,7 @@ fn follow(
     Ok(())
 }
 
-/// What `follow` stops with when the endpoint `flag` names can't answer (D86).
+/// What `follow` stops with when the endpoint `flag` names can't answer (D88).
 fn unusable_endpoint(what: &str, flag: &str, url: &str, error: &chain_io::ChainError) -> String {
     format!(
         "the {what} endpoint {url} is unusable: {error}\nPass {flag} with another Base RPC URL."

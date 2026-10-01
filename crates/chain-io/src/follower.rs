@@ -28,7 +28,7 @@ pub struct FollowerConfig {
 /// ends or the receiver is dropped. A block the poll skipped is fetched by number, so the core
 /// never sees a gap. A failed call is retried with backoff, never skipped: the input log must
 /// hold every block (D54). A read still unanswered after `ANSWER_LIMIT` means the endpoint is
-/// unusable: the follower returns the error, which ends the core's blocks (D86).
+/// unusable: the follower returns the error, which ends the core's blocks (D88).
 pub async fn follow_head(
     reader: &dyn ChainReader,
     config: &FollowerConfig,
@@ -79,7 +79,7 @@ pub async fn follow_head(
     }
 }
 
-/// The check before a run (D86): what one poll reads, retried for up to `CHECK_LIMIT` each. The
+/// The check before a run (D88): what one poll reads, retried for up to `CHECK_LIMIT` each. The
 /// endpoint's latest block number, that block's header, and the header's logs of `topics`.
 pub async fn check_block_endpoint(
     reader: &dyn ChainReader,

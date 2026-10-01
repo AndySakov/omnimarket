@@ -89,7 +89,7 @@ No canonical block was replaced in an hour. Zero in 1,801 bounds the rate at abo
 
 `eth_blockNumber` on `mainnet.base.org` at 10/s for 40s: none limited. PublicNode serves `eth_call` state 90 blocks back and refuses 100 back (HTTP 403, "archive requests require a personal token").
 
-**A run's calls on each endpoint (D86)**, `engine follow --minutes 1 --check-every 5`, 2026-09-30:
+**A run's calls on each endpoint (D88)**, `engine follow --minutes 1 --check-every 5`, 2026-09-30:
 
 | `--call-rpc` | Outcome |
 |---|---|
@@ -102,7 +102,7 @@ The same for the block endpoint, `--rpc`, with the default `--call-rpc`:
 
 | `--rpc` | Outcome |
 |---|---|
-| `http://127.0.0.1:1` (nothing listening), `--minutes 1` | Before D86: still running when killed at 90s, having printed nothing. After: exit 1 after 8s, at the check before the run |
+| `http://127.0.0.1:1` (nothing listening), `--minutes 1` | Before D88: still running when killed at 90s, having printed nothing. After: exit 1 after 8s, at the check before the run |
 | The stand-in forwarding to PublicNode, then answering every request `-32701` from about 17s into the run, `--minutes 3` | Exit 1 after 80s: the follower's `eth_blockNumber` went unanswered for 63s |
 
 ## Still to measure (needs live network access)

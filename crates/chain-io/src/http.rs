@@ -59,7 +59,7 @@ impl CallEndpoint for HttpChain {
 /// - a block the node doesn't have yet: a load-balanced node that lags answers a call at a
 ///   recent block with `-32001 block not found` or `header not found`;
 /// - no node at all: PublicNode answered every call with `-32701 no available nodes found for
-///   platform base-rpc` on 2026-09-30 (D86).
+///   platform base-rpc` on 2026-09-30 (D88).
 ///
 /// Everything else (a revert, a bad argument, state older than the node keeps) is the answer.
 fn is_retryable(code: i64, message: &str) -> bool {
