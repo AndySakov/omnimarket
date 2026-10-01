@@ -14,6 +14,7 @@
 #   scripts/mutants.sh --diff BASE   only mutants in code changed since BASE (e.g. origin/main);
 #                                    a fresh verdict that leaves the ledger alone
 #   scripts/mutants.sh -- ARGS       extra cargo-mutants arguments, e.g. -- -f crates/venues/src/v3.rs
+#   scripts/mutants.sh --clean       remove the workers' git worktrees, their builds and the ledger
 #
 # The working tree is tested as it is, uncommitted changes included. Results land in
 # $MUTANTS_DIR/last. Exit 0: every mutant tested was caught. 2: some were missed or timed out.
@@ -28,6 +29,7 @@ cpus=$(getconf _NPROCESSORS_ONLN)
 workers=${MUTANTS_JOBS:-$(((cpus + 1) / 2))}
 dir=${MUTANTS_DIR:-target/mutants}
 fresh=0
+clean=0
 base=
 extra=()
 
@@ -35,6 +37,7 @@ usage() { sed -n '/^#   scripts/p' "$0" | sed 's/^#   //' >&2; }
 while [[ $# -gt 0 ]]; do
   case $1 in
     --fresh) fresh=1 ;;
+    --clean) clean=1 ;;
     --diff) base=${2:?--diff needs a base, such as origin/main}; shift ;;
     --jobs) workers=${2:?--jobs needs a number}; shift ;;
     --) shift; extra=("$@"); break ;;
@@ -42,6 +45,22 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# The workers are git worktrees, so deleting their directories (cargo clean does) leaves entries in
+# `git worktree list` until `git worktree prune`. --clean removes both, and everything else here.
+if [[ $clean == 1 ]]; then
+  if [[ -d $dir/lock ]]; then
+    echo "mutants: a run holds $dir/lock; not cleaning (remove it if none is running)" >&2
+    exit 1
+  fi
+  for tree in "$dir"/workers/w*; do
+    if [[ -d $tree ]]; then git worktree remove --force "$tree"; fi
+  done
+  git worktree prune
+  rm -rf "$dir"
+  echo "mutants: removed $dir and its worktrees"
+  exit 0
+fi
 
 command -v cargo-mutants >/dev/null || {
   echo "mutants: cargo-mutants is required: cargo install --locked cargo-mutants@$version" >&2

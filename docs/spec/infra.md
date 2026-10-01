@@ -60,6 +60,7 @@ CI also runs a Kafka service container (the same `apache/kafka` image as the loc
 **Mutation testing (D89).** `scripts/mutants.sh` runs cargo-mutants, which changes the code one small mutation at a time (a condition flipped, a return value replaced) and checks that some workspace test fails. A mutant no test catches is code the tests run but don't check.
 - **Builds carry over.** Each worker is a persistent git worktree under `target/mutants/workers/` with its own target dir. Each run checks the workers out at a snapshot of the working tree, uncommitted changes included, so only changed crates rebuild.
 - **Results carry over.** A ledger skips mutants caught in earlier runs until `--fresh`.
+- **Cleaning up.** The workers are git worktrees, so `--clean` removes them with `git worktree remove`, rather than leaving entries behind as `cargo clean` does.
 - **Diff mode.** `--diff origin/main` tests only mutants in code changed since `main`.
 - **The baseline covers the workspace.** The script first checks that the unmutated workspace's tests pass, since cargo-mutants' own baseline covers only the mutated packages.
 
