@@ -17,6 +17,8 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 The order is CLAUDE.md's "Current mode" (D87). `scripts/work next backend|frontend` applies it and prints why it skipped the rest; the queries below are what it does. Several sessions run at once under the one GitHub account, from Temi's Claude account and the build account (D90), so an issue counts as taken once it has an assignee, the `wip` label, or an open PR that closes it.
 
+`scripts/work next frontend` can't tell which account runs it: only the build account's frontend builder calls it while Jutin is away (D90).
+
 **In cloud sessions, use `scripts/work`.** GitHub's GraphQL API is blocked there, so `gh issue list`, `gh issue view`, `gh pr list`, `gh pr view` and `gh pr checks` fail; `gh api` (REST) works.
 
 | Instead of | Use |

@@ -81,5 +81,5 @@ The orchestrator can't see the credit balance. Check it in the build account's c
 ## Known limits
 
 - A session started by another session receives its brief as an automated message. Briefs written as ordinary work orders run (tested); one that read like a credential probe was refused. The orchestrator's briefs follow the tested shape.
-- Whether a worker can message the orchestrator back with `send_message` is **(verify)**. If not, the orchestrator's hourly tick reads each worker's status instead, and work just moves a little slower.
+- Workers message the orchestrator with `send_message` (session ID `@parent` works, tested). If a message is lost, the orchestrator's hourly tick reads each worker's status instead.
 - Cloud containers are reclaimed when idle. Anything not pushed is lost, so builders push at each green commit.

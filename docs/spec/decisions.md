@@ -1857,7 +1857,7 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 
 ## D81 — PRs merge only after a watchdog review
 
-*(Amended by D90: the watchdog posts its verdict as a PR comment, and the `watchdog-status` workflow turns it into the `watchdog/review` status; the watchdog runs on the build account; builders merge once both checks pass.)*
+*(Amended by D90: the watchdog posts its verdict as a PR comment, and the `watchdog-status` workflow turns it into the `watchdog/review` status; the watchdog runs on the build account; builders merge once `verify`, `frontend` and `watchdog/review` pass.)*
 
 **Date:** 2026-09-30 · **Status:** Decided (process; from auditing M0 and M1)
 

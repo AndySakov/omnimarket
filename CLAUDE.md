@@ -120,7 +120,7 @@ Passing tests only show the code ran. To check that a change's tests would notic
 - If you think a finding is wrong, reply on the PR saying why and leave it for Temi. Don't push past it.
 - Once `verify`, `frontend` and `watchdog/review` pass on the head, the builder merges with `scripts/work merge <n>` (a merge commit). It refuses anything short of that, and anything labelled `hold`.
 - Never route around the gate: no `gh pr merge --admin`, no editing branch protection, no posting `watchdog/review` yourself, and no watchdog verdict comment unless you are the watchdog.
-- If `watchdog/review` hasn't appeared 30 minutes after a push, tell Temi. The watchdog may be down.
+- If `watchdog/review` hasn't appeared 30 minutes after CI goes green on a push, tell Temi (build-account sessions tell the orchestrator). The watchdog may be down.
 
 ## Agent skills
 

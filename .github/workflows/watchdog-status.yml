@@ -34,7 +34,7 @@ jobs:
           URL: ${{ github.event.comment.html_url }}
         run: |
           first=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
-          verdict='^## Watchdog (re-)?review: `([0-9a-f]{7,40})` (passes|fails)'
+          verdict='^## Watchdog (re-)?review: `([0-9a-f]{7,40})` (passes|fails)( |$)'
           started='^## Watchdog reviewing `([0-9a-f]{7,40})`'
           if [[ $first =~ $verdict ]]; then
             sha=${BASH_REMATCH[2]}

@@ -86,6 +86,11 @@ def closing_refs(body):
     return {int(n) for n in re.findall(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", body or "")}
 
 
+def milestone_number(issue):
+    m = re.match(r"M(\d+)", (issue.get("milestone") or {}).get("title") or "")
+    return int(m.group(1)) if m else 99
+
+
 def stage(issue):
     m = re.search(r"Demo stage (\d)", issue.get("body") or "")
     return int(m.group(1)) if m else 9
@@ -185,6 +190,16 @@ def pr_state(pr):
     }
 
 
+def pr_track(board, state):
+    """A PR belongs to the frontend track if it closes a `frontend` issue (#75 closes a backend-labelled
+    issue but touches proto/ too, so the issue's track decides) or touches only web/terminal/."""
+    for n in state["closes"]:
+        issue = board.issues.get(n)
+        if issue and "frontend" in labels(issue):
+            return "frontend"
+    return "frontend" if state["frontend_only"] else "backend"
+
+
 def describe_checks(state):
     shown = [f"{name}={state['checks'].get(name, 'missing')}" for name in GATE_CHECKS]
     if "mutants" in state["checks"]:
@@ -240,7 +255,7 @@ def cmd_next(args):
         if pr["user"]["login"] not in AGENT_LOGINS:
             continue
         s = pr_state(pr)
-        if s["frontend_only"] != (track == "frontend") or not (s["failing"] or s["conflict"]):
+        if pr_track(board, s) != track or not (s["failing"] or s["conflict"]):
             continue
         if "hold" in s["labels"]:
             skipped.append(f"PR #{s['number']}: on hold")
@@ -254,7 +269,7 @@ def cmd_next(args):
     if track == "backend":
         # Rule 2: critical, oldest milestone first.
         critical = [i for i in board.issues.values() if "critical" in labels(i)]
-        critical.sort(key=lambda i: ((i.get("milestone") or {}).get("title") or "M99", i["number"]))
+        critical.sort(key=lambda i: (milestone_number(i), i["number"]))
         candidates += [(i, "rule 2, critical") for i in critical]
     # Rule 3: the demo sprint, lowest stage first.
     demo = [i for i in board.issues.values() if {"demo", track} <= labels(i)]
@@ -332,13 +347,27 @@ def cmd_claim(args):
         sys.exit("usage: scripts/work claim <n>")
     n = int(args[0])
     item = gh(f"repos/{REPO}/issues/{n}")
-    if "wip" in labels(item):
-        sys.exit(f"work: #{n} is already claimed (wip); pick again")
+    is_pr = "pull_request" in item
+    lapsed = is_pr and "wip" in labels(item) and not pr_state(gh(f"repos/{REPO}/pulls/{n}"))["recent"]
+    refusal = claim_refusal(is_pr, "wip" in labels(item), not lapsed)
+    if refusal:
+        sys.exit(f"work: #{n} {refusal}; pick again")
     gh(f"repos/{REPO}/issues/{n}/labels", "POST", {"labels": ["wip"]})
     if "pull_request" not in item and not assignees(item):
         gh(f"repos/{REPO}/issues/{n}/assignees", "POST", {"assignees": [me()]})
-    gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": f"Taking this: {session_url()}"})
-    print(f"claimed #{n}")
+    note = " (the earlier claim lapsed: no claim or push in 2h)" if lapsed else ""
+    gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": f"Taking this{note}: {session_url()}"})
+    print(f"claimed #{n}{note}")
+
+
+def claim_refusal(is_pr, has_wip, claim_is_recent):
+    """Why a claim must be refused, or None. A PR's claim lapses after 2h without a claim or push,
+    the same rule `next` applies (CLAUDE.md rule 1); an issue's claim lapses only by `release`."""
+    if not has_wip:
+        return None
+    if is_pr and not claim_is_recent:
+        return None
+    return "is already claimed (wip)"
 
 
 def cmd_release(args):

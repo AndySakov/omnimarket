@@ -49,7 +49,7 @@ A brief reaches a worker as an automated message, not as Temi typing. Workers fo
 | `BLOCKED #n: reason` | builder | Needs Temi → list it under Needs Temi. Otherwise decide, reply, or release the issue and start the next |
 | `DISPUTE PR#p: …` | builder | Needs Temi. That PR waits; the builder may go idle |
 
-If messages don't arrive (`send_message` between sessions is **(verify)**), your tick catches up: `get_session` shows each worker's `status_detail`, and `scripts/work prs` shows the gate.
+Workers reach you through `send_message` to `@parent` (tested). If a message is lost, your tick catches up: `get_session` shows each worker's `status_detail`, and `scripts/work prs` shows the gate.
 
 ## The tick
 
