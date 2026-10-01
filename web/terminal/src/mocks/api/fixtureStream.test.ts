@@ -9,6 +9,7 @@ import { StreamManager } from '../../api/stream/manager'
 import { STATUS_TOPIC, tokenTopic } from '../../api/stream/topics'
 import { fixtureHandlers } from './handlers'
 import { FixtureStream } from './fixtureStream'
+import { FIRST_NEW_POOL_TICK, NEW_POOL_EVERY_TICKS } from './discoveryFeed'
 
 const NOVA = '0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567'
 const source = readDataSource({})
@@ -50,6 +51,31 @@ describe('fixture stream', () => {
     const prices = ticks.map((m) => (m?.kind.case === 'delta' && m.kind.value.payload.case === 'tokenTick' ? m.kind.value.payload.value.displayPriceUsd : ''))
     expect(prices[0]).toBe(new Decimal('0.0124').times('1.004').toFixed())
     expect(ticks.map((m) => (m?.kind.case === 'delta' ? m.kind.value.seq : 0n))).toEqual([2n, 3n, 4n])
+  })
+
+  it('serves a discovery feed that moves prices and adds new pools, numbered without gaps', () => {
+    const stream = new FixtureStream()
+    const [first] = stream.receive(subscribe('discovery'))
+    expect(first?.kind.case === 'snapshot' && first.kind.value.payload.case === 'discovery' && first.kind.value.payload.value.rows).toHaveLength(6)
+
+    const seqs: bigint[] = []
+    const added: Array<{ name: string; createdAtMs: bigint; heartbeatMs: bigint }> = []
+    for (let tick = 1; tick <= FIRST_NEW_POOL_TICK + NEW_POOL_EVERY_TICKS; tick += 1) {
+      const messages = stream.tick()
+      const heartbeat = messages[0]
+      const heartbeatMs = heartbeat?.kind.case === 'heartbeat' ? heartbeat.kind.value.serverTimeMs : 0n
+      for (const message of messages) {
+        if (message.kind.case !== 'delta') continue
+        seqs.push(message.kind.value.seq)
+        const payload = message.kind.value.payload
+        if (payload.case === 'discoveryRow' && payload.value.poolCreatedAtMs === heartbeatMs) {
+          added.push({ name: payload.value.token?.name ?? '', createdAtMs: payload.value.poolCreatedAtMs, heartbeatMs })
+        }
+      }
+    }
+    // A price move every tick, plus a new pool at the first-new-pool tick and every few after.
+    expect(seqs).toEqual(seqs.map((_, i) => BigInt(i + 2)))
+    expect(added.map((a) => a.name)).toEqual(['Brine (fixture)', 'Cobalt (fixture)'])
   })
 
   it('stops ticking a topic after unsubscribe', () => {

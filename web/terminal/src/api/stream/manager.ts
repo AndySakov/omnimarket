@@ -189,6 +189,7 @@ export class StreamManager {
     if (message.kind.case === 'heartbeat') {
       if (this.store.getState().connection === 'stale') this.setConnection('open')
       this.armLivenessTimers()
+      this.store.setState({ serverTimeMs: message.kind.value.serverTimeMs })
       return
     }
     const { state, resubscribe } = applyServerMessage(this.store.getState(), message)

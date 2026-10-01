@@ -236,6 +236,14 @@ describe('per-topic merging', () => {
     expect(state.discovery?.order).not.toContain(key)
   })
 
+  it('keeps the server clock from the latest heartbeat, and nothing else', () => {
+    const before = liveToken()
+    const { state } = apply(before, { case: 'heartbeat', value: { serverTimeMs: 1790000001000n, headBlockNumber: 1n } })
+    expect(state.serverTimeMs).toBe(1790000001000n)
+    expect(state.tokens).toBe(before.tokens)
+    expect(state.topics).toBe(before.topics)
+  })
+
   it('replaces engine status with each delta', () => {
     const status = apiFixture(EngineStatusSchema)
     let state = snapshot(markSubscribed(initialStreamState(), 'status'), 'status', 1n, { case: 'status', value: status })

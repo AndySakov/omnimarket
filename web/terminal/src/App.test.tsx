@@ -28,5 +28,6 @@ it('shows the market-data connection in the header and subscribes the engine sta
 
   expect(screen.getByRole('status', { name: /^Market data: Connecting\./ })).toBeVisible()
   act(() => sockets.latest().acceptConnection())
-  expect(sockets.latest().subscriptions()).toEqual([['status', true]])
+  // Discover, the first screen, subscribes its feed too (#65).
+  expect(sockets.latest().subscriptions()).toContainEqual(['status', true])
 })

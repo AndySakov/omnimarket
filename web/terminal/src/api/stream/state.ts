@@ -84,6 +84,11 @@ export type StreamState = {
   connection: ConnectionState
   /** The subscribed topics; a topic absent here isn't subscribed. */
   topics: Record<string, TopicState>
+  /**
+   * The server's clock, from the latest heartbeat (Unix ms). Ages on screen count from it rather
+   * than the browser's clock, so a replay or the fixtures read as they did when recorded.
+   */
+  serverTimeMs?: bigint
   // Topic data. Each slice is keyed by the full topic string, so deltas land where their topic says.
   status?: EngineStatus
   discovery?: DiscoveryState
@@ -117,6 +122,7 @@ export function applyServerMessage(state: StreamState, message: ServerMessage): 
     case 'error':
       return { state: applyError(state, message.kind.value), resubscribe: [] }
     case 'heartbeat':
+      return { state: { ...state, serverTimeMs: message.kind.value.serverTimeMs }, resubscribe: [] }
     case undefined:
       return { state, resubscribe: [] }
   }
