@@ -576,6 +576,10 @@ fn a_same_block_price_and_trade_give_the_same_feed_in_either_order() {
             price(0xa1, 0xc1, 11, 2.0, 50_000.0),
             buy(0xa1, 0xc1, 11, 100, 0),
         );
+        // Pool updates and trades reach block 11 first, so the price brings every topic there:
+        // block 11 still isn't whole until a topic moves past it.
+        feed.apply_pool_update(&pool_update(0x77, 11, &[0x01]));
+        feed.apply_trade(&buy(0x99, 0x98, 11, 1, 99));
         if price_first {
             feed.apply_price(&p).unwrap();
             feed.apply_trade(&t);
