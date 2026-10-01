@@ -2075,3 +2075,4 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Before opening a PR, `scripts/mutants.sh --diff origin/main` shows whether the new tests catch mutations of the new code. CLAUDE.md says so.
 - The ledger assumes tests don't get weaker: a test deleted after its mutants were caught goes unnoticed until the next fresh run (weekly in CI, `--fresh` locally).
 - CI recreates the worktrees on each run, so it rebuilds the workspace's own crates every time; only dependencies come warm from the cache.
+- The workers are git worktrees, so they appear in `git worktree list`. `scripts/mutants.sh --clean` removes them, their builds and the ledger. After a plain `cargo clean`, it (or `git worktree prune`) clears the entries left behind.
