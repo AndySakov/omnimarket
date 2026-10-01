@@ -314,18 +314,14 @@ fn has_passed(name: &str, passed: &BTreeSet<String>) -> bool {
 /// A criterion compared loosely: case, runs of whitespace, surrounding quotes and a final full
 /// stop don't count.
 fn normalise(criterion: &str) -> String {
-    let mut text = criterion.trim();
-    loop {
-        let next = text
-            .trim()
-            .trim_matches(['"', '“', '”'])
-            .trim_end_matches('.')
-            .trim();
-        if next == text {
-            break;
-        }
-        text = next;
-    }
+    // Quotes, then a full stop, then quotes again: `"text."` and `"text".` both come out as `text`.
+    let quotes = ['"', '“', '”'];
+    let text = criterion
+        .trim()
+        .trim_matches(quotes)
+        .trim_end_matches('.')
+        .trim_matches(quotes)
+        .trim();
     text.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")

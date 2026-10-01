@@ -385,3 +385,23 @@ A note, not part of any criterion.
 ";
     assert_eq!(issue_criteria(body), vec!["First", "Second", "Third"]);
 }
+
+#[test]
+fn a_quoted_criterion_matches_with_its_full_stop_inside_or_outside_the_quotes() {
+    for quoted in [
+        "\"A D-entry records it.\"",
+        "\"A D-entry records it\".",
+        " A D-entry records it. ",
+    ] {
+        let rows = vec![Row {
+            criterion: quoted.into(),
+            proof: Proof::Manual("D92".into()),
+        }];
+        let closed = vec![Closed {
+            issue: 98,
+            criteria: vec!["A D-entry records it".into()],
+        }];
+        let report = check(&closed, &rows, &BTreeSet::new());
+        assert_eq!(report.problems, vec![], "{quoted}");
+    }
+}
