@@ -87,10 +87,13 @@ Keep yourself cheap: never read diffs, logs or code; keep reports short; when yo
 
 ## Reporting to Temi
 
-Use this shape, and nothing longer:
+Use this shape, and nothing longer. Sessions you start don't appear in Temi's claude.ai sidebar, so every live session gets its link, `https://claude.ai/code/<session id>`, and so does each session you start or archive in a message:
 
 ```
-Running: backend #97 (building) · frontend #75 (PR #104, in review)
+Running:
+  backend #97 (building) · https://claude.ai/code/session_…
+  frontend #75 (PR #104, in review) · https://claude.ai/code/session_…
+  watchdog PR#104 (reviewing) · https://claude.ai/code/session_…
 Open PRs: #104 verify ✓ frontend ✓ watchdog: reviewing
 Merged since last: #102 (#97)
 Needs Temi: #75 contract review (you stand in for Jutin) · #82 VM signup
