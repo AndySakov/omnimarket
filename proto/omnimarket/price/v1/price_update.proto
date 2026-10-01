@@ -10,7 +10,7 @@ import "omnimarket/lineage/v1/lineage.proto";
 // quotes in the native token.
 //
 // Prices and USD values are doubles: the engine computes them in f64 from exact integer pool
-// state with correctly rounded operations only, so a replay gives the same bits (D97). The API
+// state with correctly rounded operations only, so a replay gives the same bits (D100). The API
 // turns them into decimal strings (D91).
 message PriceUpdate {
   omnimarket.lineage.v1.Lineage lineage = 1;

@@ -2,7 +2,7 @@
 //!
 //! Exact integer state goes in; the arithmetic is `f64`, using only operations IEEE 754
 //! rounds exactly (+, −, ×, ÷, `sqrt`), so the same state gives the same bits on every
-//! machine and a replay reprices identically (D97). Fees are left out: depth is the amount
+//! machine and a replay reprices identically (D100). Fees are left out: depth is the amount
 //! that moves the price 2%, not what a trader receives.
 
 use std::collections::BTreeMap;

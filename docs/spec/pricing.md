@@ -1,6 +1,6 @@
 # Pricing
 
-**Status:** Draft. Decisions D18–D24, D97. Display price, USD conversion, depth and token metadata built for Base (`crates/pricing`, in the engine, M2).
+**Status:** Draft. Decisions D18–D24, D100. Display price, USD conversion, depth and token metadata built for Base (`crates/pricing`, in the engine, M2).
 
 ## Three prices (D18)
 
@@ -23,7 +23,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 - No pools above the floor → priced from its deepest pool and flagged **thin** in the UI; triggers still evaluate (D20).
 - Recomputed on every pool update affecting T, in the Chain Engine.
 
-### Built (M2, D97)
+### Built (M2, D100)
 
 `crates/pricing` is pure functions of the state the engine holds; the engine runs them and publishes.
 
@@ -33,10 +33,10 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 - **USD.** `mid × usd(quote)`, `depth × usd(quote)`: WETH's latest display price, or $1 for a stablecoin.
 - **Display price.** `Σ price·depth / Σ depth` over the pools at or above the floor ($10,000, a D11 tuning value). None at or above it: the deepest pool's price, **thin**. The update also carries the deepest (main) pool, the display price in its quote asset, and every pool's own price and depth.
 - **Native token.** WETH is priced from the reference pools only: Uniswap v3 WETH/USDC 0.05% and 0.3%, WETH/USDT 0.05%, v2 WETH/USDC. Stablecoins are pinned and publish no update.
-- **Arithmetic.** `f64` from exact integers, with only +, −, ×, ÷ and `sqrt` (correctly rounded everywhere); tick boundaries from Uniswap's integer `getSqrtRatioAtTick`; 10ⁿ by repeated multiplication. A replay reprices bit for bit (D97).
+- **Arithmetic.** `f64` from exact integers, with only +, −, ×, ÷ and `sqrt` (correctly rounded everywhere); tick boundaries from Uniswap's integer `getSqrtRatioAtTick`; 10ⁿ by repeated multiplication. A replay reprices bit for bit (D100).
 - **Cadence.** After each canonical block (D77): every token whose pools changed since the last block, WETH first. A WETH move doesn't republish every WETH-quoted token; each update names the WETH price it used (D22's lazy path).
 
-### Token metadata (D97)
+### Token metadata (D100)
 
 - `name`, `symbol`, `decimals`, `totalSupply`, read in one Multicall3 call per 50 tokens (four calls each) through the engine's recorded calls and the call worker's rate limits (D82), at the end of the block the token's first quote-asset pool updated. Read once; a call that fails as a whole is forgotten and read again on the token's next update.
 - **Fallbacks.** A `bytes32` name or symbol (early tokens such as MKR) is read up to its first trailing zero; control characters are dropped; a revert, an empty string or an unreadable answer leaves the field unset. Decimals above 77 or unreadable: unset, and the token isn't priced.
@@ -47,7 +47,7 @@ For token T with active pools p₁…pₙ above the liquidity floor:
 
 - Per chain, a fixed set of **reference pools** (deepest native/stablecoin pools) prices the native token in USD, using the same liquidity-weighted mid.
 - Quote assets in phase 1: native token + reference stablecoins. `usd(T) = price(T in quote) × usd(quote)`.
-- Stablecoins pinned at $1 while reference stablecoins agree within ~0.5%; beyond that, priced from their pools against each other, with a depeg warning in the UI. **Not built yet:** stablecoins are always pinned (D97).
+- Stablecoins pinned at $1 while reference stablecoins agree within ~0.5%; beyond that, priced from their pools against each other, with a depeg warning in the UI. **Not built yet:** stablecoins are always pinned (D100).
 - Quote-asset coverage on Base: [verification.md](verification.md#measured-base-pricing-m2).
 
 ## Quoting (D21)

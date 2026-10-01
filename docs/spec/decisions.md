@@ -2189,7 +2189,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ---
 
-## D97 — Pricing runs in the engine, in f64 from exact pool state, published per canonical block
+## D100 — Pricing runs in the engine, in f64 from exact pool state, published per canonical block
 
 **Date:** 2026-10-01 · **Status:** Decided (#76; builds D18, D19, D22, D24 for Base)
 
