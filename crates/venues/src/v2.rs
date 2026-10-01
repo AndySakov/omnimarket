@@ -202,6 +202,7 @@ mod tests {
         let data = (U256::from(5u64), U256::from(7u64)).abi_encode();
         let sync = log(vec![Sync::SIGNATURE_HASH], data);
         assert!(is_sync(&sync));
+        assert!(!is_swap(&sync));
         assert_eq!(
             decode_sync(&sync),
             Some(Reserves {
