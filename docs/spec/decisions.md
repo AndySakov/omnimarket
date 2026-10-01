@@ -2087,6 +2087,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
 
+*(Amended by D93: Jutin builds the frontend issues labelled `jutin` alongside the farm; an open PR saying `Part of #n` also takes an issue; the watchdog reviews every open PR, whoever opened it.)*
+
 **Date:** 2026-10-01 · **Status:** Decided by Temi (process)
 
 **Decision:** Most build work moves to Claude Code cloud sessions on a second Claude account (the **build account**), whose GitHub connection acts as `AndySakov`, like Temi's own sessions. Temi steers it through one long-lived **orchestrator** session on that account, which starts and tracks the other sessions. The protocol is in `docs/agents/handoff/`.
@@ -2186,6 +2188,32 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - Contract tests (`forge`) and the terminal UI's tests aren't covered yet.
 - The splice handles `#[cfg(test)]` items at a file's top level, as every crate has them today. One inside an `impl` block or function would move to the top level, and tests in a module that only a binary declares (`mod x;` in `main.rs`) would show as not building on both sides.
 - The watchdog still reads the failure on `main` to confirm it's the bug's.
+
+---
+
+## D93 — Jutin and the build account share the frontend track, issue by issue
+
+**Date:** 2026-10-01 · **Status:** Decided by Temi (process; amends D90)
+
+**Decision:** Jutin is back at reduced capacity, working from his fork with Codex. He and the build account's frontend builder share the frontend track:
+- **Jutin claims an issue himself** by commenting `Taking this` from his GitHub account (`Dropping this` releases it). Agent sessions act as `AndySakov`, so only he can make that claim. Temi or the orchestrator can also label an issue `jutin` (`JUTIN TAKES #n`). `scripts/work` never hands either to an agent session, and `JUTIN BACK` still returns the whole track to him.
+- **Any open PR that says `Closes #n` or `Part of #n` takes issue `#n`, whoever opened it.** That's how the queue sees work from Jutin's fork.
+- **The watchdog reviews every open PR whose CI is green,** Jutin's included, so his PRs can pass the same gate (D81).
+- **One data layer.** Frontend work builds on the generated contract types (#75) and the shared client (#63); a slice that overlaps another person's open PR builds on it and raises the overlap there.
+- **`AGENTS.md`** at the root points Codex at CLAUDE.md and these rules, and `web/terminal/docs/collaboration-workflow.md` carries them for Jutin.
+
+**Found when Jutin returned (2026-10-01):** his PR #105 built #64 but said "Issue 64" rather than `Closes #64`, so the queue would have handed #64 to the farm once #63 merged. It also added a hand-written stream client overlapping #63's. Nothing would have reviewed it: the orchestrator watchdogged only its own sessions' PRs. Codex doesn't read CLAUDE.md, and the repo had no `AGENTS.md`.
+
+**Rejected:**
+- *`hold` for Jutin's issues.* `hold` is Temi's brake, and `scripts/work merge` refuses PRs that close a held issue; Jutin's own claim needs a label of its own.
+- *Reassigning issues away from Jutin.* He stays assigned to every frontend issue (D90), so the assignee can't say who's building one.
+- *Only a label, applied by Temi.* Every claim would wait on Temi. Jutin's comment is his own, can't come from an agent session, and his agent can post it unprompted.
+
+**Why:** The farm picks frontend work by rule, so Jutin's work has to be visible to that rule, and his PRs need the same review path to merge.
+
+**Consequence:**
+- Run `scripts/work labels` once to create `jutin`; issues held for Jutin before this (#64) move from `hold` to `jutin`.
+- A PR body without `Closes #n` or `Part of #n` is invisible to the queue, from anyone.
 
 ---
 

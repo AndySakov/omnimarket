@@ -73,6 +73,33 @@ git push -u origin codex/<short-task-name>
 
 Open a pull request from the fork branch to `AndySakov/omnimarket:main`.
 
+## Working alongside the build account (D90, D93)
+
+While Jutin works at reduced capacity, agent sessions on a second Claude
+account (the build account, or "farm", steered by Temi through an orchestrator
+session) build some frontend issues too. They push `claude/…` branches to the
+shared repository; Jutin keeps his fork and `codex/…` branches. To keep the
+two from building the same thing:
+
+- **Claim before building.** Pick an issue with no `wip` label and no open PR
+  that says `Closes #<n>` or `Part of #<n>`, then comment `Taking this` on it
+  from Jutin's account. The farm's queue reads that comment as his claim and
+  never takes the issue. `Dropping this` releases it. (Temi can also label an
+  issue `jutin` for him.)
+- **Name the issue in every PR body:** `Closes #<n>`, or `Part of #<n>` for a
+  slice that leaves the issue open (for example, fixtures now, live wiring
+  later). That line is how the farm's queue (`scripts/work`) sees the work.
+- **One data layer.** Build on the generated contract types in
+  `src/api/generated` (#75) and the shared API client and WebSocket manager
+  (#63). Don't hand-write contract types. When a farm PR is open on code a
+  slice needs, read it first and raise overlaps on that PR.
+- **Separate branches.** Never push to a `claude/…` branch; the farm never
+  pushes to `codex/…` ones.
+- **Review gate.** Every PR, Jutin's included, needs CI's `verify` and a
+  `watchdog/review` from the farm's watchdog, which reviews every open PR
+  whose CI is green and posts its verdict as a PR comment (D81, D90). Blocking
+  findings are fixed on the PR's own branch; a disputed finding goes to Temi.
+
 ## Pull request format
 
 ```text
