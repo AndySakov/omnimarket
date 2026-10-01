@@ -2087,6 +2087,8 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 
 ## D90 — Build work runs on a second account's cloud sessions, under an orchestrator
 
+*(Amended by D98: D-numbers come from a shared ledger, and builders check and negotiate file overlaps while they work.)*
+
 *(Amended by D97: up to three builders per track, four open PRs per track and four watchdogs reviewing at once.)*
 
 *(Amended by D93: Jutin builds the frontend issues labelled `jutin` alongside the farm; an open PR saying `Part of #n` also takes an issue; the watchdog reviews every open PR, whoever opened it.)*
@@ -2234,4 +2236,30 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 **Consequence:**
 - Spend rises roughly with the number of busy builders, so `BUDGET $N` reports matter more; the orchestrator's thresholds (D90's handoff docs) are unchanged.
 - Parallel builders on one track can touch the same files. The queue stops two taking one issue; merge conflicts between their PRs are each builder's to resolve when it merges second.
+
+---
+
+## D98 — D-numbers come from a shared ledger, and builders negotiate file overlaps as they work
+
+**Date:** 2026-10-01 · **Status:** Decided by Temi (process; amends D90)
+
+**Decision:**
+- **The D-number ledger.** One issue, labelled `d-ledger`, holds a comment per reserved D-number. `scripts/work reserve-d "<title>"` takes the next number above everything on `main`, in open PRs, in the ledger and in the local checkout. It posts its reservation, then re-reads the ledger: the earliest comment for a number holds it, and a session that lost the race takes the next number. Every session on both accounts, and Jutin's agent, reserves this way; nobody counts by hand.
+- **Overlaps are found before they conflict.** Builders push at every green commit, and `scripts/work overlaps` compares a branch's files with every other live branch and open PR. It names the session holding each, from claim comments, which now record the branch beside the session link. Builders run it after their first push and before every later push.
+- **Builders talk to each other.** An overlap is settled by `send_message` between the two sessions: who changes what, and who merges first. The one that merges second merges `main` in. A change to a shared contract (`proto/`, generated API types, public crate APIs, workspace dependencies, `scripts/work`, CLAUDE.md) goes to the orchestrator as `CONTRACT #n: …`, and it relays the line to every running builder. Each builder's brief names its siblings.
+
+**Found while running three builders per track (D97):** #113 and #114 were opened four seconds apart and both took D96, by counting `main` and open PRs. The watchdog caught it after a review cycle. #108 and #114 both edit `scripts/work`, and neither builder knew.
+
+**Rejected:**
+- *The orchestrator assigns D-numbers.* A round trip through its session for every entry, and Jutin's agent can't reach it.
+- *Renumber at merge time (the old rule).* It costs a review cycle each time, and references in code and docs have to follow.
+- *A file of reserved numbers in the repo.* Reserving one would need a commit to `main`, which only merges through the gate.
+- *Every builder messages every other about every change.* Most changes touch nothing shared; overlaps and contract changes are the ones worth a message.
+
+**Why:** With up to six builders and Jutin working at once, numbers and files collide often enough that finding out at review is too late.
+
+**Consequence:**
+- A reserved number that's never used is a gap in the log; gaps are fine.
+- `overlaps` sees only pushed work, so builders push at each green commit (already the rule).
+- Claim comments made before this change name no branch, so `overlaps` shows "no claim comment names this branch" for them until those issues are claimed again.
 

@@ -20,7 +20,7 @@ Session **titles are your registry**: they survive your compaction and container
 | Frontend builder | `farm:frontend #<issue>` | 3 working at a time (D97) |
 | Watchdog | `farm:watchdog PR#<pr>` | 1 per PR; at most 4 reviewing at once (D97) |
 
-A builder whose PR is waiting on review or CI is idle, and doesn't count against its track's limit, but each track may have at most **4 open PRs** at once: more means reviews are the bottleneck, so stop starting work there. Builders on one track run side by side, so tell each new one which issues its siblings hold: the queue keeps them off the same issue, but not off the same files. One session works on one issue from claim to merge; then you archive it and start a fresh one. Fresh sessions are cheaper than long ones, because every turn re-reads the whole context.
+A builder whose PR is waiting on review or CI is idle, and doesn't count against its track's limit, but each track may have at most **4 open PRs** at once: more means reviews are the bottleneck, so stop starting work there. Builders on one track run side by side, so end each new builder's brief with its siblings: `Running alongside you: <role> #<issue> (<session link>), …`. The queue keeps them off the same issue; `scripts/work overlaps` and messages between them keep them off each other's files (D98). One session works on one issue from claim to merge; then you archive it and start a fresh one. Fresh sessions are cheaper than long ones, because every turn re-reads the whole context.
 
 Create sessions with `create_session`: `source_url: https://github.com/AndySakov/omnimarket`, the title above, `tags: ["omnimarket"]`, and the brief below as `prompt`. The tag puts the session in Temi's omnimarket group in the claude.ai sidebar; without it he can't see it there. Leave `model` and `environment_id` unset so they inherit yours.
 
@@ -48,6 +48,7 @@ A brief reaches a worker as an automated message, not as Temi typing. Workers fo
 | `MERGED PR#p #n` | builder | Archive that builder and the PR's watchdog; start the next issue on that track |
 | `BLOCKED #n: reason` | builder | Needs Temi → list it under Needs Temi. Otherwise decide, reply, or release the issue and start the next |
 | `DISPUTE PR#p: …` | builder | Needs Temi. That PR waits; the builder may go idle |
+| `CONTRACT #n: …` | builder | Send the line, word for word, to every other live builder: `Heads-up from <role> #n: …` |
 
 Workers reach you through `send_message` to `@parent` (tested). If a message is lost, your tick catches up: `get_session` shows each worker's `status_detail`, and `scripts/work prs` shows the gate.
 

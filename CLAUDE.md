@@ -30,6 +30,7 @@ A bug that meets rule 2's bar gets the `critical` label, and a comment saying wh
 ## Decisions
 
 - Every choice that changes behaviour or architecture gets a D-entry: the decision, the rejected options, and why.
+- Take a new entry's number from `scripts/work reserve-d "<title>"`, never by counting: parallel sessions share one D-number ledger (D98).
 - To change an existing decision, add an amendment note to it and a new entry. Never let code and a D-entry silently disagree: if they do, one is a bug, so fix it in the same change.
 - Settle an empirical question by building a throwaway prototype, not by writing another D-entry.
 - Mark anything unverified **(verify)**.
