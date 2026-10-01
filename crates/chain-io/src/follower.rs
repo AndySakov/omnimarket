@@ -5,7 +5,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 use types::chain::{B256, Block};
 
-use crate::retry::{ANSWER_LIMIT, CHECK_LIMIT, retry_for};
+use crate::retry::{ANSWER_LIMIT, CHECK_LIMIT, FIRST_BACKOFF, MAX_BACKOFF, retry_for};
 use crate::{ChainError, ChainReader, HttpChain};
 
 pub enum Start {
@@ -53,15 +53,10 @@ pub async fn follow_head(
         })
         .await?;
         while next <= latest {
-            let header = retry_for("block header", ANSWER_LIMIT, || reader.header(next)).await?;
-            let Some(header) = header else {
+            let Some((header, mut logs)) = block_at(reader, next, &config.topics).await? else {
                 // Load-balanced nodes can lag each other: ask again after the next poll.
                 break;
             };
-            let mut logs = retry_for("block logs", ANSWER_LIMIT, || {
-                reader.logs(header.hash, &config.topics)
-            })
-            .await?;
             logs.sort_by_key(|log| log.log_index);
             let block = Block {
                 number: header.number,
@@ -97,6 +92,64 @@ pub async fn check_block_endpoint(
         .await?;
     }
     Ok(())
+}
+
+/// The header at `number` and its logs, read by that header's hash. `None` when the node
+/// doesn't have a block at `number` yet.
+///
+/// If the node doesn't know the hash when the logs are read, either the block was replaced
+/// after its header was read (a reorg) or a lagging load-balanced node hasn't got it yet. In
+/// both cases the answer is to read whatever is canonical at `number` now: retrying the old
+/// hash would never succeed after a reorg, and the follower would stall. Each read is bounded
+/// by `ANSWER_LIMIT`, and so is reading the height again (D88).
+async fn block_at(
+    reader: &dyn ChainReader,
+    number: u64,
+    topics: &[B256],
+) -> Result<Option<(crate::Header, Vec<types::chain::Log>)>, ChainError> {
+    let first = Instant::now();
+    let mut backoff = FIRST_BACKOFF;
+    loop {
+        let header = retry_for("block header", ANSWER_LIMIT, || reader.header(number)).await?;
+        let Some(header) = header else {
+            return Ok(None);
+        };
+        // An unknown hash comes back as `None`, an answer, so only other failures are retried.
+        let logs = retry_for("block logs", ANSWER_LIMIT, || {
+            let logs = reader.logs(header.hash, topics);
+            Box::pin(async move {
+                match logs.await {
+                    Ok(logs) => Ok(Some(logs)),
+                    Err(error) if is_unknown_block(&error) => Ok(None),
+                    Err(error) => Err(error),
+                }
+            })
+        })
+        .await?;
+        if let Some(logs) = logs {
+            return Ok(Some((header, logs)));
+        }
+        if first.elapsed() >= ANSWER_LIMIT {
+            return Err(ChainError::Unanswered {
+                what: "block logs",
+                waited: first.elapsed(),
+                last: format!("block not found: {} at height {number}", header.hash),
+            });
+        }
+        tracing::warn!(number, hash = %header.hash, ?backoff, "block unknown when reading its logs; reading the height again");
+        // A lagging node answers this until it catches up: back off like any failure.
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(MAX_BACKOFF);
+    }
+}
+
+/// A node's answer for a block hash it doesn't have (`-32001 block not found` on Base).
+fn is_unknown_block(error: &ChainError) -> bool {
+    let ChainError::Rpc(message) = error else {
+        return false;
+    };
+    let message = message.to_lowercase();
+    message.contains("block not found") || message.contains("unknown block")
 }
 
 /// Checks that `rpc_url` answers what the follower reads (`check_block_endpoint`), then runs
@@ -195,6 +248,150 @@ mod tests {
                     .to_vec())
             })
         }
+    }
+
+    /// A chain where the logs of some hashes can't be read: `-32001 block not found`.
+    struct ReorgingChain {
+        /// The canonical hash at each height, per header read: a height's list advances each
+        /// time its header is read, and its last entry sticks.
+        headers: RefCell<std::collections::BTreeMap<u64, Vec<B256>>>,
+        /// Hashes whose logs fail this many more times.
+        unknown: RefCell<std::collections::BTreeMap<B256, u32>>,
+        head: u64,
+        /// When each logs call was made.
+        logs_at: RefCell<Vec<Instant>>,
+    }
+
+    impl ChainReader for ReorgingChain {
+        fn latest_number(&self) -> LocalBoxFuture<'_, Result<u64, ChainError>> {
+            Box::pin(async move { Ok(self.head) })
+        }
+
+        fn header(&self, number: u64) -> LocalBoxFuture<'_, Result<Option<Header>, ChainError>> {
+            Box::pin(async move {
+                let mut headers = self.headers.borrow_mut();
+                let hashes = headers.get_mut(&number).expect("scripted height");
+                let hash = if hashes.len() > 1 {
+                    hashes.remove(0)
+                } else {
+                    hashes[0]
+                };
+                Ok(Some(Header {
+                    number,
+                    hash,
+                    parent_hash: B256::ZERO,
+                    timestamp: number * 2,
+                }))
+            })
+        }
+
+        fn logs<'a>(
+            &'a self,
+            block_hash: B256,
+            _topics: &'a [B256],
+        ) -> LocalBoxFuture<'a, Result<Vec<Log>, ChainError>> {
+            Box::pin(async move {
+                self.logs_at.borrow_mut().push(Instant::now());
+                let mut unknown = self.unknown.borrow_mut();
+                match unknown.get_mut(&block_hash) {
+                    Some(0) | None => Ok(Vec::new()),
+                    Some(left) => {
+                        *left -= 1;
+                        Err(ChainError::Rpc(format!(
+                            "server returned an error response: error code -32001: block not found: {block_hash}"
+                        )))
+                    }
+                }
+            })
+        }
+    }
+
+    fn follow_to_end(chain: &ReorgingChain) -> Vec<(u64, B256)> {
+        det::run_simulated(async {
+            let config = FollowerConfig {
+                poll: Duration::from_millis(500),
+                topics: vec![B256::repeat_byte(9)],
+                start: Start::At(10),
+                run_for: Some(Duration::from_secs(5)),
+            };
+            let (sender, mut receiver) = mpsc::channel(64);
+            // A follower stuck retrying a dead hash never returns; fail instead of hanging.
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                follow_head(chain, &config, &sender),
+            )
+            .await
+            .expect("the follower stalled")
+            .unwrap();
+            drop(sender);
+            let mut blocks = Vec::new();
+            while let Some(block) = receiver.recv().await {
+                blocks.push((block.number, block.hash));
+            }
+            blocks
+        })
+    }
+
+    #[test]
+    fn a_block_replaced_between_its_header_and_logs_is_read_again() {
+        let a11 = B256::repeat_byte(0xa1);
+        let b11 = B256::repeat_byte(0xb1);
+        let chain = ReorgingChain {
+            headers: RefCell::new(
+                [
+                    (10, vec![hash(10)]),
+                    (11, vec![a11, b11]),
+                    (12, vec![hash(12)]),
+                ]
+                .into(),
+            ),
+            // 11a was reorged out after its header was read: its logs never come.
+            unknown: RefCell::new([(a11, u32::MAX)].into()),
+            head: 12,
+            logs_at: RefCell::default(),
+        };
+        assert_eq!(
+            follow_to_end(&chain),
+            [(10, hash(10)), (11, b11), (12, hash(12))]
+        );
+    }
+
+    #[test]
+    fn a_lagging_node_still_delivers_every_block_in_order() {
+        let chain = ReorgingChain {
+            headers: RefCell::new(
+                [
+                    (10, vec![hash(10)]),
+                    (11, vec![hash(11)]),
+                    (12, vec![hash(12)]),
+                ]
+                .into(),
+            ),
+            // This node doesn't have 11 yet the first two times it's asked.
+            unknown: RefCell::new([(hash(11), 2)].into()),
+            head: 12,
+            logs_at: RefCell::default(),
+        };
+        assert_eq!(
+            follow_to_end(&chain),
+            [(10, hash(10)), (11, hash(11)), (12, hash(12))]
+        );
+    }
+
+    // A lagging node answers "block not found" until it catches up; the follower must not
+    // hammer a rate-limited endpoint meanwhile.
+    #[test]
+    fn a_lagging_node_is_asked_again_with_backoff() {
+        let chain = ReorgingChain {
+            headers: RefCell::new([(10, vec![hash(10)])].into()),
+            unknown: RefCell::new([(hash(10), 4)].into()),
+            head: 10,
+            logs_at: RefCell::default(),
+        };
+        follow_to_end(&chain);
+        let at = chain.logs_at.borrow();
+        let gaps: Vec<u128> = at.windows(2).map(|w| (w[1] - w[0]).as_millis()).collect();
+        assert_eq!(gaps, [250, 500, 1_000, 2_000]);
     }
 
     #[test]

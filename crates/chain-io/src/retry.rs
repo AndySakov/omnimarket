@@ -9,8 +9,8 @@ use tokio::time::Instant;
 use crate::ChainError;
 
 /// After a failed read, wait this long before retrying, doubling up to `MAX_BACKOFF`.
-const FIRST_BACKOFF: Duration = Duration::from_millis(250);
-const MAX_BACKOFF: Duration = Duration::from_secs(8);
+pub(crate) const FIRST_BACKOFF: Duration = Duration::from_millis(250);
+pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(8);
 
 /// How long the check before a run keeps retrying an endpoint that doesn't answer. Short, so a
 /// dead endpoint stops the run within seconds.

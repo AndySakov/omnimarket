@@ -201,7 +201,6 @@ fn a_failed_call_backs_off_from_250ms_doubling_to_8s() {
 // move on to the new canonical 11 rather than retry a dead hash forever: stalled, it never
 // delivers the block that would show the core the reorg.
 #[test]
-#[ignore = "spec gap: the follower retries logs of a reorged-out hash until it gives up"]
 fn a_block_reorged_out_between_header_and_logs_does_not_stall_the_follower() {
     let chain = ScriptedChain::with(fork(b'a', b'a', 10..=11), vec![10, 12]);
     chain
@@ -332,9 +331,10 @@ fn a_dead_block_endpoint_fails_the_check_within_8s() {
     det::run_simulated(async { check_block_endpoint(&working, &topics).await }).unwrap();
 }
 
-// indexer.md: "During a run, a read still unanswered after 60s makes the follower give up: it
-// returns the error, which ends the core's blocks, and `engine follow` exits with it once the
-// core has finished what's in flight."
+// indexer.md: "During a run, a read still unanswered after 60s, or a height still unreadable
+// after 60s of reading it again, makes the follower give up: it returns the error, which ends
+// the core's blocks, and `engine follow` exits with it once the core has finished what's in
+// flight."
 #[test]
 fn a_block_endpoint_that_dies_mid_run_stops_the_follower_after_60s() {
     for hangs in [false, true] {
@@ -374,4 +374,66 @@ fn a_block_endpoint_that_dies_mid_run_stops_the_follower_after_60s() {
         let numbers: Vec<u64> = blocks.iter().map(|b| b.number).collect();
         assert_eq!(numbers, [10, 11, 12, 13]);
     }
+}
+
+/// A node that reports a header at every height but never knows its hash when the logs are
+/// read, the way a node stuck behind the others answers.
+struct ForgetfulChain;
+
+impl ChainReader for ForgetfulChain {
+    fn latest_number(&self) -> LocalBoxFuture<'_, Result<u64, ChainError>> {
+        Box::pin(async { Ok(10) })
+    }
+
+    fn header(&self, number: u64) -> LocalBoxFuture<'_, Result<Option<Header>, ChainError>> {
+        Box::pin(async move {
+            Ok(Some(Header {
+                number,
+                hash: hash(b'a', number),
+                parent_hash: hash(b'a', number - 1),
+                timestamp: number * 2,
+            }))
+        })
+    }
+
+    fn logs<'a>(
+        &'a self,
+        block_hash: B256,
+        _topics: &'a [B256],
+    ) -> LocalBoxFuture<'a, Result<Vec<Log>, ChainError>> {
+        Box::pin(async move {
+            Err(ChainError::Rpc(format!(
+                "block not found: hash {block_hash}"
+            )))
+        })
+    }
+}
+
+// D88: reading a height again when the node doesn't know its hash "is bounded by the same 60s".
+#[test]
+fn a_node_that_never_knows_the_hash_stops_the_follower_after_60s() {
+    let result = det::run_simulated(async {
+        let config = FollowerConfig {
+            poll: Duration::from_millis(500),
+            topics: vec![B256::repeat_byte(9)],
+            start: Start::At(10),
+            run_for: Some(Duration::from_secs(600)),
+        };
+        let (sender, _receiver) = mpsc::channel(64);
+        tokio::time::timeout(
+            Duration::from_secs(300),
+            follow_head(&ForgetfulChain, &config, &sender),
+        )
+        .await
+        .expect("the follower never gave up reading the height again")
+    });
+    let Err(ChainError::Unanswered { what, waited, last }) = result else {
+        panic!("expected the logs to go unanswered, got {result:?}");
+    };
+    assert_eq!(what, "block logs");
+    assert!(last.contains("block not found"), "{last}");
+    assert!(
+        (Duration::from_secs(60)..=Duration::from_secs(68)).contains(&waited),
+        "{waited:?}"
+    );
 }
