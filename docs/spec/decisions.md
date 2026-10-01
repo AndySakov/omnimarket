@@ -1980,3 +1980,35 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - A commit that mixes frontend and other files runs only `verify.sh` locally; CI's `frontend` job checks its frontend half.
 - `frontend` isn't a required check on `main` yet, so a red `frontend` job doesn't block a merge. **(Follow-up: Temi adds it to branch protection.)**
 - The Claude Code hook still runs the full `verify.sh` when the git hook isn't installed: it runs before the files are necessarily staged.
+
+---
+
+## D87 — Mutation testing reuses its builds and results across runs
+
+**Date:** 2026-10-01 · **Status:** Decided (from the testing review; #94)
+
+**Decision:** Mutation testing (cargo-mutants 27.1.0) measures whether the tests notice the code doing the wrong thing, which line coverage can't. cargo-mutants changes the code one small mutation at a time and counts a mutant as caught when some workspace test fails. `scripts/mutants.sh` runs it so that work carries over from one run to the next:
+- **Builds.** Each worker is a persistent git worktree under `target/mutants/workers/` with its own target dir under `target/mutants/targets/`. A run checks every worker out at a snapshot of the working tree (uncommitted changes included, through a temporary index), so cargo rebuilds only the crates that changed. cargo-mutants then mutates its worker in place, one shard per worker. A `mutants` Cargo profile drops debug info.
+- **Results.** A ledger (`target/mutants/ledger.txt`) holds every mutant caught or unviable since the last fresh run, and later runs skip them (`--iterate`) until `--fresh`. Entries for code that no longer exists are dropped.
+- **Diff mode.** `--diff BASE` tests only mutants in code changed since BASE, as a fresh verdict, and leaves the ledger alone. A diff with no Rust in it stops before building anything.
+- **The unmutated workspace passes first.** cargo-mutants' baseline runs only the mutated packages' tests, so if another package's test already failed, every mutant would look caught. The script runs the whole workspace's tests on the snapshot before any shard starts.
+- **CI:** the `mutants` workflow. On PRs that touch Rust it tests the changed code. Nightly on `main` it tests every mutant not in the ledger, and the ledger is cached per ISO week, so the week's first run is fresh. The workers' target dirs are cached from `main`'s runs. It isn't a required check.
+
+**Found while measuring** (a 4-core container, 2026-09-30 and 2026-10-01):
+- cargo-mutants' default copies the tree for each job and builds the copy cold. With 3 jobs, each copy's first build took 800–900s under contention (123s alone), and 18 of about 400 mutants were done after 25 minutes.
+- With the harness, a worker's first build took 68.5s (`mutants` profile) and the next run's took about 1s. A second run over `venues/src/v2.rs` took 56s end to end, skipping the 19 of its 30 mutants already settled.
+- A fresh run over the whole workspace tested 650 mutants in 28.7 minutes on 2 workers: 372 caught, 93 missed, 2 timed out, 183 unviable. The ledger then held 555, so the next run tests only the 95 left.
+
+**Rejected:**
+- *cargo-mutants' own tree copies (`--jobs N`).* Every run, and every job in it, starts from a cold build.
+- *Copying a warm `target/` into each copy (`--copy-target`).* Measured: copying the 5.2G `target/` took 145s, and cargo still recompiled 209 crates (94s), slower than building cold.
+- *sccache.* It shares compiled dependencies across directories, but not the workspace's own crates, which build incrementally. The persistent workers keep both.
+- *A required check.* Some untested code is already known (the binaries' command wiring, error `Display` impls), and a hard gate would block every PR that touches it. The check reports to the author and the watchdog instead.
+- *Every mutant every night.* Repeats the same verdicts; the weekly fresh run is what catches a test that got weaker.
+
+**Why:** Line coverage was 82%, yet both real bugs found on 2026-09-30 (#46, #52) passed their author's tests and were caught by independent review. Mutation testing measures what the tests check, and it's only worth running on every PR if it's cheap.
+
+**Consequence:**
+- Before opening a PR, `scripts/mutants.sh --diff origin/main` shows whether the new tests catch mutations of the new code. CLAUDE.md says so.
+- The ledger assumes tests don't get weaker: a test deleted after its mutants were caught goes unnoticed until the next fresh run (weekly in CI, `--fresh` locally).
+- CI recreates the worktrees on each run, so it rebuilds the workspace's own crates every time; only dependencies come warm from the cache.

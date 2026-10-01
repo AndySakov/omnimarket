@@ -1,0 +1,9 @@
+# cargo-mutants settings (D87). Run it through scripts/mutants.sh, which reuses builds and
+# results across runs.
+
+profile = "mutants"
+# A mutant counts as caught if any test in the workspace fails: engine's tests exercise venues'
+# code, and sim's exercise det's.
+test_workspace = true
+# No doctests to run, and each crate's doctest pass costs a rustdoc invocation per mutant.
+additional_cargo_test_args = ["--all-targets"]

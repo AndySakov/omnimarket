@@ -49,3 +49,9 @@ tracing-subscriber = "0.3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# Mutation testing (D87, scripts/mutants.sh). No debug info: every mutant is an incremental
+# build plus a test run, and a failing test is the expected outcome, so backtraces aren't needed.
+[profile.mutants]
+inherits = "test"
+debug = "none"
