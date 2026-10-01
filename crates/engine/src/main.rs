@@ -359,15 +359,16 @@ fn print_summary(summary: &Summary) {
         "shadow checks: {} passed, {} failed",
         s.checks_passed, s.checks_failed
     );
-    println!(
-        "{} price updates, digest {}; {} metadata calls, {} supply calls ({} failed)",
-        s.price_updates,
-        summary.prices_digest,
-        s.metadata_calls,
-        s.supply_calls,
-        s.metadata_failures
-    );
+    // Only with pricing on, so a recording from before pricing prints what it always did.
     if let Some(c) = &summary.coverage {
+        println!(
+            "{} price updates, digest {}; {} metadata calls, {} supply calls ({} failed)",
+            s.price_updates,
+            summary.prices_digest,
+            s.metadata_calls,
+            s.supply_calls,
+            s.metadata_failures
+        );
         println!(
             "coverage: {} tokens seen, {} with a quote-asset pool, {} priced ({} thin), {} without decimals",
             c.tokens_seen,
