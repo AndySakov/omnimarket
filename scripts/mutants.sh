@@ -77,7 +77,10 @@ trap stop_workers INT TERM
 index=$(mktemp "${TMPDIR:-/tmp}/mutants-index.XXXXXX")
 GIT_INDEX_FILE=$index git read-tree HEAD
 GIT_INDEX_FILE=$index git add -A
-snapshot=$(git commit-tree "$(GIT_INDEX_FILE=$index git write-tree)" -p HEAD -m "mutants snapshot")
+# The commit never leaves this clone, so it gets a fixed identity: CI runners have none.
+snapshot=$(GIT_AUTHOR_NAME=mutants GIT_AUTHOR_EMAIL=mutants@localhost \
+  GIT_COMMITTER_NAME=mutants GIT_COMMITTER_EMAIL=mutants@localhost \
+  git commit-tree "$(GIT_INDEX_FILE=$index git write-tree)" -p HEAD -m "mutants snapshot")
 rm -f "$index"
 
 # A diff with no Rust in it has no mutants: skip the builds.
