@@ -1,5 +1,5 @@
-//! Uniswap v2 pairs in the engine: discovery, CREATE2 proof, state from `Sync`, and the
-//! shadow state check.
+//! Uniswap v2 pairs in the engine: discovery, CREATE2 proof, state from `Sync`, trades from
+//! `Swap`, and the shadow state check.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
@@ -10,6 +10,7 @@ use venues::v2::{self, Deployment, Pair, Reserves};
 
 use crate::outbox::{PoolState, PoolUpdate};
 use crate::state::{Effects, Pending, Stats};
+use crate::trades::{SwapSeen, Trade, Venue};
 
 /// Pairs per verification call: two view calls each, well inside a node's call limits.
 const VERIFY_BATCH: usize = 100;
@@ -25,17 +26,22 @@ pub(crate) enum Call {
     },
 }
 
-/// A `Sync` seen for a pair still waiting for its proof.
-struct Seen {
-    event: (u64, B256, u64),
-    reserves: Reserves,
+/// A pair's event seen while it waits for its proof.
+enum Seen {
+    Sync {
+        event: (u64, B256, u64),
+        reserves: Reserves,
+    },
+    Swap(SwapSeen),
 }
 
 pub(crate) struct V2Pools {
     deployment: Deployment,
+    /// Trade records' quote assets, most preferred first (D102).
+    quote_assets: Vec<Address>,
     pairs: BTreeMap<Address, Pair>,
-    /// Pairs seen trading before we knew them (D80), with their events in order, until the
-    /// CREATE2 proof comes back.
+    /// Pairs seen trading before we knew them (D80), with their `Sync`s and `Swap`s in order,
+    /// until the CREATE2 proof comes back.
     unproven: BTreeMap<Address, Vec<Seen>>,
     /// Addresses that emitted a v2 event but aren't this deployment's pairs: forks or fakes.
     rejected: BTreeSet<Address>,
@@ -44,9 +50,10 @@ pub(crate) struct V2Pools {
 }
 
 impl V2Pools {
-    pub fn new(deployment: Deployment) -> Self {
+    pub fn new(deployment: Deployment, quote_assets: Vec<Address>) -> Self {
         Self {
             deployment,
+            quote_assets,
             pairs: BTreeMap::new(),
             unproven: BTreeMap::new(),
             rejected: BTreeSet::new(),
@@ -72,6 +79,8 @@ impl V2Pools {
                 self.on_created(log);
             } else if v2::is_sync(log) {
                 self.on_sync(chain_id, log, event, &mut newly_seen, effects);
+            } else if v2::is_swap(log) {
+                self.on_swap(chain_id, block, log, effects);
             }
         }
         for batch in newly_seen.chunks(VERIFY_BATCH) {
@@ -143,7 +152,32 @@ impl V2Pools {
         if seen.is_empty() {
             newly_seen.push(address);
         }
-        seen.push(Seen { event, reserves });
+        seen.push(Seen::Sync { event, reserves });
+    }
+
+    /// A pair's `Swap` follows the `Sync` it caused, so a pair is already tracked or waiting
+    /// for its proof by the time its first `Swap` arrives. Any other emitter isn't a pair.
+    fn on_swap(&mut self, chain_id: u64, block: &Block, log: &Log, effects: &mut Effects) {
+        let address = log.address;
+        let Some(swap) = v2::decode_swap(log) else {
+            return;
+        };
+        let Some(deltas) = swap.pool_deltas() else {
+            return;
+        };
+        let seen = SwapSeen::new(block, log, (swap.sender, swap.recipient), deltas);
+        if let Some(pair) = self.pairs.get(&address) {
+            effects.trades.push(Trade::new(
+                chain_id,
+                Venue::UniswapV2,
+                address,
+                (pair.token0, pair.token1),
+                &self.quote_assets,
+                &seen,
+            ));
+        } else if let Some(waiting) = self.unproven.get_mut(&address) {
+            waiting.push(Seen::Swap(seen));
+        }
     }
 
     pub fn on_answer(
@@ -173,10 +207,13 @@ impl V2Pools {
             CallResult::Failed(_) => None,
         };
         let Some(answers) = answers.filter(|a| a.len() == pairs.len() * 2) else {
-            // Forget them; each is proven again the next time it trades.
+            // Forget them; each is proven again the next time it trades. Their buffered swaps
+            // are never published.
             stats.verify_failures += 1;
             for pair in &pairs {
-                self.unproven.remove(pair);
+                let seen = self.unproven.remove(pair).unwrap_or_default();
+                stats.trades_dropped +=
+                    seen.iter().filter(|s| matches!(s, Seen::Swap(_))).count() as u64;
             }
             return;
         };
@@ -195,15 +232,27 @@ impl V2Pools {
             };
             // Each `Sync` carries the full reserves, so the buffered ones replay in order.
             let mut before: Option<Reserves> = None;
-            for Seen { event, reserves } in seen {
-                effects.updates.push(PoolUpdate::new(
-                    chain_id,
-                    address,
-                    event,
-                    before.map(PoolState::V2),
-                    PoolState::V2(reserves),
-                ));
-                before = Some(reserves);
+            for seen in seen {
+                match seen {
+                    Seen::Sync { event, reserves } => {
+                        effects.updates.push(PoolUpdate::new(
+                            chain_id,
+                            address,
+                            event,
+                            before.map(PoolState::V2),
+                            PoolState::V2(reserves),
+                        ));
+                        before = Some(reserves);
+                    }
+                    Seen::Swap(swap) => effects.trades.push(Trade::new(
+                        chain_id,
+                        Venue::UniswapV2,
+                        address,
+                        (token0, token1),
+                        &self.quote_assets,
+                        &swap,
+                    )),
+                }
             }
             if let Some(reserves) = before {
                 self.pairs.insert(

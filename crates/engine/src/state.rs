@@ -9,8 +9,20 @@ use types::chain::{B256, Block, CallResult, EthCall};
 use venues::v2::Deployment;
 
 use crate::outbox::PoolUpdate;
+use crate::trades::Trade;
 use crate::v2::V2Pools;
 use crate::v3::V3Pools;
+
+/// Base's quote assets (D18, D102): the reference stablecoins, then the native token, so a
+/// WETH/USDC trade is WETH against USDC. Symbols read from each contract, 2026-10-01.
+pub const BASE_QUOTE_ASSETS: [types::chain::Address; 3] = [
+    // USDC
+    alloy_primitives::address!("833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
+    // USDT
+    alloy_primitives::address!("fde4C96c8593536E31F229EA8f37b2ADa2699bb2"),
+    // WETH
+    alloy_primitives::address!("4200000000000000000000000000000000000006"),
+];
 
 /// How many recent block hashes the engine keeps, to find where a reorg forked.
 const RECENT_BLOCKS: usize = 128;
@@ -24,6 +36,8 @@ pub struct EngineConfig {
     pub check_every: Option<u64>,
     /// How many pools each check samples.
     pub check_sample: usize,
+    /// The tokens trade records are quoted in, most preferred first (D102).
+    pub quote_assets: Vec<types::chain::Address>,
 }
 
 impl EngineConfig {
@@ -38,6 +52,7 @@ impl EngineConfig {
             v3_tick_lens: self.v3.tick_lens.to_vec(),
             check_every: self.check_every,
             check_sample: self.check_sample as u64,
+            quote_assets: self.quote_assets.iter().map(|a| a.to_vec()).collect(),
         }
         .encode_to_vec()
     }
@@ -58,6 +73,11 @@ impl EngineConfig {
             },
             check_every: config.check_every,
             check_sample: config.check_sample.try_into().ok()?,
+            quote_assets: config
+                .quote_assets
+                .iter()
+                .map(|a| types::chain::Address::try_from(a.as_slice()).ok())
+                .collect::<Option<_>>()?,
         })
     }
 
@@ -68,6 +88,7 @@ impl EngineConfig {
             v3: venues::v3::BASE,
             check_every: None,
             check_sample: 20,
+            quote_assets: BASE_QUOTE_ASSETS.to_vec(),
         }
     }
 }
@@ -111,6 +132,11 @@ pub struct Stats {
     /// v3 bootstraps abandoned because a call failed; each pool starts again on next sight.
     pub bootstrap_failures: u64,
     pub updates: u64,
+    /// Trade records published: one per Swap on a tracked pool.
+    pub trades: u64,
+    /// Swaps buffered on a pool whose proof or bootstrap read then failed. The pool is read
+    /// again when it next trades, but these swaps are never published.
+    pub trades_dropped: u64,
     pub checks_passed: u64,
     pub checks_failed: u64,
 }
@@ -123,6 +149,8 @@ pub struct Summary {
     pub digest: blake3::Hash,
     /// Over every pool update published, in order: its proto bytes.
     pub updates_digest: blake3::Hash,
+    /// Over every trade published, in order: its proto bytes.
+    pub trades_digest: blake3::Hash,
 }
 
 /// A call the engine is waiting on, and what to do with its answer.
@@ -136,6 +164,7 @@ pub(crate) enum Pending {
 pub(crate) struct Effects {
     pub calls: Vec<(Pending, EthCall)>,
     pub updates: Vec<PoolUpdate>,
+    pub trades: Vec<Trade>,
 }
 
 pub(crate) struct State {
@@ -144,6 +173,7 @@ pub(crate) struct State {
     stats: Stats,
     digest: blake3::Hasher,
     updates_digest: blake3::Hasher,
+    trades_digest: blake3::Hasher,
     v2: V2Pools,
     v3: V3Pools,
 }
@@ -151,13 +181,14 @@ pub(crate) struct State {
 impl State {
     pub fn new(config: EngineConfig) -> Self {
         Self {
-            v2: V2Pools::new(config.v2),
-            v3: V3Pools::new(config.v3),
+            v2: V2Pools::new(config.v2, config.quote_assets.clone()),
+            v3: V3Pools::new(config.v3, config.quote_assets.clone()),
             config,
             recent: VecDeque::with_capacity(RECENT_BLOCKS),
             stats: Stats::default(),
             digest: blake3::Hasher::new(),
             updates_digest: blake3::Hasher::new(),
+            trades_digest: blake3::Hasher::new(),
         }
     }
 
@@ -211,6 +242,7 @@ impl State {
             block.number,
             logs = block.logs.len(),
             updates = effects.updates.len(),
+            trades = effects.trades.len(),
             lag_ms,
             "block"
         );
@@ -235,13 +267,18 @@ impl State {
         self.finish(effects);
     }
 
-    /// Folds this step's updates into the digest and counts its calls.
+    /// Folds this step's updates and trades into their digests and counts them.
     fn finish(&mut self, effects: &Effects) {
         for update in &effects.updates {
             self.updates_digest
                 .update(&update.to_proto().encode_length_delimited_to_vec());
         }
         self.stats.updates += effects.updates.len() as u64;
+        for trade in &effects.trades {
+            self.trades_digest
+                .update(&trade.to_proto().encode_length_delimited_to_vec());
+        }
+        self.stats.trades += effects.trades.len() as u64;
         self.stats.pairs_tracked = self.v2.tracked() as u64;
         self.stats.pools_tracked = self.v3.tracked() as u64;
     }
@@ -252,6 +289,7 @@ impl State {
             stats: self.stats.clone(),
             digest: self.digest.finalize(),
             updates_digest: self.updates_digest.finalize(),
+            trades_digest: self.trades_digest.finalize(),
         }
     }
 }

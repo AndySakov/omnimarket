@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use alloy_primitives::{Address, B256, U256, keccak256};
+use alloy_primitives::{Address, B256, I256, U256, keccak256};
 use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
 use types::chain::Log;
 
@@ -246,6 +246,29 @@ pub fn decode(log: &Log) -> Option<Event> {
         }
         _ => None,
     }
+}
+
+/// A pool's `Swap`, for the trade it records: who swapped, and how much of token0 and of
+/// token1 the pool gained (negative: paid out). `decode` reads the same log for the state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SwapLog {
+    pub sender: Address,
+    pub recipient: Address,
+    pub amount0: I256,
+    pub amount1: I256,
+}
+
+pub fn decode_swap(log: &Log) -> Option<SwapLog> {
+    if log.topics.first() != Some(&Swap::SIGNATURE_HASH) {
+        return None;
+    }
+    let e = Swap::decode_raw_log(log.topics.iter().copied(), &log.data).ok()?;
+    Some(SwapLog {
+        sender: e.sender,
+        recipient: e.recipient,
+        amount0: e.amount0,
+        amount1: e.amount1,
+    })
 }
 
 /// A new pool, from its factory's `PoolCreated`.
@@ -607,5 +630,42 @@ mod tests {
         );
         let t = TickLiquidity { gross: 9, net: 3 };
         assert_eq!(decode_tick(&answers::tick(t)), Some(t));
+    }
+
+    #[test]
+    fn decodes_a_swaps_signed_amounts() {
+        let sender = address!("5000000000000000000000000000000000000005");
+        let recipient = address!("6000000000000000000000000000000000000006");
+        let data = (
+            I256::try_from(-25).unwrap(),
+            I256::try_from(40).unwrap(),
+            alloy_primitives::aliases::U160::from(1u64) << 96,
+            7u128,
+            alloy_primitives::aliases::I24::try_from(-3).unwrap(),
+        )
+            .abi_encode_params();
+        let log = Log {
+            address: Address::ZERO,
+            topics: vec![
+                Swap::SIGNATURE_HASH,
+                sender.into_word(),
+                recipient.into_word(),
+            ],
+            data: alloy_primitives::Bytes::from(data),
+            log_index: 0,
+            transaction_hash: B256::ZERO,
+        };
+        assert_eq!(
+            decode_swap(&log),
+            Some(SwapLog {
+                sender,
+                recipient,
+                amount0: I256::try_from(-25).unwrap(),
+                amount1: I256::try_from(40).unwrap(),
+            })
+        );
+        let mut mint = log.clone();
+        mint.topics[0] = Mint::SIGNATURE_HASH;
+        assert_eq!(decode_swap(&mint), None);
     }
 }

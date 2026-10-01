@@ -15,14 +15,14 @@
 
 - Key: (chain, block hash, log index). Re-inserts are harmless → restartable backfills (D15).
 - Status per row: provisional → confirmed → final, or removed. Versioned inserts; `ReplacingMergeTree` keeps the latest.
-- Candles: built live from `swaps.<chain>` by the candle service; rebuilt for windows touched by corrections. 1s candles are also a recovery input (D39).
+- Candles: built live from `trades.<chain>` by the candle service; rebuilt for windows touched by corrections. 1s candles are also a recovery input (D39).
 
 ## Kafka topics
 
 | Topic | Key | Retention |
 |---|---|---|
 | `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery | pool | ≥ 24h |
-| `swaps.<chain>` | pool | 7 days |
+| `trades.<chain>`: `omnimarket.trade.v1.Trade`, one per Swap on a tracked pool (D102): the token and its quote asset, side, both amounts in base units, execution price (quote base units per token base unit × 10^36), sender, recipient, tx hash, block and log index. No USD and no `tx.from` | pool | 7 days |
 | `prices.<chain>` | token | 24h |
 | `corrections.<chain>` | block | 7 days |
 | `executions.<chain>` | wallet | 30 days |
@@ -57,6 +57,7 @@ Every wide event carries `omnimarket.lineage.v1.Lineage { id, caused_by[] }`, wi
 | Toy decision (M0 demo) | `omnimarket.sim.v1.ToyDecision` | `sim.toy_decision` | event id (u64) | the swap, then the quote |
 | Chain event | `omnimarket.chain.v1.Log` (inside `Block`) | `chain_event` | chain id (u64), block hash (32 bytes), log index (u64) | |
 | Pool update | `omnimarket.pool.v1.PoolUpdate` | `pool_update` | chain id (u64), pool (20 bytes), block hash (32 bytes), log index (u64) | the chain event |
+| Trade | `omnimarket.trade.v1.Trade` | `trade` | chain id (u64), block hash (32 bytes), log index (u64) | the chain event (the Swap log) |
 
 Chain events will key on (chain, block hash, log index), firings on the firing ID (D35) and intents on their hash, as each schema lands.
 
