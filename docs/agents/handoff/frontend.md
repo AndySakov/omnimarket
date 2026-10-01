@@ -8,6 +8,8 @@ This doc is Temi's standing instruction for frontend builders. Everything in [ba
 
 Also read, in `web/terminal/docs/`: `frontend-plan.md` (stack, code structure, state model), `frontend-reference-layout-brief.md` (the approved layout), the design-system docs for the surface you touch (`header-design-system.md`, `discovery-design-system.md`), and `collaboration-workflow.md`'s verification lanes. Also read `docs/spec/frontend.md`. Then look at how the existing Discover page and header are built, and build like them.
 
+**Jutin works alongside you** at reduced capacity, from his fork (`codex/…` branches), on issues labelled `jutin` or carrying his own "Taking this" comment (D93); `scripts/work` skips both. Before building, run `scripts/work prs` and read the diff of any open PR of his that touches the same area (`gh api repos/AndySakov/omnimarket/pulls/<n>/files`). Build on his work where it overlaps, never duplicate it, and never push to his branch. If your issue can't avoid changing code his open PR adds, say so on his PR and report `BLOCKED #n: overlaps Jutin's PR #p` to the orchestrator.
+
 ## Build
 
 - **Stack and boundaries** (frontend-plan.md): React, TypeScript, Vite, Tailwind tokens, Radix/shadcn primitives, TanStack Query for snapshots and commands, Zustand stores for streams, Lightweight Charts. Dependencies flow `shared → domains → features → pages → app`. Add no new dependency unless the issue needs it, and say why in the PR.

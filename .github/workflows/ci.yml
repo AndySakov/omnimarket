@@ -24,6 +24,13 @@ jobs:
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      # The pinned buf binary (scripts/buf downloads it into .tools/). Keyed on the script, which pins
+      # its version and checksum, so a version bump downloads once and every other run skips GitHub's
+      # release CDN, whose 5xx errors failed verify runs (#107).
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: buf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/buf') }}
       - run: scripts/verify.sh
       - run: cargo test -p sim --test kafka -- --ignored
 
@@ -37,6 +44,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/terminal/package-lock.json
+      # api:check runs scripts/buf generate (#75); the same cache as verify's, so neither job
+      # depends on GitHub's release CDN once buf has been downloaded.
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: buf-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/buf') }}
       - name: Install frontend dependencies
         working-directory: web/terminal
         run: npm ci
