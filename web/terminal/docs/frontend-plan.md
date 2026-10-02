@@ -1,8 +1,9 @@
 # Frontend Implementation Plan
 
 **Status:** Frontend working plan. Owner: Jutin. Phase 0 foundation is
-implemented and verified on `codex/terminal-foundation`; Phase 1 Token Workspace
-is implemented as a fixture-first design-system slice on `codex/token-workspace`.
+implemented and verified on `main`; Phase 1 Token Workspace is implemented on
+`codex/token-workspace` and is being reviewed in PR #105 against the shared
+typed stream contract.
 
 This is the implementation plan for the full OmniMarket terminal. It uses the
 repository product contract in `docs/spec/frontend.md` as upstream context. A
@@ -197,7 +198,7 @@ responsive table-owned scrolling, loading/empty/error states, accessibility
 coverage and visual baselines. Typecheck, lint, unit tests, production build,
 Playwright flows, visual checks and the Discover accessibility audit have passed.
 
-The foundation checkpoint is **PR-ready** and is under collaborator review in
-PR #56. The current follow-up checkpoint is a mocked Token Workspace; quote
-signing, live market data and backend integration remain explicitly out of
-scope for that slice.
+The foundation checkpoint has merged to `main`. The current follow-up
+checkpoint is PR #105: a fixture-compatible Token Workspace that now consumes
+the shared REST/WebSocket client. Quote signing remains out of scope; live
+candles and safety evidence still depend on backend Issues 80 and 89.

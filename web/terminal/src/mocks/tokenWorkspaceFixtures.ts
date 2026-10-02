@@ -38,6 +38,8 @@ export const tokenWorkspace: TokenWorkspaceFixture = {
   txns24h: '1,842',
   priceChange: '+28.6%',
   fdv: '$14.8M',
+  totalSupply: '1B',
+  thin: false,
   volume24h: '$8.2M',
   pair: 'NOVA / ETH',
   pricePoints: pricePoints.map(([time, value]) => ({ time, value })),

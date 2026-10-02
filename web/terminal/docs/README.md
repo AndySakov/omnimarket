@@ -18,9 +18,9 @@ not silently change that contract.
 ## Current delivery checkpoint
 
 Phase 0 is implemented and locally verified for the global terminal shell and
-Discover surface. The foundation branch is under collaborator review in PR #56;
-`codex/token-workspace` is the active follow-up branch for the mocked Token
-Workspace.
+Discover surface and is present on `main`. PR #105 is the active Token
+Workspace review, migrating the page onto the shared typed stream client.
+`codex/token-workspace` is the active follow-up branch for that review.
 
 ## Verification
 

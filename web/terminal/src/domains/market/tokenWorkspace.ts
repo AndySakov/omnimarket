@@ -34,7 +34,10 @@ export type TokenChartData = {
   volume: TokenVolumePoint[]
 }
 
-export const tokenChartIntervals = ['1s', '1m', '5m', '15m', '1h', '4h', '1D'] as const
+// Keep the picker aligned with the v0 CandleInterval contract. The API can add
+// longer intervals later without making the live screen invent a fixture-only
+// subscription topic.
+export const tokenChartIntervals = ['1s', '1m', '5m', '1h'] as const
 
 export type TokenChartInterval = (typeof tokenChartIntervals)[number]
 
@@ -48,9 +51,9 @@ export type TokenChartSnapshot = {
   updatedLabel: string
 }
 
-export type TokenWorkspaceStreamState = 'loading' | 'ready' | 'stale' | 'error'
+export type TokenWorkspaceStreamState = 'loading' | 'ready' | 'empty' | 'stale' | 'error'
 
-export type TokenWorkspaceConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'error'
+export type TokenWorkspaceConnectionState = 'connecting' | 'connected' | 'stale' | 'reconnecting' | 'error'
 
 export type TokenWorkspaceStreamStatus = {
   state: TokenWorkspaceConnectionState
@@ -152,6 +155,8 @@ export type TokenWorkspaceFixture = DiscoveryToken & {
   txns24h: string
   priceChange: string
   fdv: string
+  totalSupply: string
+  thin: boolean
   volume24h: string
   pair: string
   pricePoints: PricePoint[]

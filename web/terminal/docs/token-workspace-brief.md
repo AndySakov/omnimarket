@@ -1,6 +1,6 @@
 # Token Workspace Brief
 
-**Status:** Fixture-ready remediation slice implemented locally on `codex/token-workspace`; live acceptance remains blocked by Issues 63, 76, 77, 80 and 89.
+**Status:** Shared-client remediation slice implemented on `codex/token-workspace`; live candles and safety acceptance remain dependent on Issues 80 and 89.
 Owner: Jutin. This is the Phase 1 frontend slice after the foundation PR.
 
 The audit-to-implementation record is in
@@ -65,7 +65,7 @@ The next integration review must confirm:
 | Surface | Implemented first | Deferred to integration |
 |---|---|---|
 | Token page | ready, loading, missing, stale, error, provisional banner | corrected stream, unavailable API |
-| Chart | deterministic Lightweight Charts candles/volume, 1s–1D interval tabs, delayed/paused label | live candles, order overlays |
+| Chart | Lightweight Charts candles/volume through the shared client, 1s/1m/5m/1h interval tabs, stale/loading labels | candle backfill from #80, order overlays |
 | Details | Trades, Positions, Orders, Holders, Top Traders and Dev Token tabs | paginated API data and reconnect states |
 | Trade panel | Buy/Sell/Auto, modes, amount validation, presets, quote summary, loading/error states and review-ready state | wallet connection, signing, submitted/pending/landed/failed |
 | Safety | explicit not-checked/passed/warning/failed evidence with explanation | backend simulation receipt and confidence history |

@@ -27,7 +27,7 @@ local; this does not add wallet signing, API fetching, or backend behavior.
    - Market freshness remains part of the snapshot (`ready` or `stale`) rather
      than being confused with transport connectivity.
 2. **Keep transport behind an adapter**
-   - `createTokenWorkspaceStream` remains the fixture adapter.
+   - MSW serves the generated contract fixtures through the same shared stream manager used by live mode.
    - Its listener and status callbacks match the shape a WebSocket adapter will
      provide later.
 3. **Model recovery**

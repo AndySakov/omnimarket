@@ -15,4 +15,5 @@ type Story = StoryObj<typeof meta>
 export const Live: Story = {}
 export const Loading: Story = { args: { state: 'loading' } }
 export const Empty: Story = { args: { rows: [], state: 'empty' } }
+export const Stale: Story = { args: { state: 'stale' } }
 export const Error: Story = { args: { rows: [], state: 'error' } }

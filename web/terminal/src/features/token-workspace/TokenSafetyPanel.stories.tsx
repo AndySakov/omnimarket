@@ -14,6 +14,14 @@ type Story = StoryObj<typeof meta>
 
 export const NotChecked: Story = {}
 
+export const Loading: Story = { args: { state: 'loading' } }
+
+export const Empty: Story = { args: { state: 'empty' } }
+
+export const Stale: Story = { args: { state: 'stale' } }
+
+export const Error: Story = { args: { state: 'error' } }
+
 export const Passed: Story = {
   args: {
     evidence: {

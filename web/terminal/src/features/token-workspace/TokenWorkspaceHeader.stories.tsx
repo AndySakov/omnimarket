@@ -19,6 +19,22 @@ type Story = StoryObj<typeof meta>
 
 export const Live: Story = {}
 
+export const Loading: Story = {
+  args: { state: 'loading' },
+}
+
+export const Empty: Story = {
+  args: { state: 'empty' },
+}
+
+export const Stale: Story = {
+  args: { state: 'stale', connection: { state: 'stale', attempt: 0, label: 'Fixture stream stale' } },
+}
+
+export const Error: Story = {
+  args: { state: 'error', connection: { state: 'error', attempt: 1, label: 'Fixture stream unavailable' } },
+}
+
 export const Reconnecting: Story = {
   args: { connection: { state: 'reconnecting', attempt: 1, label: 'Stream interrupted · reconnecting' } },
 }
