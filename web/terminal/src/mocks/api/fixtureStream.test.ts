@@ -6,7 +6,8 @@ import Decimal from 'decimal.js'
 import { ClientMessageSchema, StreamError_Code } from '../../api/generated/omnimarket/api/v1/stream_pb'
 import { readDataSource } from '../../api/source'
 import { StreamManager } from '../../api/stream/manager'
-import { STATUS_TOPIC, tokenTopic } from '../../api/stream/topics'
+import { CandleInterval } from '../../api/generated/omnimarket/api/v1/market_pb'
+import { STATUS_TOPIC, candlesTopic, tokenTopic } from '../../api/stream/topics'
 import { fixtureHandlers } from './handlers'
 import { FixtureStream } from './fixtureStream'
 import { FIRST_NEW_POOL_TICK, NEW_POOL_EVERY_TICKS } from './discoveryFeed'
@@ -76,6 +77,23 @@ describe('fixture stream', () => {
     // A price move every tick, plus a new pool at the first-new-pool tick and every few after.
     expect(seqs).toEqual(seqs.map((_, i) => BigInt(i + 2)))
     expect(added.map((a) => a.name)).toEqual(['Brine (fixture)', 'Cobalt (fixture)'])
+  })
+
+  it('serves each candle topic its interval\'s series', () => {
+    const stream = new FixtureStream()
+    const intervals = (['1m', '15m', '4h', '1d'] as const).map((label) => {
+      const [message] = stream.receive(subscribe(candlesTopic(NOVA, label)))
+      const series = message?.kind.case === 'snapshot' && message.kind.value.payload.case === 'candles'
+        ? message.kind.value.payload.value
+        : undefined
+      return series?.interval
+    })
+    expect(intervals).toEqual([
+      CandleInterval.CANDLE_INTERVAL_1M,
+      CandleInterval.CANDLE_INTERVAL_15M,
+      CandleInterval.CANDLE_INTERVAL_4H,
+      CandleInterval.CANDLE_INTERVAL_1D,
+    ])
   })
 
   it('stops ticking a topic after unsubscribe', () => {

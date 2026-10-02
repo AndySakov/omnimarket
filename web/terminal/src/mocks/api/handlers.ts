@@ -5,7 +5,6 @@
 import { fromJsonString, toJsonString } from '@bufbuild/protobuf'
 import { http, HttpResponse, ws, type RequestHandler, type WebSocketHandler } from 'msw'
 import {
-  CandleSeriesSchema,
   DiscoveryFeedSchema,
   EngineStatusSchema,
   TokenSnapshotSchema,
@@ -27,7 +26,7 @@ import {
 } from '../../api/generated/omnimarket/api/v1/automation_pb'
 import { ClientMessageSchema, ServerMessageSchema } from '../../api/generated/omnimarket/api/v1/stream_pb'
 import type { DataSource } from '../../api/source'
-import { apiFixtureJson } from '../fixtures/api'
+import { apiFixtureJson, candleSeriesFixtureJson } from '../fixtures/api'
 import { FixtureStream } from './fixtureStream'
 
 export type FixtureHandlerOptions = {
@@ -61,7 +60,9 @@ export function fixtureHandlers(
     http.get(`${api}/discovery`, json(DiscoveryFeedSchema)),
     http.get(`${api}/tokens/:chainId/:address`, json(TokenSnapshotSchema)),
     http.get(`${api}/trades`, json(TradeListSchema)),
-    http.get(`${api}/candles`, json(CandleSeriesSchema)),
+    http.get(`${api}/candles`, ({ request }) =>
+      HttpResponse.json(candleSeriesFixtureJson(new URL(request.url).searchParams.get('interval') ?? '')),
+    ),
     http.post(`${api}/session`, json(SessionSchema)),
     http.get(`${api}/account`, json(AccountSchema)),
     http.get(`${api}/positions`, json(PositionListSchema)),
