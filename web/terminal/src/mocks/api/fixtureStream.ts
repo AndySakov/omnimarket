@@ -3,7 +3,7 @@
 // terminal looks alive offline.
 // Pure: `receive` and `tick` return the messages to send; the MSW handler owns the timers.
 
-import { create, type MessageInitShape } from '@bufbuild/protobuf'
+import { create, fromJson, type MessageInitShape } from '@bufbuild/protobuf'
 import Decimal from 'decimal.js'
 import {
   CandleSeriesSchema,
@@ -21,7 +21,7 @@ import {
   type ServerMessage,
 } from '../../api/generated/omnimarket/api/v1/stream_pb'
 import { STATUS_TOPIC, topicKind } from '../../api/stream/topics'
-import { apiFixture } from '../fixtures/api'
+import { apiFixture, candleSeriesFixtureJson } from '../fixtures/api'
 import { FixtureDiscovery } from './discoveryFeed'
 
 // Relative price moves, applied in turn on each tick. They sum to zero, so prices wander but don't drift.
@@ -123,7 +123,10 @@ export class FixtureStream {
         payload = snapshot(topic, { case: 'trades', value: apiFixture(TradeListSchema) })
         break
       case 'candles':
-        payload = snapshot(topic, { case: 'candles', value: apiFixture(CandleSeriesSchema) })
+        payload = snapshot(topic, {
+          case: 'candles',
+          value: fromJson(CandleSeriesSchema, candleSeriesFixtureJson(topic.split(':')[2] ?? '')),
+        })
         break
       case 'account':
         payload = snapshot(topic, { case: 'account', value: apiFixture(AccountSnapshotSchema) })

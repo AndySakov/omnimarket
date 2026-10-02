@@ -212,6 +212,9 @@ enum CandleInterval {
   CANDLE_INTERVAL_1M = 2;
   CANDLE_INTERVAL_5M = 3;
   CANDLE_INTERVAL_1H = 4;
+  CANDLE_INTERVAL_15M = 5;
+  CANDLE_INTERVAL_4H = 6;
+  CANDLE_INTERVAL_1D = 7;
 }
 
 // One OHLCV candle built from trades, in USD (#80). Keyed by (chain_id, token, interval,

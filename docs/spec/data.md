@@ -15,7 +15,7 @@
 
 - Key: (chain, block hash, log index). Re-inserts are harmless → restartable backfills (D15).
 - Status per row: provisional → confirmed → final, or removed. Versioned inserts; `ReplacingMergeTree` keeps the latest.
-- Candles: built live from `trades.<chain>` by the candle service; rebuilt for windows touched by corrections. 1s candles are also a recovery input (D39).
+- Candles: built live from `trades.<chain>` by the candle service; rebuilt for windows touched by corrections. 1s candles are also a recovery input (D39). The builder serves every `CandleInterval` in the API contract: 1s, 1m, 5m, 15m, 1h, 4h and 1d (#124; the terminal's chart offers 15m, 4h and 1D). It doesn't exist yet: #80 builds it with all seven.
 
 ## Kafka topics
 
@@ -40,7 +40,7 @@ What the API serves to both UIs (D62, D91), defined in `proto/omnimarket/api/v1/
 | `discovery` | `DiscoveryFeed` | `DiscoveryRow` (by token), `DiscoveryRowRemoved` |
 | `token:<address>` | `TokenSnapshot` | `TokenTick`, at most 20 a second (D43) |
 | `trades:<address>` | `TradeList`, newest first | `Trade`, appended; natural key (chain, block hash, log index) |
-| `candles:<address>:<interval>` (`1s`, `1m`, `5m`, `1h`) | `CandleSeries`, oldest first | `Candle` (by open time) |
+| `candles:<address>:<interval>` (`1s`, `1m`, `5m`, `15m`, `1h`, `4h`, `1d`) | `CandleSeries`, oldest first | `Candle` (by open time) |
 | `account` (needs the session token) | `AccountSnapshot` | `Account`, `Position` (by token), `Quote` (re-quotes), `TradeStatus` and `TradeReceipt` (by trade ID), `Order` and `OrderStatus` (by order ID), `Firing` (by firing ID) |
 
 **`discovery` (#81, `crates/api/src/discovery.rs`).** Built from `pool-updates.base`, `trades.base` and `prices.base`. One row per token, keyed by its address:

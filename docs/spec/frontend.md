@@ -70,7 +70,7 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=` | `DiscoveryFeed` | #81 |
 | `GET /v1/tokens/{chain_id}/{address}` | `TokenSnapshot` | #76 |
 | `GET /v1/trades?chain_id=&token=&limit=` | `TradeList` | #77 |
-| `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` | `CandleSeries` | #80 |
+| `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` (`interval`: `1s`, `1m`, `5m`, `15m`, `1h`, `4h` or `1d`) | `CandleSeries` | #80 |
 | `POST /v1/session` | `Session` (guest, or linked to a Privy login) | #85 |
 | `GET /v1/account` | `Account` | #85 |
 | `GET /v1/positions` | `PositionList` | #85 |
@@ -95,7 +95,7 @@ Account requests send the session token as `Authorization: Bearer <session_token
 - **Slow clients.** Each connection reads ticks from a bounded queue (256). A client that falls further behind is sent fresh snapshots of its topics, each starting again at seq 0, instead of queueing without limit.
 - **Operational basics.** CORS allows the terminal's origin (`--cors-origin`, GET only). Each request's trace span carries the running request count, and each connection's span the open connection count.
 
-**Generated types and fixtures.** `npm run api:generate` in `web/terminal/` runs `buf generate` (protobuf-es v2) into `src/api/generated`, which is committed; `npm run api:check` fails CI's `frontend` job when it's stale. `src/mocks/fixtures/api/v1/<Message>.json` holds one canonical proto3 JSON fixture per message, for MSW handlers and stories (`apiFixture(Schema)` parses one); `src/api/contract.test.ts` checks every message has one, and that records carry lineage and amounts are decimal strings.
+**Generated types and fixtures.** `npm run api:generate` in `web/terminal/` runs `buf generate` (protobuf-es v2) into `src/api/generated`, which is committed; `npm run api:check` fails CI's `frontend` job when it's stale. `src/mocks/fixtures/api/v1/<Message>.json` holds one canonical proto3 JSON fixture per message, for MSW handlers and stories (`apiFixture(Schema)` parses one); `src/api/contract.test.ts` checks every message has one, and that records carry lineage and amounts are decimal strings. Candle series also have one fixture per interval where the chart needs more than the message fixture (`src/mocks/fixtures/api/candles/<interval>.json`: 15m, 4h and 1d, #124); the MSW handlers serve `GET /v1/candles` and each `candles:<address>:<interval>` topic from the interval's file, falling back to the `CandleSeries` fixture.
 
 **The terminal's client (#63, D94).** `web/terminal/src/api`: `rest.ts` (typed REST client) and `queries.ts` (TanStack Query hooks) for snapshots and commands; `stream/` (the WebSocket manager, its store and hooks) for topics. `VITE_DATA_SOURCE` picks the source: `fixtures` (the default; MSW serves the fixtures above in the browser, REST and stream alike), `replay` or `live` (both with `VITE_API_URL`). The manager subscribes only to topics on screen, resubscribes a topic on a seq gap, reconnects with backoff and resubscribes after a drop, and marks data stale after three missed heartbeats. It keeps the server's clock from each heartbeat, so ages on screen count from it rather than the browser's clock, and a replay or the fixtures read as recorded. Each streamed region shows loading, live, stale, reconnecting or unavailable; the header shows the connection as Live, Replay, Fixtures, Connecting, Stale, Reconnecting or Unavailable.
 

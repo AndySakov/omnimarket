@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { fixtureHandlers } from '../mocks/api/handlers'
+import { CandleInterval } from './generated/omnimarket/api/v1/market_pb'
 import { ApiError, createApiClient } from './rest'
 import { readDataSource } from './source'
 
@@ -27,6 +28,27 @@ describe('REST client', () => {
     expect((await client.getDiscovery({ list: 'trending' })).rows.length).toBeGreaterThan(0)
     expect((await client.getTrades({ chainId: 8453n, token: NOVA, limit: 50 })).trades.length).toBeGreaterThan(0)
     expect((await client.getCandles({ chainId: 8453n, token: NOVA, interval: '1m' })).candles.length).toBeGreaterThan(0)
+  })
+
+  it('serves a candle series at each of the 15m, 4h and 1d intervals, spaced by the interval', async () => {
+    const cases = [
+      ['15m', CandleInterval.CANDLE_INTERVAL_15M, 900_000n],
+      ['4h', CandleInterval.CANDLE_INTERVAL_4H, 14_400_000n],
+      ['1d', CandleInterval.CANDLE_INTERVAL_1D, 86_400_000n],
+    ] as const
+    for (const [label, interval, ms] of cases) {
+      const series = await client.getCandles({ chainId: 8453n, token: NOVA, interval: label })
+      expect(series.interval, label).toBe(interval)
+      expect(series.candles.length, label).toBe(8)
+      for (const [i, candle] of series.candles.entries()) {
+        expect(candle.interval, label).toBe(interval)
+        expect(candle.openTimeMs % ms, label).toBe(0n)
+        if (i > 0) expect(candle.openTimeMs - series.candles[i - 1]!.openTimeMs, label).toBe(ms)
+      }
+      // The last is still open, ending at the fixture head's time.
+      expect(series.candles.map((c) => c.closed), label).toEqual([true, true, true, true, true, true, true, false])
+      expect(series.candles.at(-1)!.openTimeMs, label).toBe(1_790_000_000_000n - (1_790_000_000_000n % ms))
+    }
   })
 
   it('builds query strings and sends the session token', async () => {
