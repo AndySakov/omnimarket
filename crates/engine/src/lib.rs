@@ -6,6 +6,7 @@ mod core;
 mod outbox;
 mod prices;
 mod state;
+mod status;
 mod trades;
 mod v2;
 mod v3;
@@ -14,10 +15,12 @@ use types::chain::B256;
 
 pub use crate::core::Engine;
 pub use crate::outbox::{
-    InMemoryOutbox, KafkaOutbox, Outbox, PoolState, PoolUpdate, PriceUpdate, PricedPool, V3State,
+    InMemoryOutbox, KafkaOutbox, KafkaTopics, Outbox, PoolState, PoolUpdate, PriceUpdate,
+    PricedPool, V3State,
 };
 pub use crate::prices::Coverage;
 pub use crate::state::{EngineConfig, EngineError, Stats, Summary};
+pub use crate::status::{EngineStatus, Mode, Run};
 pub use crate::trades::{Side, Trade, Venue};
 
 /// Base's input log (D72): one partition, keyed by core instance.
@@ -31,6 +34,9 @@ pub const TRADES_TOPIC: &str = "trades.base";
 
 /// Base's display prices, one per touched token per canonical block (D18, D77), keyed by token.
 pub const PRICES_TOPIC: &str = "prices.base";
+
+/// Base's engine status, one per canonical block (#79), keyed by core instance.
+pub const STATUS_TOPIC: &str = "status.base";
 
 /// First topics of the logs M1 follows: Uniswap v2 and v3 pool events.
 pub const M1_TOPICS: [B256; 8] = [

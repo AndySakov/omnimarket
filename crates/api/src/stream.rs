@@ -10,16 +10,17 @@ use proto::api::v1::{
 };
 
 use crate::discovery::Filters;
-use crate::feed::{DISCOVERY_TOPIC, Feed, Published, token_topic};
+use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topic};
 use crate::model::ReadModel;
 
-/// The topics this server serves. Others in the contract arrive with their issues (#79, #80,
-/// #85); subscribing to one is an unknown topic until then.
+/// The topics this server serves. Others in the contract arrive with their issues (#80, #85);
+/// subscribing to one is an unknown topic until then.
 #[derive(Debug, PartialEq)]
 pub enum Topic {
     /// By lowercase 0x address.
     Token(String),
     Discovery,
+    Status,
 }
 
 impl Topic {
@@ -27,6 +28,7 @@ impl Topic {
         match self {
             Topic::Token(address) => token_topic(address),
             Topic::Discovery => DISCOVERY_TOPIC.to_string(),
+            Topic::Status => STATUS_TOPIC.to_string(),
         }
     }
 }
@@ -35,6 +37,9 @@ impl Topic {
 pub fn parse_topic(name: &str) -> Option<Topic> {
     if name == DISCOVERY_TOPIC {
         return Some(Topic::Discovery);
+    }
+    if name == STATUS_TOPIC {
+        return Some(Topic::Status);
     }
     let address = name.strip_prefix("token:")?.to_ascii_lowercase();
     let digits = address.strip_prefix("0x")?;
@@ -148,7 +153,8 @@ impl Session {
     }
 }
 
-/// The topic's snapshot, seq 0: the whole discovery feed, or the token's if it has a price yet.
+/// The topic's snapshot, seq 0: the whole discovery feed, the engine's status once it has one,
+/// or the token's once it has a price.
 fn snapshot_of(topic: &str, state: &mut TopicState, feed: &Feed) -> Option<ServerMessage> {
     let (block_number, payload) = if topic == DISCOVERY_TOPIC {
         let discovery = feed.discovery().feed(&Filters::default());
@@ -156,6 +162,9 @@ fn snapshot_of(topic: &str, state: &mut TopicState, feed: &Feed) -> Option<Serve
             discovery.block_number,
             snapshot::Payload::Discovery(discovery),
         )
+    } else if topic == STATUS_TOPIC {
+        let status = feed.status()?.clone();
+        (status.head_block_number, snapshot::Payload::Status(status))
     } else {
         let token = feed.model().token(topic.strip_prefix("token:")?)?.clone();
         (token.block_number, snapshot::Payload::Token(token))

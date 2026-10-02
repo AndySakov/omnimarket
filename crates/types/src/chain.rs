@@ -11,6 +11,9 @@ pub struct Block {
     /// Seconds since the Unix epoch, as the block header states it.
     pub timestamp: u64,
     pub logs: Vec<Log>,
+    /// The chain's latest block number when the follower read this one. `None` in recordings
+    /// made before the follower recorded it.
+    pub chain_head: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

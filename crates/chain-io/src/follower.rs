@@ -64,6 +64,7 @@ pub async fn follow_head(
                 parent_hash: header.parent_hash,
                 timestamp: header.timestamp,
                 logs,
+                chain_head: Some(latest),
             };
             if sender.send(block).await.is_err() {
                 return Ok(());
@@ -420,6 +421,9 @@ mod tests {
         });
         let numbers: Vec<u64> = blocks.iter().map(|b| b.number).collect();
         assert_eq!(numbers, [10, 11, 12, 13, 14]);
+        // Each carries the latest number read before it: 13 for the catch-up, then 14.
+        let heads: Vec<Option<u64>> = blocks.iter().map(|b| b.chain_head).collect();
+        assert_eq!(heads, [Some(13), Some(13), Some(13), Some(13), Some(14)]);
         let indexes: Vec<u64> = blocks[0].logs.iter().map(|l| l.log_index).collect();
         assert_eq!(indexes, [2, 5]);
     }

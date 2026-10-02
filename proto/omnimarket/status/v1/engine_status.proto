@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package omnimarket.status.v1;
+
+import "omnimarket/lineage/v1/lineage.proto";
+
+// The engine's status after a canonical block (#79), on `status.<chain>`, keyed by core instance.
+// Natural key: (chain, block hash). Everything but `mode`, `recording` and `core_instance` comes
+// from the core, so a replay of a recording publishes the same numbers; those three describe the
+// run and are set by the publisher.
+message EngineStatus {
+  omnimarket.lineage.v1.Lineage lineage = 1;
+  uint64 chain_id = 2;
+  uint64 block_number = 3;
+  bytes block_hash = 4;
+  // Block time, Unix seconds.
+  uint64 block_timestamp = 5;
+  // Blocks between this one and the chain's latest when the follower read it. Unset in
+  // recordings made before the follower recorded the head.
+  optional uint64 lag_blocks = 6;
+  // From the block's timestamp to when the block reached the core, by the core's recorded clock.
+  // An upper bound: block timestamps have seconds resolution.
+  uint64 lag_ms = 7;
+  // Pools with state, per venue. Every tracked pool is active until pools are tiered (#41).
+  uint64 v2_pools = 8;
+  uint64 v3_pools = 9;
+  // Shadow state checks (D21) answered since the core started, and those that disagreed.
+  uint64 shadow_checks = 10;
+  uint64 shadow_check_mismatches = 11;
+  // From the core's first block to this one, by the core's recorded clock.
+  uint64 uptime_ms = 12;
+  Mode mode = 13;
+  // Whether the session's inputs are recorded (D54): to Kafka or a pinned fixture when live, and
+  // always for a replay, which plays a recording.
+  bool recording = 14;
+  string core_instance = 15;
+
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    MODE_LIVE = 1;
+    MODE_REPLAY = 2;
+  }
+}

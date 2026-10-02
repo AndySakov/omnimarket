@@ -69,6 +69,9 @@ impl Engine {
             for price in &effects.prices {
                 outbox.publish_price(price);
             }
+            if let Some(status) = &effects.status {
+                outbox.publish_status(status);
+            }
             for (pending, call) in effects.calls {
                 let answer = rpc.call(call);
                 in_flight.push(Box::pin(async move { (pending, answer.await) }));

@@ -6,11 +6,13 @@ mod discovery;
 mod feed;
 mod model;
 pub mod server;
+mod status;
 mod stream;
 mod throttle;
 
 pub use crate::discovery::{BASE_BLOCK_MS, Discovery, DiscoveryConfig, Filters};
-pub use crate::feed::{DISCOVERY_TOPIC, Feed, Published, token_topic};
+pub use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topic};
 pub use crate::model::{ModelError, ReadModel, decimal, hex, scaled_decimal};
+pub use crate::status::engine_status;
 pub use crate::stream::{Session, Topic, heartbeat, parse_topic, to_json};
 pub use crate::throttle::{MIN_GAP_MS, Throttle};

@@ -11,6 +11,7 @@ use venues::v2::Deployment;
 
 use crate::outbox::{PoolUpdate, PriceUpdate};
 use crate::prices::{Coverage, Prices};
+use crate::status::EngineStatus;
 use crate::trades::Trade;
 use crate::v2::V2Pools;
 use crate::v3::V3Pools;
@@ -278,6 +279,8 @@ pub(crate) struct Effects {
     pub updates: Vec<PoolUpdate>,
     pub trades: Vec<Trade>,
     pub prices: Vec<PriceUpdate>,
+    /// Set once per block, after the block is applied.
+    pub status: Option<EngineStatus>,
 }
 
 pub(crate) struct State {
@@ -291,6 +294,8 @@ pub(crate) struct State {
     v2: V2Pools,
     v3: V3Pools,
     prices: Option<Prices>,
+    /// The clock reading when the first block arrived: uptime counts from it.
+    started: Option<Timestamp>,
 }
 
 impl State {
@@ -309,6 +314,7 @@ impl State {
             updates_digest: blake3::Hasher::new(),
             trades_digest: blake3::Hasher::new(),
             prices_digest: blake3::Hasher::new(),
+            started: None,
         }
     }
 
@@ -366,7 +372,25 @@ impl State {
         }
 
         // Seconds-resolution timestamps make this an upper bound, like the measured delay.
-        let lag_ms = (now.unix_nanos / 1_000_000).saturating_sub(block.timestamp * 1_000);
+        let now_ms = now.unix_nanos / 1_000_000;
+        let lag_ms = now_ms.saturating_sub(block.timestamp * 1_000);
+        let started_ms = self.started.get_or_insert(now).unix_nanos / 1_000_000;
+        effects.status = Some(EngineStatus {
+            id: EngineStatus::id_for(self.config.chain_id, block.hash),
+            chain_id: self.config.chain_id,
+            block_number: block.number,
+            block_hash: block.hash,
+            block_timestamp: block.timestamp,
+            lag_blocks: block
+                .chain_head
+                .map(|head| head.saturating_sub(block.number)),
+            lag_ms,
+            v2_pools: self.stats.pairs_tracked,
+            v3_pools: self.stats.pools_tracked,
+            shadow_checks: self.stats.checks_passed + self.stats.checks_failed,
+            shadow_check_mismatches: self.stats.checks_failed,
+            uptime_ms: now_ms.saturating_sub(started_ms),
+        });
         tracing::info!(
             block.number,
             logs = block.logs.len(),
