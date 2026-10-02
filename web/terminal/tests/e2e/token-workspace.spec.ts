@@ -63,6 +63,6 @@ test('loads a distinct fixture snapshot when the chart interval changes', async 
   const hourlyInterval = page.getByRole('tab', { name: '1h', exact: true })
   await hourlyInterval.click()
   await expect(hourlyInterval).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('Fixture · 1h', { exact: true })).toBeVisible()
+  await expect(page.getByText('1h candles', { exact: true })).toBeVisible()
   await expect(page.getByRole('img', { name: /NovaSet candlestick price chart \(1h\)/ })).toBeVisible()
 })

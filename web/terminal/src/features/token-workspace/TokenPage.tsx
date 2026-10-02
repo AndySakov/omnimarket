@@ -162,7 +162,9 @@ function TokenChartPanel({ token, chartData, updatedLabel, activeInterval, displ
   const chartLow = chartData.candles.length > 0 ? Math.min(...chartData.candles.map((candle) => candle.low)) : null
   const chartStatus = state === 'loading' ? `Loading ${activeInterval} candles…` : state === 'empty' ? 'No candles reported' : connection.state === 'connected' ? `${displayedInterval} candles` : connection.label
   const connectionTone = getConnectionTone(connection.state)
-  const footerStatus = connection.state === 'connected' ? state === 'stale' ? 'Data stale · stream connected' : 'Live stream connected' : connection.label
+  const footerStatus = connection.state === 'connected'
+    ? state === 'stale' ? `Data stale · ${connection.label}` : connection.label
+    : connection.label
 
   return (
     <section className="token-chart-panel" aria-label="Token price chart" aria-busy={state === 'loading' || connection.state === 'reconnecting'}>
