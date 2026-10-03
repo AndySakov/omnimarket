@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { fromJson, toJson, ScalarType, type DescField, type DescMessage, type JsonValue } from '@bufbuild/protobuf'
 import { file_omnimarket_api_v1_automation } from './generated/omnimarket/api/v1/automation_pb'
 import { file_omnimarket_api_v1_common } from './generated/omnimarket/api/v1/common_pb'
-import { file_omnimarket_api_v1_market } from './generated/omnimarket/api/v1/market_pb'
+import { CandleSeriesSchema, file_omnimarket_api_v1_market } from './generated/omnimarket/api/v1/market_pb'
 import { file_omnimarket_api_v1_stream } from './generated/omnimarket/api/v1/stream_pb'
 import { file_omnimarket_api_v1_trading } from './generated/omnimarket/api/v1/trading_pb'
 import { LineageSchema } from './generated/omnimarket/lineage/v1/lineage_pb'
-import { apiFixturesJson } from '../mocks/fixtures/api'
+import { apiFixturesJson, candleSeriesFixturesJson } from '../mocks/fixtures/api'
 
 // The API contract v0 (#75, D91): proto/omnimarket/api/v1, as generated here.
 const apiFiles = [
@@ -148,6 +148,28 @@ describe('API contract v0', () => {
   it('writes decimals and hex in the agreed forms in every fixture', () => {
     const problems: Problem[] = []
     for (const desc of fixtureMessages) checkValues(desc, apiFixturesJson[desc.name], desc.name, problems)
+    expect(problems).toEqual([])
+  })
+})
+
+describe('candle series fixtures', () => {
+  const intervals = Object.keys(candleSeriesFixturesJson).sort()
+
+  it('has one for each interval the chart needs beyond the message fixture', () => {
+    expect(intervals).toEqual(['15m', '1d', '4h'])
+  })
+
+  it.each(intervals)('the %s series is canonical proto3 JSON at its interval, with lineage on it and every candle', (interval) => {
+    const json = candleSeriesFixturesJson[interval]
+    const series = fromJson(CandleSeriesSchema, json)
+    expect(toJson(CandleSeriesSchema, series)).toEqual(json)
+    expect((json as { interval?: string }).interval).toBe(`CANDLE_INTERVAL_${interval.toUpperCase()}`)
+    expect(series.lineage?.id.length, 'the series lineage ID').toBe(16)
+    for (const candle of series.candles) {
+      expect(candle.lineage?.id.length, `candle ${candle.openTimeMs} lineage ID`).toBe(16)
+    }
+    const problems: Problem[] = []
+    checkValues(CandleSeriesSchema, json, `candles/${interval}`, problems)
     expect(problems).toEqual([])
   })
 })
