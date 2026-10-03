@@ -1,0 +1,47 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: stack
+    folder: OmniMarket
+    interval: 10s
+    rules:
+      - uid: target-down
+        title: Scrape target down
+        condition: C
+        for: 30s
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.job }} has stopped answering Prometheus"
+        data:
+          - refId: A
+            relativeTimeRange: {from: 60, to: 0}
+            datasourceUid: prometheus
+            model: {refId: A, expr: "up", instant: true}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: last}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: lt, params: [1]}}]}
+      # Always firing. Route it to an external dead-man's switch (observability.md) so silence pages.
+      - uid: watchdog
+        title: Watchdog
+        condition: C
+        for: 0s
+        labels: {severity: info}
+        annotations:
+          summary: Alerting is evaluating. If this stops arriving, alerting is broken.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 60, to: 0}
+            datasourceUid: prometheus
+            model: {refId: A, expr: "vector(1)", instant: true}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: last}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]}}]}
