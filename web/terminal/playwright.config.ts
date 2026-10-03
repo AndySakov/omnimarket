@@ -1,5 +1,4 @@
 import { defineConfig, devices } from '@playwright/test'
-import { LIVE_API_URL } from './tests/e2e/live/liveApi'
 
 export default defineConfig({
   testDir: './tests',
@@ -44,7 +43,7 @@ export default defineConfig({
     {
       // The same app built for the live source, by env alone (#63). Tests play the API server
       // with page.routeWebSocket; nothing listens on LIVE_API_URL.
-      command: `VITE_DATA_SOURCE=live VITE_API_URL=${LIVE_API_URL} npx vite build --outDir dist-live && npx vite preview --outDir dist-live --host 127.0.0.1 --port 4174 --strictPort`,
+      command: `node scripts/build-live.mjs && npx vite preview --outDir dist-live --host 127.0.0.1 --port 4174 --strictPort`,
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: !process.env.CI,
       timeout: 120000,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Activity,
   ArrowDownUp,
@@ -73,9 +73,10 @@ type DiscoverySurfaceState = 'ready' | 'loading' | 'empty' | 'error'
 
 type DiscoveryPageProps = {
   state?: DiscoverySurfaceState
+  onTokenOpen?: (token: DiscoveryToken) => void
 }
 
-export function DiscoveryPage({ state = 'ready' }: DiscoveryPageProps) {
+export function DiscoveryPage({ state = 'ready', onTokenOpen }: DiscoveryPageProps) {
   const [activeStream, setActiveStream] = useState<(typeof streams)[number]>('New')
   const [sort, setSort] = useState<DiscoverySort>({ key: 'feed', direction: 'asc' })
   const [activeChain, setActiveChain] = useState<Chain>('Base')
@@ -180,6 +181,7 @@ export function DiscoveryPage({ state = 'ready' }: DiscoveryPageProps) {
               tokens={visibleTokens}
               selectedTokenId={selectedTokenId}
               onSelect={setSelectedTokenId}
+              onOpen={onTokenOpen}
               onQuickBuy={handleQuickBuy}
             />
           )}
@@ -368,10 +370,11 @@ type TokenTableProps = {
   tokens: DiscoveryToken[]
   selectedTokenId: string | null
   onSelect: (id: string) => void
+  onOpen?: (token: DiscoveryToken) => void
   onQuickBuy: (token: DiscoveryToken) => void
 }
 
-function TokenTable({ tokens, selectedTokenId, onSelect, onQuickBuy }: TokenTableProps) {
+function TokenTable({ tokens, selectedTokenId, onSelect, onOpen, onQuickBuy }: TokenTableProps) {
   return (
     <div className="discovery-table-scroll">
       <table className="discovery-table">
@@ -395,6 +398,7 @@ function TokenTable({ tokens, selectedTokenId, onSelect, onQuickBuy }: TokenTabl
               index={index + 1}
               selected={selectedTokenId === token.id}
               onSelect={() => onSelect(token.id)}
+              onOpen={() => onOpen?.(token)}
               onQuickBuy={() => onQuickBuy(token)}
             />
           ))}
@@ -409,19 +413,44 @@ type TokenRowProps = {
   index: number
   selected: boolean
   onSelect: () => void
+  onOpen: () => void
   onQuickBuy: () => void
 }
 
-function TokenRow({ token, index, selected, onSelect, onQuickBuy }: TokenRowProps) {
+function TokenRow({ token, index, selected, onSelect, onOpen, onQuickBuy }: TokenRowProps) {
+  function openToken() {
+    onSelect()
+    onOpen()
+  }
+
+  function handleRowClick(event: ReactMouseEvent<HTMLTableRowElement>) {
+    const target = event.target as HTMLElement
+    if (target.closest('button, a, input, select, textarea')) return
+    openToken()
+  }
+
+  function handleRowKeyDown(event: ReactKeyboardEvent<HTMLTableRowElement>) {
+    if (event.currentTarget !== event.target) return
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    openToken()
+  }
+
   return (
-    <tr className={selected ? 'token-row token-row--selected' : 'token-row'}>
+    <tr
+      className={selected ? 'token-row token-row--selected' : 'token-row'}
+      tabIndex={0}
+      aria-label={`Open ${token.name} token workspace`}
+      onClick={handleRowClick}
+      onKeyDown={handleRowKeyDown}
+    >
       <td data-label="Pair info">
         <div className="pair-cell">
           <span className="row-index" aria-hidden="true">{index}</span>
           <TokenAvatar src={token.avatarSrc} tone={token.avatarTone} />
           <div className="pair-cell__body">
             <div className="pair-cell__title">
-              <button className="token-name" type="button" onClick={onSelect}>{token.name}</button>
+              <button className="token-name" type="button" onClick={openToken}>{token.name}</button>
               <span className="token-symbol">{token.symbol}</span>
               <button className="copy-button" type="button" aria-label={`Copy ${token.name} address`}><Copy size={13} /></button>
             </div>
