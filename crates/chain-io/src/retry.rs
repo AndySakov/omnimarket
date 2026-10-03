@@ -54,3 +54,29 @@ pub(crate) async fn retry_for<'a, T>(
         backoff = (backoff * 2).min(MAX_BACKOFF);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn answered_after(delay: Duration, limit: Duration) -> Result<u8, ChainError> {
+        det::run_simulated(retry_for("slow read", limit, || {
+            Box::pin(async move {
+                tokio::time::sleep(delay).await;
+                Ok(7)
+            })
+        }))
+    }
+
+    #[test]
+    fn an_attempt_may_take_until_the_limit() {
+        let answer = answered_after(Duration::from_secs(3), Duration::from_secs(10));
+        assert!(matches!(answer, Ok(7)), "{answer:?}");
+    }
+
+    #[test]
+    fn an_attempt_gets_at_least_min_attempt() {
+        let answer = answered_after(Duration::from_millis(800), Duration::from_millis(500));
+        assert!(matches!(answer, Ok(7)), "{answer:?}");
+    }
+}

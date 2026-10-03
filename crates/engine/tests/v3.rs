@@ -531,29 +531,48 @@ fn the_shadow_check_agrees_with_the_chain_every_block() {
     assert_eq!(run.summary.stats.checks_failed, 0);
 }
 
-#[test]
-fn the_shadow_check_catches_a_wrong_tick() {
-    let (blocks, mut node) = world(scenario(), Some(2));
-    // The chain's truth at 104 has an extra position the engine never saw.
-    node.truth
-        .get_mut(&104)
-        .unwrap()
-        .get_mut(&old_pool())
-        .unwrap()
-        .apply(v3::Event::Mint {
-            lower: 600,
-            upper: 1_200,
-            amount: 3,
-        });
+/// The shadow check's (passed, failed) counts when the old pool is read at block 100 and the
+/// chain then differs from it, in the way `differ` says, at blocks 101 to 108. The check runs
+/// every block; at block 100 the read is still in flight, so 101 to 108 each check the pool once.
+fn checks_when_the_chain_differs(differ: impl Fn(&mut Pool)) -> (u64, u64) {
+    let mut blocks = vec![vec![]; 9];
+    blocks[0] = vec![(old_pool(), swap(-30, 1_007))];
+    let (blocks, mut node) = world(blocks, None);
+    for number in 101..=108 {
+        differ(
+            node.truth
+                .get_mut(&number)
+                .unwrap()
+                .get_mut(&old_pool())
+                .unwrap(),
+        );
+    }
     let config = EngineConfig {
         check_every: Some(1),
         ..EngineConfig::base()
     };
-    let run = run(config, blocks, node);
-    assert!(
-        run.summary.stats.checks_failed >= 1,
-        "{:?}",
-        run.summary.stats
+    let stats = run(config, blocks, node).summary.stats;
+    (stats.checks_passed, stats.checks_failed)
+}
+
+#[test]
+fn the_shadow_check_finds_a_difference_in_price_liquidity_or_any_tick() {
+    assert_eq!(checks_when_the_chain_differs(|_| {}), (8, 0));
+    assert_eq!(
+        checks_when_the_chain_differs(|pool| pool.price = Some(price(-31))),
+        (0, 8)
+    );
+    assert_eq!(
+        checks_when_the_chain_differs(|pool| pool.liquidity = 1_008),
+        (0, 8)
+    );
+    // The pool's ticks are -120,000, -600, 600 and 60,000, and each check reads the next one in
+    // turn: 60,000 comes up at the third and seventh checks.
+    assert_eq!(
+        checks_when_the_chain_differs(|pool| {
+            pool.ticks.get_mut(&60_000).unwrap().net += 1;
+        }),
+        (6, 2)
     );
 }
 
