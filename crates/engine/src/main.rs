@@ -419,4 +419,20 @@ mod tests {
         assert!(text.starts_with("7 blocks, 0 logs"), "{text}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    // indexer.md: "the run exits with code 1 and an error that names the endpoint, gives its
+    // last error and says to pass `--call-rpc` with another Base RPC URL."
+    #[test]
+    fn an_unusable_endpoint_error_names_it_its_last_error_and_the_flag() {
+        let error = chain_io::ChainError::Unanswered {
+            what: "eth_call",
+            waited: Duration::from_millis(64_200),
+            last: "rpc: over rate limit".into(),
+        };
+        assert_eq!(
+            unusable_endpoint("call", "--call-rpc", "https://mainnet.base.org", &error),
+            "the call endpoint https://mainnet.base.org is unusable: eth_call unanswered for 64s; \
+             last error: rpc: over rate limit\nPass --call-rpc with another Base RPC URL."
+        );
+    }
 }
