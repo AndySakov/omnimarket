@@ -3,6 +3,7 @@
 //! run can be recorded and replayed.
 
 mod core;
+mod history;
 mod outbox;
 mod prices;
 mod state;
@@ -19,7 +20,7 @@ pub use crate::outbox::{
     PricedPool, V3State,
 };
 pub use crate::prices::Coverage;
-pub use crate::state::{EngineConfig, EngineError, Stats, Summary};
+pub use crate::state::{BASE_BLOCKS_PER_HOUR, EngineConfig, EngineError, Stats, Summary};
 pub use crate::status::{EngineStatus, Mode, Run};
 pub use crate::trades::{Side, Trade, Venue};
 
@@ -31,6 +32,10 @@ pub const POOL_UPDATES_TOPIC: &str = "pool-updates.base";
 
 /// Base's trade records, one per Swap on a tracked pool (D102), keyed by pool.
 pub const TRADES_TOPIC: &str = "trades.base";
+
+/// Base's trade history: Swaps from before each pool was first seen, read back when it becomes
+/// tracked (#80), keyed by pool. The same records as `trades.base`.
+pub const TRADE_HISTORY_TOPIC: &str = "trade-history.base";
 
 /// Base's display prices, one per touched token per canonical block (D18, D77), keyed by token.
 pub const PRICES_TOPIC: &str = "prices.base";

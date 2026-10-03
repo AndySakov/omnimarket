@@ -19,6 +19,9 @@ message EngineConfig {
   repeated bytes quote_assets = 9;
   // Unset: the engine prices nothing, as before pricing existed, so older recordings replay.
   PricingConfig pricing = 10;
+  // How many blocks of Swaps before a pool was first seen to read and publish as trade history
+  // (#80). Unset: no history, as recordings made before it expect.
+  optional uint64 history_blocks = 11;
 }
 
 // Pricing (D18, D19, D24, D100). Tokens are priced against `quote_assets` (field 9): the native
