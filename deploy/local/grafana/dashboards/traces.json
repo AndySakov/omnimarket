@@ -1,0 +1,51 @@
+{
+  "uid": "om-traces",
+  "title": "OmniMarket traces",
+  "schemaVersion": 39,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "custom",
+        "query": "omnimarket-engine-base,omnimarket-sim",
+        "current": { "text": "omnimarket-engine-base", "value": "omnimarket-engine-base" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Recent traces",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 12 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"$service\" }",
+          "limit": 50,
+          "tableType": "traces"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Slowest spans",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 10 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"$service\" && duration > 10ms }",
+          "limit": 50,
+          "tableType": "spans"
+        }
+      ]
+    }
+  ]
+}
