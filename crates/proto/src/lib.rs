@@ -28,6 +28,12 @@ pub mod price {
     }
 }
 
+pub mod status {
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/omnimarket.status.v1.rs"));
+    }
+}
+
 pub mod trade {
     pub mod v1 {
         include!(concat!(env!("OUT_DIR"), "/omnimarket.trade.v1.rs"));

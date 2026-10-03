@@ -9,6 +9,9 @@ message Block {
   bytes parent_hash = 3;
   uint64 timestamp = 4;
   repeated Log logs = 5;
+  // The chain's latest block number when the follower read this block. Unset in recordings made
+  // before the follower recorded it.
+  optional uint64 chain_head = 6;
 }
 
 // Natural key: (chain, block hash, log_index).

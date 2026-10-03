@@ -1,4 +1,4 @@
-//! The I/O around the pure core: a Kafka consumer task that feeds `prices.base` into the feed,
+//! The I/O around the pure core: a Kafka consumer task that feeds the engine's output into the feed,
 //! and axum serving REST and the WebSocket stream from it (D45, D62).
 
 use std::collections::BTreeMap;
@@ -34,10 +34,11 @@ use crate::stream::{Session, heartbeat, to_json};
 pub const CONNECTION_BACKLOG: usize = 256;
 
 /// The engine's output topics the read models are built from.
-pub const INPUT_TOPICS: [&str; 3] = [
+pub const INPUT_TOPICS: [&str; 4] = [
     engine::POOL_UPDATES_TOPIC,
     engine::TRADES_TOPIC,
     engine::PRICES_TOPIC,
+    engine::STATUS_TOPIC,
 ];
 
 pub struct Config {
@@ -112,6 +113,10 @@ impl Shared {
             engine::POOL_UPDATES_TOPIC => proto::pool::v1::PoolUpdate::decode(payload)
                 .map(|update| feed.apply_pool_update(&update))
                 .map_err(|e| e.to_string()),
+            engine::STATUS_TOPIC => match proto::status::v1::EngineStatus::decode(payload) {
+                Ok(status) => feed.apply_status(&status).map_err(|e| format!("{e:?}")),
+                Err(e) => Err(e.to_string()),
+            },
             _ => Ok(Vec::new()),
         };
         match published {
@@ -126,8 +131,8 @@ impl Shared {
     }
 }
 
-/// The routes: `/health`, `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery` and the
-/// stream at `/v1/stream`.
+/// The routes: `/health`, `GET /v1/status`, `GET /v1/tokens/{chain_id}/{address}`,
+/// `GET /v1/discovery` and the stream at `/v1/stream`.
 pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerError> {
     let origin = HeaderValue::from_str(cors_origin)
         .map_err(|_| ServerError::BadCorsOrigin(cors_origin.to_string()))?;
@@ -137,6 +142,7 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
         .allow_headers([header::CONTENT_TYPE]);
     Ok(Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route("/v1/status", get(status))
         .route("/v1/tokens/{chain_id}/{address}", get(token))
         .route("/v1/discovery", get(discovery))
         .route("/v1/stream", get(stream))
@@ -200,6 +206,18 @@ async fn count_requests(
         requests,
     );
     next.run(request).instrument(span).await
+}
+
+/// The engine's latest status, or 503 before its first.
+async fn status(State(shared): State<Arc<Shared>>) -> Response {
+    match shared.feed().status() {
+        Some(status) => (
+            [(header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(status).expect("generated messages always serialize"),
+        )
+            .into_response(),
+        None => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
 }
 
 async fn token(

@@ -1,5 +1,5 @@
 //! What the engine publishes: pool updates, with the state before and after (D12), trade
-//! records (D102), and price updates (D18, D77).
+//! records (D102), price updates (D18, D77), and its status (#79).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -12,6 +12,7 @@ use types::chain::{Address, B256, Block};
 use venues::v2::Reserves;
 use venues::v3::{Price, TickLiquidity};
 
+use crate::status::{EngineStatus, Run};
 use crate::trades::Trade;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -255,20 +256,22 @@ impl PriceUpdate {
     }
 }
 
-/// Where pool updates, trades and price updates go. Publishing can't change the engine's
-/// decisions, so it isn't a recorded input.
+/// Where pool updates, trades, price updates and statuses go. Publishing can't change the
+/// engine's decisions, so it isn't a recorded input.
 pub trait Outbox {
     fn publish(&self, update: &PoolUpdate);
     fn publish_trade(&self, trade: &Trade);
     fn publish_price(&self, update: &PriceUpdate);
+    fn publish_status(&self, status: &EngineStatus);
 }
 
-/// Keeps updates, trades and prices in memory, for tests and replays. Clones share the lists.
+/// Keeps everything published in memory, for tests and replays. Clones share the lists.
 #[derive(Clone, Default)]
 pub struct InMemoryOutbox {
     updates: Rc<RefCell<Vec<PoolUpdate>>>,
     trades: Rc<RefCell<Vec<Trade>>>,
     prices: Rc<RefCell<Vec<PriceUpdate>>>,
+    statuses: Rc<RefCell<Vec<EngineStatus>>>,
 }
 
 impl InMemoryOutbox {
@@ -282,6 +285,10 @@ impl InMemoryOutbox {
 
     pub fn prices(&self) -> Vec<PriceUpdate> {
         self.prices.borrow().clone()
+    }
+
+    pub fn statuses(&self) -> Vec<EngineStatus> {
+        self.statuses.borrow().clone()
     }
 }
 
@@ -297,40 +304,58 @@ impl Outbox for InMemoryOutbox {
     fn publish_price(&self, update: &PriceUpdate) {
         self.prices.borrow_mut().push(update.clone());
     }
+
+    fn publish_status(&self, status: &EngineStatus) {
+        self.statuses.borrow_mut().push(status.clone());
+    }
+}
+
+/// Where `KafkaOutbox` publishes each kind of record.
+pub struct KafkaTopics {
+    pub updates: KafkaPublisher,
+    pub trades: KafkaPublisher,
+    pub prices: KafkaPublisher,
+    pub statuses: KafkaPublisher,
 }
 
 /// Publishes pool updates to `pool-updates.<chain>` and trades to `trades.<chain>`, both keyed
-/// by pool, and price updates to `prices.<chain>`, keyed by token.
+/// by pool, price updates to `prices.<chain>`, keyed by token, and statuses to
+/// `status.<chain>`, keyed by core instance and stamped with the run.
 pub struct KafkaOutbox {
-    updates: KafkaPublisher,
-    trades: KafkaPublisher,
-    prices: KafkaPublisher,
+    topics: KafkaTopics,
+    run: Run,
 }
 
 impl KafkaOutbox {
-    pub fn new(updates: KafkaPublisher, trades: KafkaPublisher, prices: KafkaPublisher) -> Self {
-        Self {
-            updates,
-            trades,
-            prices,
-        }
+    pub fn new(topics: KafkaTopics, run: Run) -> Self {
+        Self { topics, run }
     }
 }
 
 impl Outbox for KafkaOutbox {
     fn publish(&self, update: &PoolUpdate) {
-        self.updates
+        self.topics
+            .updates
             .publish(update.pool.as_slice(), &update.to_proto().encode_to_vec());
     }
 
     fn publish_trade(&self, trade: &Trade) {
-        self.trades
+        self.topics
+            .trades
             .publish(trade.pool.as_slice(), &trade.to_proto().encode_to_vec());
     }
 
     fn publish_price(&self, update: &PriceUpdate) {
-        self.prices
+        self.topics
+            .prices
             .publish(update.token.as_slice(), &update.to_proto().encode_to_vec());
+    }
+
+    fn publish_status(&self, status: &EngineStatus) {
+        self.topics.statuses.publish(
+            self.run.core_instance.as_bytes(),
+            &status.to_proto(&self.run).encode_to_vec(),
+        );
     }
 }
 

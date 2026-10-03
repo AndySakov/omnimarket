@@ -8,6 +8,7 @@ fn main() {
         "omnimarket/pool/v1/pool_update.proto",
         "omnimarket/trade/v1/trade.proto",
         "omnimarket/price/v1/price_update.proto",
+        "omnimarket/status/v1/engine_status.proto",
         "omnimarket/engine/v1/config.proto",
         "omnimarket/det/v1/input_record.proto",
         "omnimarket/sim/v1/toy.proto",

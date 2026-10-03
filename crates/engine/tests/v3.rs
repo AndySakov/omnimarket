@@ -260,6 +260,7 @@ fn world(
             parent_hash: hash(number - 1),
             timestamp: 1_767_225_600 + 2 * i as u64,
             logs,
+            chain_head: None,
         };
         chain.push((Duration::from_secs(2 * (i as u64 + 1)), block));
     }

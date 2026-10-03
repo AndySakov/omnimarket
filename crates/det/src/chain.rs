@@ -12,6 +12,7 @@ impl Recordable for Block {
             hash: self.hash.to_vec(),
             parent_hash: self.parent_hash.to_vec(),
             timestamp: self.timestamp,
+            chain_head: self.chain_head,
             logs: self
                 .logs
                 .iter()
@@ -52,6 +53,7 @@ impl Recordable for Block {
             parent_hash: B256::try_from(block.parent_hash.as_slice()).ok()?,
             timestamp: block.timestamp,
             logs,
+            chain_head: block.chain_head,
         })
     }
 }
@@ -96,8 +98,14 @@ mod tests {
                 log_index: 12,
                 transaction_hash: B256::repeat_byte(8),
             }],
+            chain_head: Some(9),
         };
-        assert_eq!(Block::decode(&block.encode()), Some(block));
+        assert_eq!(Block::decode(&block.encode()), Some(block.clone()));
+        let unknown_head = Block {
+            chain_head: None,
+            ..block
+        };
+        assert_eq!(Block::decode(&unknown_head.encode()), Some(unknown_head));
     }
 
     #[test]
