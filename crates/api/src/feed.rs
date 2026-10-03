@@ -2,15 +2,17 @@
 //! messages they make (rule 6). The server runs it on the Kafka consumer's task and fans its
 //! output out to connections.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use proto::api::v1::{EngineStatus, delta};
 use proto::pool::v1::PoolUpdate;
 use proto::price::v1::PriceUpdate;
 use proto::trade::v1::Trade;
+use types::chain::Address;
 
+use crate::candles::{Candles, INTERVALS, candles_topic};
 use crate::discovery::{Discovery, DiscoveryConfig};
-use crate::model::{ModelError, ReadModel};
+use crate::model::{ModelError, ReadModel, hex};
 use crate::status::engine_status;
 use crate::throttle::Throttle;
 
@@ -24,9 +26,12 @@ pub const STATUS_TOPIC: &str = "status";
 #[derive(Clone, Debug, PartialEq)]
 pub struct Published {
     pub topic: String,
-    /// The block the delta is as of; a connection skips one no newer than its snapshot.
-    pub block_number: u64,
-    pub payload: delta::Payload,
+    /// How far its read model had got: a block number, or for candles the count of trades
+    /// counted. A connection skips a delta no newer than its snapshot.
+    pub as_of: u64,
+    /// `None` when the topic changed too much to send as deltas: each subscriber gets a fresh
+    /// snapshot instead.
+    pub payload: Option<delta::Payload>,
 }
 
 /// The `token:<address>` topic's name.
@@ -42,6 +47,10 @@ pub struct Feed {
     pending: Pending,
     /// The latest `status.base` record's.
     status: Option<EngineStatus>,
+    candles: Candles,
+    /// Tokens whose candles took history since the last live trade. Their candle topics get a
+    /// fresh snapshot with the next live trade, rather than a delta per trade of history.
+    history_changed: BTreeSet<Address>,
 }
 
 /// The discovery read model's input, merged from the three topics in a fixed order, so its
@@ -77,6 +86,7 @@ impl Feed {
     pub fn apply_price(&mut self, update: &PriceUpdate) -> Result<Vec<Published>, ModelError> {
         let now_ms = update.block_timestamp.saturating_mul(1000);
         let tick = self.model.apply_price(update)?;
+        self.candles.apply_price(update)?;
         let ticks = self
             .throttle
             .offer(tick, now_ms)
@@ -85,8 +95,8 @@ impl Feed {
         let mut out: Vec<Published> = ticks
             .map(|tick| Published {
                 topic: token_topic(&tick.token),
-                block_number: tick.block_number,
-                payload: delta::Payload::TokenTick(tick),
+                as_of: tick.block_number,
+                payload: Some(delta::Payload::TokenTick(tick)),
             })
             .collect();
         self.pending.seen[2] = self.pending.seen[2].max(update.block_number);
@@ -105,17 +115,77 @@ impl Feed {
         self.status = Some(status.clone());
         Ok(vec![Published {
             topic: STATUS_TOPIC.to_string(),
-            block_number: status.head_block_number,
-            payload: delta::Payload::Status(status),
+            as_of: status.head_block_number,
+            payload: Some(delta::Payload::Status(status)),
         }])
     }
 
-    /// Takes one `trades.base` record for the discovery read model.
+    /// Takes one `trades.base` record: the token's candles take it at once, and the discovery
+    /// read model in its place in the merge. Candle topics that took history since the last
+    /// live trade get their fresh snapshots first.
     pub fn apply_trade(&mut self, trade: &Trade) -> Vec<Published> {
+        let mut out = self.history_snapshots();
+        out.extend(self.candle_deltas(trade));
         self.pending.seen[1] = self.pending.seen[1].max(trade.block_number);
         let at = self.pending.seen[1];
         self.pending.trades.push_back((at, trade.clone()));
-        self.release()
+        out.extend(self.release());
+        out
+    }
+
+    /// Takes one `trade-history.base` record: a trade from before its pool was tracked. It
+    /// counts toward candles only, never discovery's live windows.
+    pub fn apply_history(&mut self, trade: &Trade) -> Result<(), ModelError> {
+        if let Some(counted) = self.candles.apply_trade(trade)? {
+            self.history_changed.insert(counted.token);
+        }
+        Ok(())
+    }
+
+    /// The candles a live trade changed, one per interval, if its pool counts toward its
+    /// token's candles. A trade counted before changes nothing.
+    fn candle_deltas(&mut self, trade: &Trade) -> Vec<Published> {
+        let counted = match self.candles.apply_trade(trade) {
+            Ok(Some(counted)) => counted,
+            Ok(None) => return Vec::new(),
+            Err(error) => {
+                tracing::warn!(?error, "a trade the candles can't take");
+                return Vec::new();
+            }
+        };
+        if !self.candles.merges(counted.token, counted.pool) {
+            return Vec::new();
+        }
+        let address = hex(counted.token.as_slice());
+        let as_of = self.candles.version();
+        INTERVALS
+            .iter()
+            .filter_map(|(interval, _, length)| {
+                let open = counted.time_ms / length * length;
+                let candle = self.candles.candle(counted.token, *interval, open)?;
+                Some(Published {
+                    topic: candles_topic(&address, *interval),
+                    as_of,
+                    payload: Some(delta::Payload::Candle(candle)),
+                })
+            })
+            .collect()
+    }
+
+    /// A fresh snapshot for every candle topic of each token that took history.
+    fn history_snapshots(&mut self) -> Vec<Published> {
+        let as_of = self.candles.version();
+        std::mem::take(&mut self.history_changed)
+            .into_iter()
+            .flat_map(|token| {
+                let address = hex(token.as_slice());
+                INTERVALS.iter().map(move |(interval, _, _)| Published {
+                    topic: candles_topic(&address, *interval),
+                    as_of,
+                    payload: None,
+                })
+            })
+            .collect()
     }
 
     /// Takes one `pool-updates.base` record for the discovery read model.
@@ -168,6 +238,10 @@ impl Feed {
         &self.discovery
     }
 
+    pub fn candles(&self) -> &Candles {
+        &self.candles
+    }
+
     /// The engine's latest status; `None` until its first.
     pub fn status(&self) -> Option<&EngineStatus> {
         self.status.as_ref()
@@ -178,13 +252,13 @@ impl Feed {
         apply: impl FnOnce(&mut Discovery) -> Vec<delta::Payload>,
     ) -> Vec<Published> {
         let payloads = apply(&mut self.discovery);
-        let block_number = self.discovery.published_block();
+        let as_of = self.discovery.published_block();
         payloads
             .into_iter()
             .map(|payload| Published {
                 topic: DISCOVERY_TOPIC.to_string(),
-                block_number,
-                payload,
+                as_of,
+                payload: Some(payload),
             })
             .collect()
     }

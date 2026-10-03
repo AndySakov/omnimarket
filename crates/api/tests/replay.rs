@@ -19,9 +19,10 @@ const INPUTS: &[u8] = include_bytes!("fixtures/priced-replay/inputs.pb.zst");
 /// Replays a live Base recording with pricing on (`engine follow --record-to`, D99) through the engine, feeds its records to the
 /// API with its pool updates and trades, and returns everything a client subscribed to
 /// `discovery` and every token would have received, plus the discovery feed and each token's
-/// REST snapshot at the end; and, apart, just the discovery messages and the final feed.
-/// `order` is how the consumer happens to interleave the three topics.
-fn api_output(order: Order) -> (String, String) {
+/// REST snapshot at the end; apart, just the discovery messages and the final feed; and every
+/// token's candles at the end, at every interval. `order` is how the consumer happens to
+/// interleave the three topics.
+fn api_output(order: Order) -> (String, String, String) {
     let recording = det::file::decode_log_file(INPUTS).expect("the fixture decodes");
     let replay = Replay::new(recording);
     let config = replay
@@ -113,17 +114,25 @@ fn api_output(order: Order) -> (String, String) {
     out.push_str(&final_feed);
     out.push('\n');
     let tokens: Vec<String> = feed.model().token_addresses().cloned().collect();
+    let mut candles = String::new();
     for token in tokens {
         let snapshot = feed.model().token(&token).unwrap();
         out.push_str(&serde_json::to_string(snapshot).unwrap());
         out.push('\n');
+        for (interval, _, _) in api::INTERVALS {
+            let series =
+                feed.candles()
+                    .series(Some(8453), token.parse().unwrap(), interval, 0, u64::MAX);
+            candles.push_str(&serde_json::to_string(&series).unwrap());
+            candles.push('\n');
+        }
     }
     assert!(
         prices.len() > 10,
         "the recording prices tokens: {}",
         prices.len()
     );
-    (out, discovery)
+    (out, discovery, candles)
 }
 
 /// How the consumer interleaves the three topics.
@@ -139,9 +148,9 @@ enum Order {
 
 #[test]
 fn the_discovery_feed_is_the_same_however_the_topics_interleave() {
-    let (_, by_block) = api_output(Order::ByBlock);
+    let (_, by_block, _) = api_output(Order::ByBlock);
     for order in [Order::TopicByTopic, Order::PricesFirst] {
-        let (_, other) = api_output(order);
+        let (_, other, _) = api_output(order);
         assert!(
             other == by_block,
             "the discovery output depends on how the topics interleave"
@@ -151,11 +160,27 @@ fn the_discovery_feed_is_the_same_however_the_topics_interleave() {
 
 #[test]
 fn a_recorded_session_gives_byte_identical_api_output() {
-    let (first, _) = api_output(Order::ByBlock);
-    let (second, _) = api_output(Order::ByBlock);
+    let (first, _, _) = api_output(Order::ByBlock);
+    let (second, _, _) = api_output(Order::ByBlock);
     assert!(first.contains(r#""delta""#), "the output has deltas");
     assert!(
         first == second,
         "the API output differs between two replays"
     );
+}
+
+// Live, the API reads the topics block by block; rebuilt after a restart, it may read one topic
+// far ahead of the others.
+#[test]
+fn candles_rebuilt_from_a_recorded_session_match_the_live_ones() {
+    let (_, _, live) = api_output(Order::ByBlock);
+    let candles = live.matches("openTimeMs").count();
+    assert!(candles > 100, "the recording makes candles: {candles}");
+    for order in [Order::TopicByTopic, Order::PricesFirst] {
+        let (_, _, rebuilt) = api_output(order);
+        assert!(
+            rebuilt == live,
+            "the candles depend on how the topics interleave"
+        );
+    }
 }

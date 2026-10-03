@@ -2,6 +2,7 @@
 //! read models and serves contract v0 (D91) over REST and WebSocket. The read models, the
 //! throttle and the stream protocol are pure; `server` is the I/O around them.
 
+mod candles;
 mod discovery;
 mod feed;
 mod model;
@@ -10,6 +11,7 @@ mod status;
 mod stream;
 mod throttle;
 
+pub use crate::candles::{Candles, INTERVALS, MAX_SERIES, candles_topic, interval_named};
 pub use crate::discovery::{BASE_BLOCK_MS, Discovery, DiscoveryConfig, Filters};
 pub use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topic};
 pub use crate::model::{ModelError, ReadModel, decimal, hex, scaled_decimal};

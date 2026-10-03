@@ -34,9 +34,10 @@ use crate::stream::{Session, heartbeat, to_json};
 pub const CONNECTION_BACKLOG: usize = 256;
 
 /// The engine's output topics the read models are built from.
-pub const INPUT_TOPICS: [&str; 4] = [
+pub const INPUT_TOPICS: [&str; 5] = [
     engine::POOL_UPDATES_TOPIC,
     engine::TRADES_TOPIC,
+    engine::TRADE_HISTORY_TOPIC,
     engine::PRICES_TOPIC,
     engine::STATUS_TOPIC,
 ];
@@ -110,6 +111,13 @@ impl Shared {
             engine::TRADES_TOPIC => proto::trade::v1::Trade::decode(payload)
                 .map(|trade| feed.apply_trade(&trade))
                 .map_err(|e| e.to_string()),
+            engine::TRADE_HISTORY_TOPIC => match proto::trade::v1::Trade::decode(payload) {
+                Ok(trade) => feed
+                    .apply_history(&trade)
+                    .map(|()| Vec::new())
+                    .map_err(|e| format!("{e:?}")),
+                Err(e) => Err(e.to_string()),
+            },
             engine::POOL_UPDATES_TOPIC => proto::pool::v1::PoolUpdate::decode(payload)
                 .map(|update| feed.apply_pool_update(&update))
                 .map_err(|e| e.to_string()),
@@ -132,7 +140,7 @@ impl Shared {
 }
 
 /// The routes: `/health`, `GET /v1/status`, `GET /v1/tokens/{chain_id}/{address}`,
-/// `GET /v1/discovery` and the stream at `/v1/stream`.
+/// `GET /v1/discovery`, `GET /v1/candles` and the stream at `/v1/stream`.
 pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerError> {
     let origin = HeaderValue::from_str(cors_origin)
         .map_err(|_| ServerError::BadCorsOrigin(cors_origin.to_string()))?;
@@ -145,6 +153,7 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
         .route("/v1/status", get(status))
         .route("/v1/tokens/{chain_id}/{address}", get(token))
         .route("/v1/discovery", get(discovery))
+        .route("/v1/candles", get(candles))
         .route("/v1/stream", get(stream))
         .layer(middleware::from_fn_with_state(
             shared.clone(),
@@ -277,6 +286,60 @@ pub fn parse_filters(params: &BTreeMap<String, String>) -> Option<Filters> {
         }
     }
     Some(filters)
+}
+
+/// `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=`: the token's candles opening in
+/// that range, oldest first; an empty series for a token without any. `interval` is a topic's
+/// label (`1s` … `1d`); `from_ms` and `to_ms` are optional. A missing or unparsable parameter
+/// is a 400.
+async fn candles(
+    State(shared): State<Arc<Shared>>,
+    Query(params): Query<BTreeMap<String, String>>,
+) -> Response {
+    let Some(query) = parse_candles_query(&params) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let series = shared.feed().candles().series(
+        Some(query.chain_id),
+        query.token,
+        query.interval,
+        query.from_ms,
+        query.to_ms,
+    );
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(&series).expect("generated messages always serialize"),
+    )
+        .into_response()
+}
+
+/// What `GET /v1/candles` asks for.
+#[derive(Debug, PartialEq)]
+pub struct CandlesQuery {
+    pub chain_id: u64,
+    pub token: types::chain::Address,
+    pub interval: proto::api::v1::CandleInterval,
+    pub from_ms: u64,
+    pub to_ms: u64,
+}
+
+/// The candles query from a query string; `None` when a parameter is missing or doesn't parse.
+pub fn parse_candles_query(params: &BTreeMap<String, String>) -> Option<CandlesQuery> {
+    let token = params.get("token")?;
+    if token.len() != 42 || !token.starts_with("0x") {
+        return None;
+    }
+    let optional = |key: &str, default: u64| match params.get(key).filter(|v| !v.is_empty()) {
+        Some(value) => value.parse().ok(),
+        None => Some(default),
+    };
+    Some(CandlesQuery {
+        chain_id: params.get("chain_id")?.parse().ok()?,
+        token: token.parse().ok()?,
+        interval: crate::candles::interval_named(params.get("interval")?)?,
+        from_ms: optional("from_ms", 0)?,
+        to_ms: optional("to_ms", u64::MAX)?,
+    })
 }
 
 async fn stream(ws: WebSocketUpgrade, State(shared): State<Arc<Shared>>) -> Response {
