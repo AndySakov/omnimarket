@@ -20,11 +20,14 @@ case ${1:-} in
     "${compose[@]}" up -d --wait --wait-timeout 180
     # Tempo's image has no shell tools for a container healthcheck, so poll it from here.
     wait_for tempo http://localhost:3200/ready
+    wait_for loki http://localhost:3100/ready
+    wait_for prometheus http://localhost:9090/-/ready
+    wait_for pyroscope http://localhost:4040/ready
     # The input-log archive's bucket (D54, D72). 409 means it already exists.
     code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" \
       --user omnimarket:omnimarket-dev http://localhost:9000/omnimarket-inputs)
     [[ $code == 200 || $code == 409 ]] || { echo "stack: creating the archive bucket failed ($code)" >&2; exit 1; }
-    echo "stack: up (postgres :5432, kafka :9092, rustfs :9000/:9001, tempo :3200 otlp :4317/:4318, grafana :3000, anvil :8545)"
+    echo "stack: up (postgres :5432, kafka :9092, rustfs :9000/:9001, tempo :3200 otlp :4317/:4318, prometheus :9090, loki :3100, pyroscope :4040, grafana :3000, anvil :8545)"
     ;;
   down)
     "${compose[@]}" down --volumes --remove-orphans

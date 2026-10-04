@@ -21,6 +21,7 @@ use rdkafka::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::Message as _;
+use telemetry::metrics::{Metric, render};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tracing::Instrument;
@@ -69,6 +70,14 @@ pub struct Shared {
     ticks: broadcast::Sender<Arc<Published>>,
     requests: AtomicU64,
     connections: AtomicU64,
+    records: Mutex<BTreeMap<&'static str, Records>>,
+}
+
+/// What the consumer has done with one input topic's records.
+#[derive(Default)]
+struct Records {
+    applied: u64,
+    skipped: u64,
 }
 
 impl Shared {
@@ -82,6 +91,7 @@ impl Shared {
             ticks: broadcast::channel(CONNECTION_BACKLOG).0,
             requests: AtomicU64::new(0),
             connections: AtomicU64::new(0),
+            records: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -119,19 +129,86 @@ impl Shared {
             },
             _ => Ok(Vec::new()),
         };
+        let mut records = self
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let counts = records.entry(topic_name(topic)).or_default();
         match published {
             Ok(published) => {
+                counts.applied += 1;
                 for p in published {
                     // No receivers is fine: nobody is connected.
                     let _ = self.ticks.send(Arc::new(p));
                 }
             }
-            Err(error) => tracing::warn!(topic, error, "skipped a record"),
+            Err(error) => {
+                counts.skipped += 1;
+                tracing::warn!(topic, error, "skipped a record");
+            }
         }
+    }
+
+    /// The text a scrape of `/metrics` returns.
+    pub fn metrics(&self) -> String {
+        let mut metrics = vec![
+            Metric::counter("omnimarket_api_requests_total", "HTTP requests served.")
+                .value(self.requests.load(Ordering::Relaxed)),
+            Metric::gauge(
+                "omnimarket_api_connections",
+                "Open WebSocket stream connections.",
+            )
+            .value(self.connections.load(Ordering::Relaxed)),
+        ];
+        // Copied out before the records lock is taken: `apply` takes the feed's, then this one.
+        let engine = self
+            .feed()
+            .status()
+            .map(|s| (s.head_block_number, s.lag_ms));
+        let records = self
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut applied = Metric::counter(
+            "omnimarket_api_records_applied_total",
+            "Records applied to the read models, by topic.",
+        );
+        let mut skipped = Metric::counter(
+            "omnimarket_api_records_skipped_total",
+            "Records that didn't decode or fit the contract, by topic.",
+        );
+        for (topic, counts) in records.iter() {
+            applied = applied.labelled(&[("topic", topic)], counts.applied);
+            skipped = skipped.labelled(&[("topic", topic)], counts.skipped);
+        }
+        metrics.extend([applied, skipped]);
+        if let Some((head_block, lag_ms)) = engine {
+            metrics.extend([
+                Metric::gauge(
+                    "omnimarket_api_engine_head_block",
+                    "The engine's head block in the latest status the API holds.",
+                )
+                .value(head_block),
+                Metric::gauge(
+                    "omnimarket_api_engine_lag_ms",
+                    "The engine's lag in the latest status the API holds.",
+                )
+                .value(lag_ms),
+            ]);
+        }
+        render(&metrics)
     }
 }
 
-/// The routes: `/health`, `GET /v1/status`, `GET /v1/tokens/{chain_id}/{address}`,
+/// The input topic's static name, so a label can't grow with what a consumer is handed.
+fn topic_name(topic: &str) -> &'static str {
+    INPUT_TOPICS
+        .into_iter()
+        .find(|name| *name == topic)
+        .unwrap_or("other")
+}
+
+/// The routes: `/health`, `/metrics`, `GET /v1/status`, `GET /v1/tokens/{chain_id}/{address}`,
 /// `GET /v1/discovery` and the stream at `/v1/stream`.
 pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerError> {
     let origin = HeaderValue::from_str(cors_origin)
@@ -150,6 +227,8 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
             shared.clone(),
             count_requests,
         ))
+        // Added after the request counter, so Prometheus's scrapes don't count as requests.
+        .route("/metrics", get(metrics))
         .layer(cors)
         .with_state(shared))
 }
@@ -206,6 +285,14 @@ async fn count_requests(
         requests,
     );
     next.run(request).instrument(span).await
+}
+
+async fn metrics(State(shared): State<Arc<Shared>>) -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        shared.metrics(),
+    )
+        .into_response()
 }
 
 /// The engine's latest status, or 503 before its first.

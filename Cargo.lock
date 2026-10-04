@@ -726,6 +726,7 @@ dependencies = [
  "proto",
  "rdkafka",
  "serde_json",
+ "telemetry",
  "tokio",
  "tokio-tungstenite",
  "tower-http",
