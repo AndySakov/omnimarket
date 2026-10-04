@@ -44,3 +44,14 @@ fn the_endpoint_serves_metrics_and_nothing_else() {
     assert!(ok.ends_with("\r\n\r\nup 1\n"));
     assert!(get(address, "/other").starts_with("HTTP/1.1 404 Not Found\r\n"));
 }
+
+#[test]
+fn a_header_of_4k_with_no_end_is_answered_without_waiting_for_one() {
+    let address = serve("127.0.0.1:0".parse().unwrap(), || "up 1\n".to_string()).unwrap();
+    let mut stream = TcpStream::connect(address).unwrap();
+    let request = format!("GET /metrics {}", "a".repeat(4_096 - "GET /metrics ".len()));
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+}

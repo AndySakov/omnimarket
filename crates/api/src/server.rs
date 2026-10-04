@@ -160,6 +160,11 @@ impl Shared {
             )
             .value(self.connections.load(Ordering::Relaxed)),
         ];
+        // Copied out before the records lock is taken: `apply` takes the feed's, then this one.
+        let engine = self
+            .feed()
+            .status()
+            .map(|s| (s.head_block_number, s.lag_ms));
         let records = self
             .records
             .lock()
@@ -177,18 +182,18 @@ impl Shared {
             skipped = skipped.labelled(&[("topic", topic)], counts.skipped);
         }
         metrics.extend([applied, skipped]);
-        if let Some(status) = self.feed().status() {
+        if let Some((head_block, lag_ms)) = engine {
             metrics.extend([
                 Metric::gauge(
                     "omnimarket_api_engine_head_block",
                     "The engine's head block in the latest status the API holds.",
                 )
-                .value(status.head_block_number),
+                .value(head_block),
                 Metric::gauge(
                     "omnimarket_api_engine_lag_ms",
                     "The engine's lag in the latest status the API holds.",
                 )
-                .value(status.lag_ms),
+                .value(lag_ms),
             ]);
         }
         render(&metrics)

@@ -411,6 +411,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_replay_with_no_recording_source_is_refused() {
+        let result = run(Command::Replay {
+            kafka: None,
+            from_archive: false,
+            core_instance: "base-0".into(),
+            s3: S3Args {
+                s3_endpoint: String::new(),
+                s3_bucket: String::new(),
+                s3_access_key: String::new(),
+                s3_secret_key: String::new(),
+            },
+        });
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "give --kafka or --from-archive"
+        );
+    }
+
+    #[test]
     fn a_fixture_holds_the_recording_and_the_summary_text() {
         let dir = std::env::temp_dir().join(format!("engine-fixture-{}", std::process::id()));
         let recording: Vec<InputRecord> = (0..3)

@@ -99,20 +99,27 @@ pub fn serve(
         .name("metrics".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
-                // A client that never finishes its request is dropped, not waited on.
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                // A client that never finishes its request is dropped, not waited on: at most
+                // MAX_READS reads of 500ms each.
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
                 let _ = answer(stream, &render);
             }
         })?;
     Ok(bound)
 }
 
+/// Reads of 512 bytes: a request line and header longer than 4 KiB is cut off there.
+const MAX_READS: usize = 8;
+
 fn answer(mut stream: std::net::TcpStream, render: &impl Fn() -> String) -> std::io::Result<()> {
     // The whole header is read before answering, or closing would reset the client's connection.
     let mut buf = Vec::new();
     let mut chunk = [0u8; 512];
-    while !buf.windows(4).any(|w| w == b"\r\n\r\n") && buf.len() < 8192 {
+    for _ in 0..MAX_READS {
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
         let n = stream.read(&mut chunk)?;
         if n == 0 {
             break;
