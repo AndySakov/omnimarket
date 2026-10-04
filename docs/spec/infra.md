@@ -21,10 +21,10 @@
 | Kafka 4.3 (KRaft, single node) | 9092 | advertised as `localhost:9092` for clients on the host |
 | RustFS 1.0 (D75) | 9000 S3, 9001 console | access key `omnimarket`, secret `omnimarket-dev`; `scripts/stack up` creates the `omnimarket-inputs` bucket (input-log archive). The engine reads the keys from `OMNIMARKET_S3_ACCESS_KEY` / `OMNIMARKET_S3_SECRET_KEY`, defaulting to these |
 | Tempo 3.0 | 3200 API, 4317 OTLP gRPC, 4318 OTLP HTTP | local storage |
-| Prometheus 3.15 | 9090 | scrapes Prometheus, Tempo, Loki, Pyroscope and Grafana every 5s; remote-write receiver on |
+| Prometheus 3.15 | 9090 | scrapes Prometheus, Tempo, Loki, Pyroscope and Grafana every 5s, and the engine (`--metrics-listen 0.0.0.0:9464`) and API (`:8080/metrics`) running on the host; remote-write receiver on |
 | Loki 3.7 | 3100 | single binary, filesystem storage, structured metadata on (for OTLP logs) |
 | Pyroscope 2.3 | 4040 | profiles; nothing pushes to it yet |
-| Grafana 13 | 3000 | anonymous viewer (Grafana 13 allows no more), sign in as admin/admin to edit; Tempo, Prometheus, Loki and Pyroscope data sources, the OmniMarket traces dashboard and Grafana-managed alert rules provisioned (`deploy/local/grafana/alerting`): `Scrape target down` (a target's `up` below 1, or no data) and an always-firing `Watchdog` for a dead-man's switch. No contact point is provisioned, so alerts show in the UI only |
+| Grafana 13 | 3000 | anonymous viewer (Grafana 13 allows no more), sign in as admin/admin to edit; Tempo, Prometheus, Loki and Pyroscope data sources, the OmniMarket traces dashboard and Grafana-managed alert rules provisioned (`deploy/local/grafana/alerting`): `Scrape target down` (a stack service's `up` below 1, or no data), `Engine behind the chain` (lag over 10 blocks for a minute) and an always-firing `Watchdog` for a dead-man's switch. No contact point is provisioned, so alerts show in the UI only |
 | Anvil (Foundry 1.8) | 8545 | forks Base; set `BASE_RPC_URL` to use your own endpoint instead of the public one |
 
 ## Production layout

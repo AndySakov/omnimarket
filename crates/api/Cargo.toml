@@ -14,6 +14,7 @@ futures.workspace = true
 prost.workspace = true
 proto.workspace = true
 rdkafka.workspace = true
+telemetry.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tower-http.workspace = true

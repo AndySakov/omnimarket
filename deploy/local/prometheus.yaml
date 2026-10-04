@@ -12,3 +12,8 @@ scrape_configs:
     static_configs: [{targets: ["pyroscope:4040"]}]
   - job_name: grafana
     static_configs: [{targets: ["grafana:3000"]}]
+  # The engine and API run on the host (cargo run), so they're down unless you started them.
+  - job_name: engine
+    static_configs: [{targets: ["host.docker.internal:9464"]}]
+  - job_name: api
+    static_configs: [{targets: ["host.docker.internal:8080"]}]

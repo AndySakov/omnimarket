@@ -19,13 +19,33 @@ groups:
           - refId: A
             relativeTimeRange: {from: 60, to: 0}
             datasourceUid: prometheus
-            model: {refId: A, expr: "up", instant: true}
+            model: {refId: A, expr: "up{job=~\"prometheus|tempo|loki|pyroscope|grafana\"}", instant: true}
           - refId: B
             datasourceUid: __expr__
             model: {refId: B, type: reduce, expression: A, reducer: last}
           - refId: C
             datasourceUid: __expr__
             model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: lt, params: [1]}}]}
+      - uid: engine-behind
+        title: Engine behind the chain
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: ticket}
+        annotations:
+          summary: The engine's head is more than 10 blocks behind the chain
+        data:
+          - refId: A
+            relativeTimeRange: {from: 60, to: 0}
+            datasourceUid: prometheus
+            model: {refId: A, expr: "omnimarket_engine_lag_blocks", instant: true}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: last}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [10]}}]}
       # Always firing. Route it to an external dead-man's switch (observability.md) so silence pages.
       - uid: watchdog
         title: Watchdog
