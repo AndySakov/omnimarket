@@ -46,3 +46,30 @@ test('opens the token workspace when the token row body is clicked', async ({ pa
 
   await expect(page.getByRole('main', { name: 'NovaSet token workspace' })).toBeVisible()
 })
+
+test('keeps the chain context readable on a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+
+  await expect(page.getByRole('complementary', { name: 'Filter by chain' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^BNB/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^MegaETH/ })).toBeVisible()
+
+  const comingHints = page.getByText(/OmniMarket serves Base first/)
+  await expect(comingHints).toHaveCount(2)
+  const hintMetrics = await page.locator('.chain-rail__hint').evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return { width: rect.width, height: rect.height, clip: style.clip, position: style.position }
+    }),
+  )
+  expect(hintMetrics).toHaveLength(3)
+  expect(hintMetrics.every(({ width, height, clip, position }) => width <= 1 && height <= 1 && clip !== 'auto' && position === 'absolute')).toBe(true)
+
+  const viewport = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+  }))
+  expect(viewport.documentWidth).toBeLessThanOrEqual(viewport.viewportWidth)
+})
