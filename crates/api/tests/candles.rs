@@ -480,6 +480,31 @@ fn a_weth_quoted_candle_takes_weths_close_or_the_nearest_one() {
 }
 
 #[test]
+fn a_weth_candle_without_a_price_is_passed_over() {
+    // WETH's only trades in the first and third minutes moved no WETH (dust), so they have no
+    // price; it trades at $4,096 in the second.
+    let feed = feed_with(&[
+        trade(W, (WETH, USDC), (10, 0), 0, 0, e(6)),
+        trade(W, (WETH, USDC), (20, 0), 60, e(18), 4_096 * e(6)),
+        trade(W, (WETH, USDC), (30, 0), 120, 0, e(6)),
+        trade(B, (LOW, WETH), (10, 1), 0, e(18), 25 * e(13)),
+        trade(B, (LOW, WETH), (30, 1), 120, e(18), 25 * e(13)),
+    ]);
+    let closes: Vec<(u64, String)> = series(&feed, LOW, CandleInterval::CandleInterval1m)
+        .candles
+        .iter()
+        .map(|c| {
+            (
+                (c.open_time_ms - T0 * 1000) / MINUTE_MS,
+                c.close_usd.clone(),
+            )
+        })
+        .collect();
+    // Both take the second minute's $4,096: the first looking forward, the third looking back.
+    assert_eq!(closes, vec![(0, "1.024".into()), (2, "1.024".into())]);
+}
+
+#[test]
 fn a_trade_without_a_price_counts_but_moves_no_price() {
     // The pool took 5 USDC in and paid no LOW out: a txn and volume, but no price.
     let feed = feed_with(&[

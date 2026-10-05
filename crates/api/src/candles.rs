@@ -420,31 +420,48 @@ impl Candles {
     }
 
     /// WETH's USD close for the candle opening at `open_ms`: its own candle's, else the latest
-    /// earlier one's, else the earliest later one's.
+    /// earlier one's, else the earliest later one's, passing over any candle whose trades have
+    /// no price.
     fn weth_close(&self, interval: CandleInterval, open_ms: u64) -> Option<f64> {
         let pools = self.pools_of(WETH);
-        let mut earlier: Option<u64> = None;
-        let mut later: Option<u64> = None;
-        for (pool, _, _) in &pools {
-            if self.candles.contains_key(&(*pool, interval, open_ms)) {
-                return self.close(interval, open_ms);
+        // The latest WETH candle opening at or before `bound`, across its pools.
+        let at_or_before = |bound: u64| {
+            pools
+                .iter()
+                .filter_map(|(pool, _, _)| {
+                    self.candles
+                        .range((*pool, interval, 0)..=(*pool, interval, bound))
+                        .next_back()
+                        .map(|((_, _, open), _)| *open)
+                })
+                .max()
+        };
+        let at_or_after = |bound: u64| {
+            pools
+                .iter()
+                .filter_map(|(pool, _, _)| {
+                    self.candles
+                        .range((*pool, interval, bound)..=(*pool, interval, u64::MAX))
+                        .next()
+                        .map(|((_, _, open), _)| *open)
+                })
+                .min()
+        };
+        let mut bound = Some(open_ms);
+        while let Some(open) = bound.and_then(at_or_before) {
+            if let Some(close) = self.close(interval, open) {
+                return Some(close);
             }
-            if let Some(((_, _, open), _)) = self
-                .candles
-                .range((*pool, interval, 0)..(*pool, interval, open_ms))
-                .next_back()
-            {
-                earlier = earlier.max(Some(*open));
-            }
-            if let Some(((_, _, open), _)) = self
-                .candles
-                .range((*pool, interval, open_ms)..=(*pool, interval, u64::MAX))
-                .next()
-            {
-                later = Some(later.map_or(*open, |l| l.min(*open)));
-            }
+            bound = open.checked_sub(1);
         }
-        self.close(interval, earlier.or(later)?)
+        let mut bound = open_ms.checked_add(1);
+        while let Some(open) = bound.and_then(at_or_after) {
+            if let Some(close) = self.close(interval, open) {
+                return Some(close);
+            }
+            bound = open.checked_add(1);
+        }
+        None
     }
 
     fn close(&self, interval: CandleInterval, open_ms: u64) -> Option<f64> {
