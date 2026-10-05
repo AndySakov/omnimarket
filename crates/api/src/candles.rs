@@ -291,10 +291,14 @@ impl Candles {
         let chain_id = known.map_or(chain_id.unwrap_or_default(), |t| t.chain_id);
         let mut opens = BTreeSet::new();
         if known.is_some() && from_ms <= to_ms {
+            // Each pool's newest `MAX_SERIES` at most: a request costs the same however much
+            // history the range spans.
             for (pool, _, _) in self.pools_of(token) {
                 opens.extend(
                     self.candles
                         .range((pool, interval, from_ms)..=(pool, interval, to_ms))
+                        .rev()
+                        .take(MAX_SERIES)
                         .map(|((_, _, open), _)| *open),
                 );
             }
@@ -424,44 +428,30 @@ impl Candles {
     /// no price.
     fn weth_close(&self, interval: CandleInterval, open_ms: u64) -> Option<f64> {
         let pools = self.pools_of(WETH);
-        // The latest WETH candle opening at or before `bound`, across its pools.
-        let at_or_before = |bound: u64| {
+        let priced =
+            |(_, candle): &(&(Address, CandleInterval, u64), &PoolCandle)| candle.prices.is_some();
+        let earlier = pools
+            .iter()
+            .filter_map(|(pool, _, _)| {
+                self.candles
+                    .range((*pool, interval, 0)..=(*pool, interval, open_ms))
+                    .rev()
+                    .find(priced)
+                    .map(|((_, _, open), _)| *open)
+            })
+            .max();
+        let later = || {
             pools
                 .iter()
                 .filter_map(|(pool, _, _)| {
                     self.candles
-                        .range((*pool, interval, 0)..=(*pool, interval, bound))
-                        .next_back()
-                        .map(|((_, _, open), _)| *open)
-                })
-                .max()
-        };
-        let at_or_after = |bound: u64| {
-            pools
-                .iter()
-                .filter_map(|(pool, _, _)| {
-                    self.candles
-                        .range((*pool, interval, bound)..=(*pool, interval, u64::MAX))
-                        .next()
+                        .range((*pool, interval, open_ms)..=(*pool, interval, u64::MAX))
+                        .find(priced)
                         .map(|((_, _, open), _)| *open)
                 })
                 .min()
         };
-        let mut bound = Some(open_ms);
-        while let Some(open) = bound.and_then(at_or_before) {
-            if let Some(close) = self.close(interval, open) {
-                return Some(close);
-            }
-            bound = open.checked_sub(1);
-        }
-        let mut bound = open_ms.checked_add(1);
-        while let Some(open) = bound.and_then(at_or_after) {
-            if let Some(close) = self.close(interval, open) {
-                return Some(close);
-            }
-            bound = open.checked_add(1);
-        }
-        None
+        self.close(interval, earlier.or_else(later)?)
     }
 
     fn close(&self, interval: CandleInterval, open_ms: u64) -> Option<f64> {
