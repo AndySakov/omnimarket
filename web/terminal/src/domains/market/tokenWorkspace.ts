@@ -158,6 +158,8 @@ export type TokenWorkspaceFixture = DiscoveryToken & {
   totalSupply: string
   thin: boolean
   volume24h: string
+  /** Window used for live activity metrics; fixture snapshots default to 24h. */
+  statsWindow?: '5m' | '1h'
   pair: string
   pricePoints: PricePoint[]
   chart: TokenChartData

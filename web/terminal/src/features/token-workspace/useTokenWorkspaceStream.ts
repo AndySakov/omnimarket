@@ -115,10 +115,8 @@ function tokenSnapshotToFixture(base: TokenWorkspaceFixture, snapshot: TokenSnap
   const price = parseOptionalDecimal(snapshot.displayPriceUsd)
   const marketCap = parseOptionalDecimal(snapshot.marketCapUsd)
   const depth = parseOptionalDecimal(snapshot.depthUsd)
-  const previousPrice = parseOptionalDecimal(snapshot.mainPoolPriceUsd)
-  const priceChange = price && previousPrice && !previousPrice.isZero()
-    ? formatPercentChange(price.minus(previousPrice).div(previousPrice).times(100))
-    : base.priceChange
+  const trackedPriceChange = parseOptionalDecimal(snapshot.statsTracked?.priceChangePct ?? '')
+  const priceChange = trackedPriceChange ? formatPercentChange(trackedPriceChange) : '—'
   const safetyEvidence = safetyFromSnapshot(snapshot)
 
   return {
@@ -132,6 +130,7 @@ function tokenSnapshotToFixture(base: TokenWorkspaceFixture, snapshot: TokenSnap
     marketCap: marketCap ? formatUsdCompact(marketCap) : '—',
     depth24h: depth ? formatUsdCompact(depth) : '—',
     txns24h: stats ? formatCount(stats.buys + stats.sells) : '—',
+    statsWindow: snapshot.stats1h ? '1h' : snapshot.stats5m ? '5m' : undefined,
     priceChange,
     fdv: marketCap ? formatUsdCompact(marketCap) : '—',
     totalSupply: formatTokenAmount(snapshot.totalSupply),

@@ -43,6 +43,21 @@ test('resolves a token workspace from the public address route', async ({ page }
   await expect(page.getByRole('heading', { name: 'NovaSet' })).toBeVisible()
 })
 
+test('keeps the trade panel mounted when the amount is invalid', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.locator('.token-name').filter({ hasText: 'NovaSet' }).first().click()
+
+  const amount = page.getByLabel('Amount', { exact: true })
+  await amount.fill('abc')
+  await page.getByRole('button', { name: 'Review trade' }).click()
+
+  await expect(page.locator('.token-page')).toBeVisible()
+  await expect(page.locator('.trade-panel')).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Enter an amount to request a fixture quote.')
+  await expect(page.locator('.trade-panel')).toContainText('~— NOVA')
+})
+
 test('stacks the token workspace on mobile without losing the trade panel', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')

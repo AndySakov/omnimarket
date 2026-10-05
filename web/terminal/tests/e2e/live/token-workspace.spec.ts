@@ -85,6 +85,10 @@ test('token workspace subscribes to shared topics, updates from deltas, and clea
 
   await expect(page.getByText('$0.0133', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('$125', { exact: true })).toBeVisible()
+  await expect(page.locator('.token-metric').filter({ hasText: 'Price (USD)' })).toContainText('+412.5%')
+  await expect(page.locator('.token-metric').filter({ hasText: '1h volume' })).toContainText('$386.1K')
+  await expect(page.locator('.token-metric').filter({ hasText: '1h txns' })).toContainText('1,842')
+  await expect(page.locator('.token-metric').filter({ hasText: '24h volume' })).toHaveCount(0)
   await expect(page.getByRole('img', { name: /candlestick price chart/ })).toBeVisible()
 
   await page.getByRole('tab', { name: '1h', exact: true }).click()

@@ -53,6 +53,7 @@ import type {
 } from '../../domains/market/tokenWorkspace'
 import { nativeAssetForChain, tokenChartIntervals } from '../../domains/market/tokenWorkspace'
 import { discoveryTokens } from '../../mocks/discoveryFixtures'
+import { parseOptionalDecimal } from '../../shared/decimal'
 import { getTokenRouteAddress, getTokenWorkspaceSnapshot } from './tokenWorkspaceData'
 import { useTokenWorkspaceStream } from './useTokenWorkspaceStream'
 
@@ -118,7 +119,7 @@ export function TokenWorkspaceHeader({ token, onBack, updatedLabel, connection, 
       <div className="token-workspace-header__topline"><button className="back-button" type="button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /><span>Discover</span></button><span className="workspace-breadcrumb">Token workspace / fixture snapshot</span></div>
       <div className="token-workspace-header__body">
         <div className="token-identity"><div className="token-identity__avatar-wrap"><img className="token-identity__avatar" src={token.avatarSrc} alt="" /><span className="token-identity__chain-mark" aria-label={`${token.chain} network`}>{token.chain === 'Solana' ? 'S' : token.chain === 'BNB' ? 'B' : 'E'}</span></div><div className="token-identity__copy"><div className="token-identity__title-row"><h1>{token.name}</h1><span className="token-identity__symbol">{token.symbol}</span><button className="copy-button" type="button" aria-label={`Copy ${token.name} contract address`}><Copy size={14} aria-hidden="true" /></button><button className="icon-button icon-button--small" type="button" aria-label={`Open ${token.name} in a block explorer`}><ExternalLink size={14} aria-hidden="true" /></button></div><div className="token-identity__meta"><span className={`chain-label chain-label--${token.chain.toLowerCase()}`}><span className="chain-label__dot" />{token.chain}</span><span className="address-label">{token.address}</span><span className="freshness-label"><span className={`status-dot status-dot--${connectionTone}`} aria-hidden="true" />{freshnessLabel}</span></div></div></div>
-        <div className="token-summary-metrics" aria-label="Token market summary" aria-busy={unavailable} tabIndex={0}><Metric label="Price (USD)" value={unavailable ? '—' : token.price} change={unavailable ? undefined : token.priceChange} positive={!token.priceChange.startsWith('-')} emphasis /><Metric label="Price (quote)" value={unavailable ? '—' : token.priceEth} /><Metric label="Market cap" value={unavailable ? '—' : token.marketCap} /><Metric label="Liquidity" value={unavailable ? '—' : token.liquidity} change={unavailable ? undefined : token.liquidityChange} positive={!token.liquidityChange.startsWith('-')} /><Metric label="±2% depth" value={unavailable ? '—' : token.depth24h} /><Metric label="24h volume" value={unavailable ? '—' : token.volume24h} /><Metric label="24h txns" value={unavailable ? '—' : token.txns24h} /><Metric label="Total supply" value={unavailable ? '—' : token.totalSupply} /></div>
+        <div className="token-summary-metrics" aria-label="Token market summary" aria-busy={unavailable} tabIndex={0}><Metric label="Price (USD)" value={unavailable ? '—' : token.price} change={unavailable ? undefined : token.priceChange} positive={!token.priceChange.startsWith('-')} emphasis /><Metric label="Price (quote)" value={unavailable ? '—' : token.priceEth} /><Metric label="Market cap" value={unavailable ? '—' : token.marketCap} /><Metric label="±2% depth" value={unavailable ? '—' : token.depth24h} /><Metric label={`${token.statsWindow ?? '24h'} volume`} value={unavailable ? '—' : token.volume24h} /><Metric label={`${token.statsWindow ?? '24h'} txns`} value={unavailable ? '—' : token.txns24h} /><Metric label="Total supply" value={unavailable ? '—' : token.totalSupply} /></div>
         <div className="token-header-actions"><button className="icon-button" type="button" aria-label="Open token alerts"><AlertTriangle size={15} aria-hidden="true" /></button><button className="watch-button" type="button" aria-label={`Add ${token.name} to watchlist`}><Star size={15} aria-hidden="true" /><span>Watch</span></button></div>
       </div>
       <div className="token-pool-list" aria-label="Token pools"><span className="token-pool-list__label">Pools</span>{token.pools.map((pool) => <a className="token-pool" key={`${pool.venue}-${pool.address}`} href={pool.explorerUrl} target="_blank" rel="noreferrer"><span>{pool.venue}</span><span>{pool.feeTier}</span><span className="mono-text">{pool.address}</span></a>)}</div>
@@ -273,10 +274,11 @@ function TradePanel({ token }: { token: TokenWorkspaceFixture }) {
     }, 18_000)
     return () => window.clearTimeout(expiry)
   }, [draft.quoteState])
-  function updateAmount(event: ChangeEvent<HTMLInputElement>) { const amount = event.target.value; setDraft((current) => ({ ...current, amount, quoteState: amount ? 'fresh' : 'idle' })); setExecutionState('idle'); setNotice('') }
-  function requestQuote() { const amount = draft.amount ? new Decimal(draft.amount) : new Decimal(0); if (!draft.amount || !amount.isFinite() || amount.lte(0)) { setNotice('Enter an amount to request a fixture quote.'); setDraft((current) => ({ ...current, quoteState: 'error' })); return }; setNotice(''); setDraft((current) => ({ ...current, quoteState: 'loading' })); window.setTimeout(() => setDraft((current) => ({ ...current, quoteState: 'fresh' })), 420) }
+  function updateAmount(event: ChangeEvent<HTMLInputElement>) { const amount = event.target.value; const parsedAmount = parseTradeAmount(amount); const quoteState = parsedAmount && parsedAmount.isFinite() && parsedAmount.gt(0) ? 'fresh' : 'idle'; setDraft((current) => ({ ...current, amount, quoteState })); setExecutionState('idle'); setNotice('') }
+  function requestQuote() { const amount = parseTradeAmount(draft.amount); if (!amount || !amount.isFinite() || amount.lte(0)) { setNotice('Enter an amount to request a fixture quote.'); setDraft((current) => ({ ...current, quoteState: 'error' })); return }; setNotice(''); setDraft((current) => ({ ...current, quoteState: 'loading' })); window.setTimeout(() => setDraft((current) => current.quoteState === 'loading' ? { ...current, quoteState: 'fresh' } : current), 420) }
   function reviewTrade() { if (draft.quoteState !== 'fresh') { requestQuote(); return }; setExecutionState('review'); setNotice('') }
-  const receiveAmount = draft.amount ? new Decimal(draft.amount).times(2588).toDecimalPlaces(0, Decimal.ROUND_DOWN).toLocaleString() : '—'
+  const amount = parseTradeAmount(draft.amount)
+  const receiveAmount = amount && amount.gt(0) ? amount.times(2588).toDecimalPlaces(0, Decimal.ROUND_DOWN).toLocaleString() : '—'
   const quoteStatus: Record<TradeQuoteState, string> = { idle: 'Enter an amount to get a quote', loading: 'Refreshing fixture quote…', fresh: 'Quote valid for 18s', expired: 'Quote expired · refresh to continue', error: 'Quote unavailable for this amount' }
 
   return <aside className="trade-panel" aria-label="Trade panel">
@@ -294,6 +296,15 @@ function TradePanel({ token }: { token: TokenWorkspaceFixture }) {
     <div className="trade-execution-note"><WalletCards size={14} aria-hidden="true" /><span>Connect a wallet in the execution phase to sign.</span></div>
     <div className="trade-panel__footer"><span><Eye size={13} aria-hidden="true" /> Slippage 0.5%</span><span><Settings2 size={13} aria-hidden="true" /> Priority standard</span></div>
   </aside>
+}
+
+function parseTradeAmount(value: string): Decimal | undefined {
+  if (value.trim() === '') return undefined
+  try {
+    return parseOptionalDecimal(value)
+  } catch {
+    return undefined
+  }
 }
 
 function TokenStatePanel({ state, onBack }: { state: Exclude<TokenWorkspaceState, 'ready'>; onBack: () => void }) {
