@@ -15,7 +15,8 @@ import "omnimarket/lineage/v1/lineage.proto";
 //   discovery                       DiscoveryFeed, then DiscoveryRow / DiscoveryRowRemoved
 //   token:<address>                 TokenSnapshot, then TokenTick
 //   trades:<address>                TradeList, then Trade
-//   candles:<address>:<interval>    CandleSeries, then Candle; interval is 1s, 1m, 5m or 1h
+//   candles:<address>:<interval>    CandleSeries, then Candle; interval is 1s, 1m, 5m, 15m, 1h, 4h
+//                                   or 1d
 //   account                         AccountSnapshot, then Account, Position, Quote, TradeStatus,
 //                                   TradeReceipt, Order, OrderStatus or Firing. Needs the session
 //                                   token in the Subscribe.

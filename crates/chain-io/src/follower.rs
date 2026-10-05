@@ -64,6 +64,7 @@ pub async fn follow_head(
                 parent_hash: header.parent_hash,
                 timestamp: header.timestamp,
                 logs,
+                chain_head: Some(latest),
             };
             if sender.send(block).await.is_err() {
                 return Ok(());
@@ -250,13 +251,16 @@ mod tests {
         }
     }
 
-    /// A chain where the logs of some hashes can't be read: `-32001 block not found`.
+    const NOT_FOUND: &str = "server returned an error response: error code -32001: block not found";
+
+    /// A chain where the logs of some hashes can't be read, failing with `failure`.
     struct ReorgingChain {
         /// The canonical hash at each height, per header read: a height's list advances each
         /// time its header is read, and its last entry sticks.
         headers: RefCell<std::collections::BTreeMap<u64, Vec<B256>>>,
         /// Hashes whose logs fail this many more times.
         unknown: RefCell<std::collections::BTreeMap<B256, u32>>,
+        failure: &'static str,
         head: u64,
         /// When each logs call was made.
         logs_at: RefCell<Vec<Instant>>,
@@ -297,9 +301,7 @@ mod tests {
                     Some(0) | None => Ok(Vec::new()),
                     Some(left) => {
                         *left -= 1;
-                        Err(ChainError::Rpc(format!(
-                            "server returned an error response: error code -32001: block not found: {block_hash}"
-                        )))
+                        Err(ChainError::Rpc(format!("{}: {block_hash}", self.failure)))
                     }
                 }
             })
@@ -347,6 +349,7 @@ mod tests {
             ),
             // 11a was reorged out after its header was read: its logs never come.
             unknown: RefCell::new([(a11, u32::MAX)].into()),
+            failure: NOT_FOUND,
             head: 12,
             logs_at: RefCell::default(),
         };
@@ -369,12 +372,39 @@ mod tests {
             ),
             // This node doesn't have 11 yet the first two times it's asked.
             unknown: RefCell::new([(hash(11), 2)].into()),
+            failure: NOT_FOUND,
             head: 12,
             logs_at: RefCell::default(),
         };
         assert_eq!(
             follow_to_end(&chain),
             [(10, hash(10)), (11, hash(11)), (12, hash(12))]
+        );
+    }
+
+    // Only "block not found" sends the follower back to the height: any other failure is
+    // retried for the block it was reading.
+    #[test]
+    fn a_failed_logs_read_is_retried_for_the_same_block() {
+        let a11 = B256::repeat_byte(0xa1);
+        let b11 = B256::repeat_byte(0xb1);
+        let chain = ReorgingChain {
+            headers: RefCell::new(
+                [
+                    (10, vec![hash(10)]),
+                    (11, vec![a11, b11]),
+                    (12, vec![hash(12)]),
+                ]
+                .into(),
+            ),
+            unknown: RefCell::new([(a11, 1)].into()),
+            failure: "server returned an error response: error code -32016: over rate limit",
+            head: 12,
+            logs_at: RefCell::default(),
+        };
+        assert_eq!(
+            follow_to_end(&chain),
+            [(10, hash(10)), (11, a11), (12, hash(12))]
         );
     }
 
@@ -385,6 +415,7 @@ mod tests {
         let chain = ReorgingChain {
             headers: RefCell::new([(10, vec![hash(10)])].into()),
             unknown: RefCell::new([(hash(10), 4)].into()),
+            failure: NOT_FOUND,
             head: 10,
             logs_at: RefCell::default(),
         };
@@ -420,6 +451,9 @@ mod tests {
         });
         let numbers: Vec<u64> = blocks.iter().map(|b| b.number).collect();
         assert_eq!(numbers, [10, 11, 12, 13, 14]);
+        // Each carries the latest number read before it: 13 for the catch-up, then 14.
+        let heads: Vec<Option<u64>> = blocks.iter().map(|b| b.chain_head).collect();
+        assert_eq!(heads, [Some(13), Some(13), Some(13), Some(13), Some(14)]);
         let indexes: Vec<u64> = blocks[0].logs.iter().map(|l| l.log_index).collect();
         assert_eq!(indexes, [2, 5]);
     }

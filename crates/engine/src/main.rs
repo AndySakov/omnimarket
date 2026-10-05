@@ -1,19 +1,21 @@
 //! The Base Chain Engine binary.
 //!
 //!   engine follow [--rpc URL] [--call-rpc URL] [--minutes N] [--kafka BROKERS] [--otlp URL]
-//!                 [--check-every N] [--record-to DIR]
+//!                 [--metrics-listen ADDR] [--check-every N] [--record-to DIR]
 //!   engine replay --core-instance ID (--kafka BROKERS | --from-archive)
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`, trade records to
-//! `trades.base` and prices to `prices.base`; otherwise all stay in memory. With `--record-to` it also writes the recording
+//! `trades.base`, prices to `prices.base` and its status after each block to `status.base`;
+//! otherwise all stay in memory. With `--record-to` it also writes the recording
 //! and its summary to a directory, as a pinned replay fixture (D99). If `--rpc` or `--call-rpc`
 //! can't answer, before the run starts or during it, it
 //! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
 //! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
 //! (D54, D72).
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -27,8 +29,8 @@ use det::{
     RecordingEventSource, RecordingRpc, Replay, SeededRng, SystemClock,
 };
 use engine::{
-    Engine, EngineConfig, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox, M1_TOPICS, POOL_UPDATES_TOPIC,
-    PRICES_TOPIC, Summary, TRADES_TOPIC,
+    Engine, EngineConfig, EngineMetrics, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox, KafkaTopics,
+    M1_TOPICS, Mode, POOL_UPDATES_TOPIC, PRICES_TOPIC, Run, STATUS_TOPIC, Summary, TRADES_TOPIC,
 };
 
 #[derive(Parser)]
@@ -54,6 +56,9 @@ enum Command {
         /// Export traces here (OTLP over HTTP), e.g. the local stack's Tempo.
         #[arg(long)]
         otlp: Option<String>,
+        /// Serve Prometheus metrics at `/metrics` on this address, e.g. 0.0.0.0:9464.
+        #[arg(long)]
+        metrics_listen: Option<SocketAddr>,
         /// Compare a sample of pools with the chain every this many blocks.
         #[arg(long)]
         check_every: Option<u64>,
@@ -152,6 +157,7 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             minutes,
             kafka,
             otlp,
+            metrics_listen,
             check_every,
             calls_per_second,
             record_to,
@@ -165,7 +171,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 call_rpc,
                 minutes,
                 kafka,
-                otlp,
+                Observe {
+                    otlp,
+                    metrics_listen,
+                },
                 config,
                 calls_per_second,
             )?;
@@ -224,18 +233,31 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Where `follow` reports itself.
+struct Observe {
+    otlp: Option<String>,
+    metrics_listen: Option<SocketAddr>,
+}
+
 fn follow(
     rpc: String,
     call_rpc: String,
     minutes: u64,
     kafka: Option<String>,
-    otlp: Option<String>,
+    observe: Observe,
     config: EngineConfig,
     calls_per_second: u32,
 ) -> Result<(Summary, Vec<InputRecord>), Box<dyn std::error::Error>> {
-    let _telemetry = otlp
+    let _telemetry = observe
+        .otlp
         .map(|endpoint| telemetry::init("omnimarket-engine-base", &endpoint))
         .transpose()?;
+    let metrics = EngineMetrics::default();
+    if let Some(listen) = observe.metrics_listen {
+        let served = metrics.clone();
+        let bound = telemetry::metrics::serve(listen, move || served.render())?;
+        eprintln!("metrics on http://{bound}/metrics");
+    }
 
     // Both spawns check their endpoint before Kafka or the core start, so a dead one stops the
     // run in seconds instead of failing every read the core depends on (D88).
@@ -266,25 +288,37 @@ fn follow(
             det::kafka::ensure_topic(brokers, POOL_UPDATES_TOPIC)?;
             det::kafka::ensure_topic(brokers, TRADES_TOPIC)?;
             det::kafka::ensure_topic(brokers, PRICES_TOPIC)?;
+            det::kafka::ensure_topic(brokers, STATUS_TOPIC)?;
             Some((
                 KafkaSink::new(brokers, INPUT_TOPIC, &core_instance)?,
                 KafkaPublisher::new(brokers, POOL_UPDATES_TOPIC)?,
                 KafkaPublisher::new(brokers, TRADES_TOPIC)?,
                 KafkaPublisher::new(brokers, PRICES_TOPIC)?,
+                KafkaPublisher::new(brokers, STATUS_TOPIC)?,
             ))
         }
         None => None,
     };
     let outbox: Box<dyn engine::Outbox> = match &kafka_sink {
-        Some((_, updates, trades, prices)) => Box::new(KafkaOutbox::new(
-            updates.clone(),
-            trades.clone(),
-            prices.clone(),
+        Some((_, updates, trades, prices, statuses)) => Box::new(KafkaOutbox::new(
+            KafkaTopics {
+                updates: updates.clone(),
+                trades: trades.clone(),
+                prices: prices.clone(),
+                statuses: statuses.clone(),
+            },
+            // With Kafka, the inputs always go to `inputs.base`.
+            Run {
+                mode: Mode::Live,
+                core_instance: core_instance.clone(),
+                recording: true,
+            },
         )),
         None => Box::new(InMemoryOutbox::default()),
     };
+    let outbox = metrics.outbox(outbox);
     let sink: Box<dyn det::RecordingSink> = match &kafka_sink {
-        Some((sink, _, _, _)) => Box::new(sink.clone()),
+        Some((sink, _, _, _, _)) => Box::new(sink.clone()),
         None => Box::new(in_memory.clone()),
     };
     let recorder = Recorder::new(sink, Box::new(SystemClock));
@@ -330,13 +364,14 @@ fn follow(
 
     println!("core instance {core_instance}");
     match kafka_sink {
-        Some((sink, updates, trades, prices)) => {
+        Some((sink, updates, trades, prices, statuses)) => {
             sink.flush(TIMEOUT)?;
             updates.flush(TIMEOUT)?;
             trades.flush(TIMEOUT)?;
             prices.flush(TIMEOUT)?;
+            statuses.flush(TIMEOUT)?;
             println!(
-                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}"
+                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}, statuses on {STATUS_TOPIC}"
             );
         }
         None => println!("{} inputs recorded in memory", in_memory.records().len()),
@@ -376,6 +411,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_replay_with_no_recording_source_is_refused() {
+        let result = run(Command::Replay {
+            kafka: None,
+            from_archive: false,
+            core_instance: "base-0".into(),
+            s3: S3Args {
+                s3_endpoint: String::new(),
+                s3_bucket: String::new(),
+                s3_access_key: String::new(),
+                s3_secret_key: String::new(),
+            },
+        });
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "give --kafka or --from-archive"
+        );
+    }
+
+    #[test]
     fn a_fixture_holds_the_recording_and_the_summary_text() {
         let dir = std::env::temp_dir().join(format!("engine-fixture-{}", std::process::id()));
         let recording: Vec<InputRecord> = (0..3)
@@ -405,5 +459,21 @@ mod tests {
         assert_eq!(text, summary.to_string());
         assert!(text.starts_with("7 blocks, 0 logs"), "{text}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // indexer.md: "the run exits with code 1 and an error that names the endpoint, gives its
+    // last error and says to pass `--call-rpc` with another Base RPC URL."
+    #[test]
+    fn an_unusable_endpoint_error_names_it_its_last_error_and_the_flag() {
+        let error = chain_io::ChainError::Unanswered {
+            what: "eth_call",
+            waited: Duration::from_millis(64_200),
+            last: "rpc: over rate limit".into(),
+        };
+        assert_eq!(
+            unusable_endpoint("call", "--call-rpc", "https://mainnet.base.org", &error),
+            "the call endpoint https://mainnet.base.org is unusable: eth_call unanswered for 64s; \
+             last error: rpc: over rate limit\nPass --call-rpc with another Base RPC URL."
+        );
     }
 }

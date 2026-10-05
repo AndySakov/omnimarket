@@ -4,17 +4,21 @@
 
 use std::collections::VecDeque;
 
-use proto::api::v1::delta;
+use proto::api::v1::{EngineStatus, delta};
 use proto::pool::v1::PoolUpdate;
 use proto::price::v1::PriceUpdate;
 use proto::trade::v1::Trade;
 
 use crate::discovery::{Discovery, DiscoveryConfig};
 use crate::model::{ModelError, ReadModel};
+use crate::status::engine_status;
 use crate::throttle::Throttle;
 
 /// The `discovery` topic's name.
 pub const DISCOVERY_TOPIC: &str = "discovery";
+
+/// The `status` topic's name.
+pub const STATUS_TOPIC: &str = "status";
 
 /// A delta on its topic, ready for every connection subscribed to it.
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +40,8 @@ pub struct Feed {
     throttle: Throttle,
     discovery: Discovery,
     pending: Pending,
+    /// The latest `status.base` record's.
+    status: Option<EngineStatus>,
 }
 
 /// The discovery read model's input, merged from the three topics in a fixed order, so its
@@ -88,6 +94,20 @@ impl Feed {
         self.pending.prices.push_back((at, update.clone()));
         out.extend(self.release());
         Ok(out)
+    }
+
+    /// Applies one `status.base` record: it replaces the last, and goes out on `status`.
+    pub fn apply_status(
+        &mut self,
+        record: &proto::status::v1::EngineStatus,
+    ) -> Result<Vec<Published>, ModelError> {
+        let status = engine_status(record)?;
+        self.status = Some(status.clone());
+        Ok(vec![Published {
+            topic: STATUS_TOPIC.to_string(),
+            block_number: status.head_block_number,
+            payload: delta::Payload::Status(status),
+        }])
     }
 
     /// Takes one `trades.base` record for the discovery read model.
@@ -146,6 +166,11 @@ impl Feed {
 
     pub fn discovery(&self) -> &Discovery {
         &self.discovery
+    }
+
+    /// The engine's latest status; `None` until its first.
+    pub fn status(&self) -> Option<&EngineStatus> {
+        self.status.as_ref()
     }
 
     fn discovery_deltas(

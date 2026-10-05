@@ -1,0 +1,171 @@
+{
+  "lineage": {
+    "id": "4/4C/yUn95elZqlmxojC9g==",
+    "causedBy": [
+      "Yn38TZwj5LZ4VZ/G3rEiag==",
+      "3nMGIB5auUWDbitApvfFgw==",
+      "kaRqA1b9fHlTnJvb0P3INg==",
+      "uPT8ITSlXKZa620TZGrEvA==",
+      "qgwKpKv/CHtmeMtD2Jrc3g==",
+      "BZLVUS2BhIHEY8IinXzFWQ==",
+      "58rM3HHrGs8Fso3bJv3vbA==",
+      "ytByxwk24Bao4yh2C6Q2tg=="
+    ]
+  },
+  "chainId": "8453",
+  "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+  "interval": "CANDLE_INTERVAL_15M",
+  "candles": [
+    {
+      "lineage": {
+        "id": "Yn38TZwj5LZ4VZ/G3rEiag==",
+        "causedBy": [
+          "isMwZW3uHg03dT27iCCJvA=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789992900000",
+      "openUsd": "0.01150",
+      "highUsd": "0.01167",
+      "lowUsd": "0.01145",
+      "closeUsd": "0.01162",
+      "volumeUsd": "270",
+      "trades": "30",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "3nMGIB5auUWDbitApvfFgw==",
+        "causedBy": [
+          "WGVdOtizOtMUsy2WfqwirQ=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789993800000",
+      "openUsd": "0.01162",
+      "highUsd": "0.01180",
+      "lowUsd": "0.01157",
+      "closeUsd": "0.01175",
+      "volumeUsd": "360",
+      "trades": "45",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "kaRqA1b9fHlTnJvb0P3INg==",
+        "causedBy": [
+          "h/AG+d2b0RigXHX+KVA/4A=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789994700000",
+      "openUsd": "0.01175",
+      "highUsd": "0.01180",
+      "lowUsd": "0.01164",
+      "closeUsd": "0.01169",
+      "volumeUsd": "450",
+      "trades": "60",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "uPT8ITSlXKZa620TZGrEvA==",
+        "causedBy": [
+          "6BJAmVif8atrQ0DUs1LVtg=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789995600000",
+      "openUsd": "0.01169",
+      "highUsd": "0.01189",
+      "lowUsd": "0.01164",
+      "closeUsd": "0.01184",
+      "volumeUsd": "540",
+      "trades": "30",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "qgwKpKv/CHtmeMtD2Jrc3g==",
+        "causedBy": [
+          "uZRRDl/XKYnsqNYhsYBFEw=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789996500000",
+      "openUsd": "0.01184",
+      "highUsd": "0.01202",
+      "lowUsd": "0.01179",
+      "closeUsd": "0.01197",
+      "volumeUsd": "630",
+      "trades": "45",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "BZLVUS2BhIHEY8IinXzFWQ==",
+        "causedBy": [
+          "35uOE5xawHg6n8QtRfH4vQ=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789997400000",
+      "openUsd": "0.01197",
+      "highUsd": "0.01202",
+      "lowUsd": "0.01185",
+      "closeUsd": "0.01190",
+      "volumeUsd": "720",
+      "trades": "60",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "58rM3HHrGs8Fso3bJv3vbA==",
+        "causedBy": [
+          "E82Rr4caF1IiZQuC7f9nng=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789998300000",
+      "openUsd": "0.01190",
+      "highUsd": "0.01211",
+      "lowUsd": "0.01185",
+      "closeUsd": "0.01206",
+      "volumeUsd": "810",
+      "trades": "30",
+      "closed": true
+    },
+    {
+      "lineage": {
+        "id": "ytByxwk24Bao4yh2C6Q2tg==",
+        "causedBy": [
+          "/INovmH2JUUb7wHiptY2IA=="
+        ]
+      },
+      "chainId": "8453",
+      "token": "0x9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "interval": "CANDLE_INTERVAL_15M",
+      "openTimeMs": "1789999200000",
+      "openUsd": "0.01206",
+      "highUsd": "0.01245",
+      "lowUsd": "0.01201",
+      "closeUsd": "0.0124",
+      "volumeUsd": "900",
+      "trades": "45"
+    }
+  ]
+}

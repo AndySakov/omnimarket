@@ -10,11 +10,13 @@ use proto::lineage::v1::Lineage;
 use proto::price::v1::PriceUpdate;
 use types::LineageId;
 
-/// Why a price record couldn't be applied.
+/// Why a record couldn't be applied.
 #[derive(Debug, PartialEq)]
 pub enum ModelError {
     /// The token field isn't a 20-byte address.
     BadToken { len: usize },
+    /// The block hash isn't 32 bytes.
+    BadHash { len: usize },
 }
 
 #[derive(Default)]

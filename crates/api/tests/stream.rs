@@ -149,7 +149,7 @@ fn unknown_topics_and_bad_frames_get_errors() {
     let feed = Feed::default();
     let mut session = Session::default();
     for text in [
-        subscribe("status"),
+        subscribe("account"),
         subscribe("token:0x12"),
         "{not json".into(),
     ] {

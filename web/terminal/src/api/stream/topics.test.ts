@@ -16,8 +16,10 @@ describe('topics', () => {
     expect(topicKind('account')).toBe('account')
     expect(topicKind(tokenTopic(ADDRESS))).toBe('token')
     expect(topicKind(tradesTopic(ADDRESS))).toBe('trades')
-    expect(topicKind(candlesTopic(ADDRESS, '1h'))).toBe('candles')
-    for (const bad of ['', 'token', 'token:0x12', `token:${ADDRESS}`, `candles:${ADDRESS.toLowerCase()}:2m`, `token:${ADDRESS.toLowerCase()}:1m`, 'pools']) {
+    for (const interval of ['1s', '1m', '5m', '15m', '1h', '4h', '1d'] as const) {
+      expect(topicKind(candlesTopic(ADDRESS, interval)), interval).toBe('candles')
+    }
+    for (const bad of ['', 'token', 'token:0x12', `token:${ADDRESS}`, `candles:${ADDRESS.toLowerCase()}:2m`, `candles:${ADDRESS.toLowerCase()}:1D`, `token:${ADDRESS.toLowerCase()}:1m`, 'pools']) {
       expect(topicKind(bad), bad).toBeUndefined()
     }
   })

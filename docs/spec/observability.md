@@ -24,7 +24,21 @@ Stored as edges in ClickHouse; walk backwards for root cause, forwards for blast
 
 **Sampling:** money paths 100%; everything else keeps slow/failed traces + 1%.
 
-**Skeleton (built, D70):** the `telemetry` crate sends `tracing` spans over OTLP/HTTP to Tempo, read in Grafana. Export runs on the batch processor's own thread and uses the wall clock only for span timing, so a traced core makes the same decisions (a test checks the replay digest and recording are unchanged with tracing on). Each decision record is a span carrying `lineage.id`, `lineage.caused_by` and every field, under its run's span. Exporter warnings go to stderr. `cargo run -p sim --bin toy-run -- <seed>` traces one toy core run to the local stack (`scripts/stack up`, Grafana on :3000). Prometheus, Loki and Pyroscope wait until there's a service to watch. Span export is best effort: the input log, not the trace, is the record replay relies on.
+**Skeleton (built, D70):** the `telemetry` crate sends `tracing` spans over OTLP/HTTP to Tempo, read in Grafana. Export runs on the batch processor's own thread and uses the wall clock only for span timing, so a traced core makes the same decisions (a test checks the replay digest and recording are unchanged with tracing on). Each decision record is a span carrying `lineage.id`, `lineage.caused_by` and every field, under its run's span. Exporter warnings go to stderr. `cargo run -p sim --bin toy-run -- <seed>` traces one toy core run to the local stack (`scripts/stack up`, Grafana on :3000). The local stack also runs Prometheus, Loki and Pyroscope with provisioned alert rules (infra.md), Prometheus scrapes the engine (`engine follow --metrics-listen ADDR`) and the API (`/metrics`): head block, lag, pools, shadow checks and records published or applied per topic. Metrics are read off the outbox and the consumer, outside the cores. Logs and profiles aren't shipped yet. Span export is best effort: the input log, not the trace, is the record replay relies on.
+
+**Engine status (built, #79).** After every canonical block the engine publishes an `omnimarket.status.v1.EngineStatus` to `status.base`, keyed by core instance; the API serves the latest as `GET /v1/status` and the `status` topic (frontend.md). Its fields:
+
+| Field | What it is | From |
+|---|---|---|
+| `block_number`, `block_hash`, `block_timestamp` | The block just applied: the engine's head | The block |
+| `lag_blocks` | The chain's latest block number when the follower read this block, minus this block's number. Unset in recordings from before the follower recorded the head | The block (the follower's head, recorded with it) |
+| `lag_ms` | From the block's timestamp to the block's arrival at the core. An upper bound, as block timestamps have seconds resolution | The core's recorded clock reading for the block |
+| `v2_pools`, `v3_pools` | Pools tracked with state, per venue. All are active until #41 tiers known and active pools | Core state |
+| `shadow_checks`, `shadow_check_mismatches` | Shadow state checks (D21) answered since the core started, and those that disagreed with the chain | Core state |
+| `uptime_ms` | From the core's first block to this one | The core's recorded clock |
+| `mode`, `core_instance`, `recording` | Live or replay, the core instance whose session it is, and whether its inputs are recorded (always, for a replay) | Set by the publisher, not the core |
+
+No field reads a wall clock: time comes from the core's clock reads, which are recorded inputs, so a replay of a recording publishes the same statuses apart from the publisher's fields, and only `mode` differs there (`a_recording_replays_to_the_same_statuses`). The status adds no clock read, so recordings made before it replay as they did.
 
 | Stage | Recorded | Replayable via |
 |---|---|---|
