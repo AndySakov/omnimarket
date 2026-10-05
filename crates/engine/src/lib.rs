@@ -4,6 +4,7 @@
 
 mod core;
 mod history;
+mod metrics;
 mod outbox;
 mod prices;
 mod state;
@@ -15,6 +16,7 @@ mod v3;
 use types::chain::B256;
 
 pub use crate::core::Engine;
+pub use crate::metrics::EngineMetrics;
 pub use crate::outbox::{
     InMemoryOutbox, KafkaOutbox, KafkaTopics, Outbox, PoolState, PoolUpdate, PriceUpdate,
     PricedPool, V3State,

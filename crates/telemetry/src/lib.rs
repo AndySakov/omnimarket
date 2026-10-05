@@ -3,6 +3,8 @@
 //! Export runs on the batch processor's own thread and reads only the wall clock for span
 //! timing, so it never touches a core's inputs: tracing a core can't change its decisions.
 
+pub mod metrics;
+
 use std::fmt;
 
 use opentelemetry::trace::TracerProvider as _;

@@ -1,7 +1,7 @@
 //! The Base Chain Engine binary.
 //!
 //!   engine follow [--rpc URL] [--call-rpc URL] [--minutes N] [--kafka BROKERS] [--otlp URL]
-//!                 [--check-every N] [--history-hours N] [--record-to DIR]
+//!                 [--metrics-listen ADDR] [--check-every N] [--history-hours N] [--record-to DIR]
 //!   engine replay --core-instance ID (--kafka BROKERS | --from-archive)
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
@@ -15,6 +15,7 @@
 //! publishing nothing. `archive` copies a recording from Kafka to the object-storage archive
 //! (D54, D72).
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -28,9 +29,9 @@ use det::{
     RecordingEventSource, RecordingRpc, Replay, SeededRng, SystemClock,
 };
 use engine::{
-    BASE_BLOCKS_PER_HOUR, Engine, EngineConfig, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox,
-    KafkaTopics, M1_TOPICS, Mode, POOL_UPDATES_TOPIC, PRICES_TOPIC, Run, STATUS_TOPIC, Summary,
-    TRADE_HISTORY_TOPIC, TRADES_TOPIC,
+    BASE_BLOCKS_PER_HOUR, Engine, EngineConfig, EngineMetrics, INPUT_TOPIC, InMemoryOutbox,
+    KafkaOutbox, KafkaTopics, M1_TOPICS, Mode, POOL_UPDATES_TOPIC, PRICES_TOPIC, Run, STATUS_TOPIC,
+    Summary, TRADE_HISTORY_TOPIC, TRADES_TOPIC,
 };
 
 #[derive(Parser)]
@@ -56,6 +57,9 @@ enum Command {
         /// Export traces here (OTLP over HTTP), e.g. the local stack's Tempo.
         #[arg(long)]
         otlp: Option<String>,
+        /// Serve Prometheus metrics at `/metrics` on this address, e.g. 0.0.0.0:9464.
+        #[arg(long)]
+        metrics_listen: Option<SocketAddr>,
         /// Compare a sample of pools with the chain every this many blocks.
         #[arg(long)]
         check_every: Option<u64>,
@@ -158,6 +162,7 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             minutes,
             kafka,
             otlp,
+            metrics_listen,
             check_every,
             calls_per_second,
             history_hours,
@@ -173,7 +178,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 call_rpc,
                 minutes,
                 kafka,
-                otlp,
+                Observe {
+                    otlp,
+                    metrics_listen,
+                },
                 config,
                 calls_per_second,
             )?;
@@ -236,18 +244,31 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 /// Most trade-history reads started per second, on the follower's endpoint.
 const HISTORY_READS_PER_SECOND: u32 = 2;
 
+/// Where `follow` reports itself.
+struct Observe {
+    otlp: Option<String>,
+    metrics_listen: Option<SocketAddr>,
+}
+
 fn follow(
     rpc: String,
     call_rpc: String,
     minutes: u64,
     kafka: Option<String>,
-    otlp: Option<String>,
+    observe: Observe,
     config: EngineConfig,
     calls_per_second: u32,
 ) -> Result<(Summary, Vec<InputRecord>), Box<dyn std::error::Error>> {
-    let _telemetry = otlp
+    let _telemetry = observe
+        .otlp
         .map(|endpoint| telemetry::init("omnimarket-engine-base", &endpoint))
         .transpose()?;
+    let metrics = EngineMetrics::default();
+    if let Some(listen) = observe.metrics_listen {
+        let served = metrics.clone();
+        let bound = telemetry::metrics::serve(listen, move || served.render())?;
+        eprintln!("metrics on http://{bound}/metrics");
+    }
 
     // Both spawns check their endpoint before Kafka or the core start, so a dead one stops the
     // run in seconds instead of failing every read the core depends on (D88).
@@ -312,6 +333,7 @@ fn follow(
         )),
         None => Box::new(InMemoryOutbox::default()),
     };
+    let outbox = metrics.outbox(outbox);
     let sink: Box<dyn det::RecordingSink> = match &kafka_sink {
         Some((sink, _)) => Box::new(sink.clone()),
         None => Box::new(in_memory.clone()),
@@ -418,6 +440,25 @@ mod tests {
     use types::Timestamp;
 
     use super::*;
+
+    #[test]
+    fn a_replay_with_no_recording_source_is_refused() {
+        let result = run(Command::Replay {
+            kafka: None,
+            from_archive: false,
+            core_instance: "base-0".into(),
+            s3: S3Args {
+                s3_endpoint: String::new(),
+                s3_bucket: String::new(),
+                s3_access_key: String::new(),
+                s3_secret_key: String::new(),
+            },
+        });
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "give --kafka or --from-archive"
+        );
+    }
 
     #[test]
     fn a_fixture_holds_the_recording_and_the_summary_text() {

@@ -173,3 +173,35 @@ async fn rest_serves_the_discovery_feed_built_from_all_three_topics() {
     let bad = http_get(&address, "/v1/discovery?list=hot").await;
     assert!(bad.starts_with("HTTP/1.1 400"), "{bad}");
 }
+
+#[tokio::test]
+async fn metrics_count_records_requests_and_connections_but_not_scrapes() {
+    let (shared, address) = start().await;
+    shared.apply_price(&price(5, 1.0));
+    shared.apply(engine::PRICES_TOPIC, b"not a price");
+    assert!(http_get(&address, "/health").await.ends_with("ok"));
+    let scrape = http_get(&address, "/metrics").await;
+    assert!(scrape.contains("content-type: text/plain; version=0.0.4"));
+    for line in [
+        "omnimarket_api_requests_total 1\n",
+        "omnimarket_api_connections 0\n",
+        "omnimarket_api_records_applied_total{topic=\"prices.base\"} 1\n",
+        "omnimarket_api_records_skipped_total{topic=\"prices.base\"} 1\n",
+    ] {
+        assert!(scrape.contains(line), "{line:?} missing from\n{scrape}");
+    }
+    assert!(!scrape.contains("omnimarket_api_engine_head_block"));
+    shared.apply(
+        engine::STATUS_TOPIC,
+        &proto::status::v1::EngineStatus {
+            block_number: 9,
+            block_hash: vec![0xab; 32],
+            lag_ms: 2_310,
+            ..Default::default()
+        }
+        .encode_to_vec(),
+    );
+    let scrape = http_get(&address, "/metrics").await;
+    assert!(scrape.contains("omnimarket_api_engine_head_block 9\n"));
+    assert!(scrape.contains("omnimarket_api_engine_lag_ms 2310\n"));
+}
