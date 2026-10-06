@@ -331,8 +331,8 @@ fn new_pair() -> Address {
 }
 
 /// p1 is first seen at `FIRST`, p2 a block later and the v3 pool v a block after that; the new
-/// pair is created during the session. Each read takes 5s, so p2 and v wait for p1's read and are
-/// read together, over the range both want.
+/// pair is created during the session. Each read takes 5s, so p2 and v wait for p1's reads and
+/// are read together, over the range both want.
 fn mid_life_pools() -> (Vec<(Duration, Block)>, Node, LogsNode) {
     let mut blocks = vec![
         vec![
@@ -350,7 +350,7 @@ fn mid_life_pools() -> (Vec<(Duration, Block)>, Node, LogsNode) {
         ],
     ];
     // Long enough for every read to start before the blocks end.
-    blocks.resize(9, vec![]);
+    blocks.resize(15, vec![]);
     let blocks = chain(blocks);
     let earlier = vec![
         (48_999, v2_swap(p1(), [0, 10, 5, 0])),
@@ -375,13 +375,15 @@ fn a_pool_first_seen_mid_life_gets_the_window_before_it_as_history() {
     let (blocks, node, logs) = mid_life_pools();
     let run = run(history_of(1_000), blocks, node, logs);
 
-    // p1 wants 49,000 to 49,999; p2 49,001 to 50,000; v 49,002 to 50,001. p2's and v's read
-    // covers both their ranges, newest 1,000 blocks first. The new pair has no history to read.
+    // p1 wants 49,000 to 49,999; p2 49,001 to 50,000; v 49,002 to 50,001. p2's and v's reads
+    // cover both their ranges, newest 500 blocks first. The new pair has no history to read.
     assert_eq!(
         reads(&run.asked),
         vec![
-            (vec![p1()], 49_000, 49_999),
-            (sorted(vec![p2(), v()]), 49_002, 50_001),
+            (vec![p1()], 49_500, 49_999),
+            (vec![p1()], 49_000, 49_499),
+            (sorted(vec![p2(), v()]), 49_502, 50_001),
+            (sorted(vec![p2(), v()]), 49_002, 49_501),
             (sorted(vec![p2(), v()]), 49_001, 49_001),
         ]
     );
@@ -391,10 +393,10 @@ fn a_pool_first_seen_mid_life_gets_the_window_before_it_as_history() {
     assert_eq!(
         positions(&run.history),
         vec![
-            (p1(), 49_000, 0),
             (p1(), 49_999, 0),
-            (v(), 49_500, 0),
+            (p1(), 49_000, 0),
             (p2(), 49_800, 0),
+            (v(), 49_500, 0),
             (p2(), 49_001, 0),
         ]
     );
@@ -419,13 +421,13 @@ fn a_pool_first_seen_mid_life_gets_the_window_before_it_as_history() {
             s.history_blocks_dropped,
             s.history_trades
         ),
-        (3, 3, 0, 0, 5)
+        (3, 5, 0, 0, 5)
     );
     let text = run.summary.to_string();
     let line = text.lines().find(|l| l.starts_with("history:")).unwrap();
     assert!(
         line.starts_with(
-            "history: 3 pools, 3 reads (0 failed, 0 blocks dropped), 5 trades, digest "
+            "history: 3 pools, 5 reads (0 failed, 0 blocks dropped), 5 trades, digest "
         ),
         "{line}"
     );
@@ -436,7 +438,11 @@ fn a_history_trade_is_the_same_record_as_a_live_one() {
     let (blocks, node, logs) = mid_life_pools();
     let run = run(history_of(1_000), blocks, node, logs);
     // p1 at 49,000: the pair took in 20 WETH and paid out 10 LOW.
-    let trade = &run.history[0];
+    let trade = run
+        .history
+        .iter()
+        .find(|t| t.block_number == 49_000)
+        .unwrap();
     assert_eq!(
         (
             trade.venue,
@@ -524,37 +530,49 @@ fn a_refused_read_is_split_newer_half_first_and_a_block_refused_alone_is_dropped
 }
 
 #[test]
-fn a_read_asks_for_at_most_fifty_pools() {
-    // 51 pairs, all first seen in the same block and proven by the same call.
-    let tokens: Vec<Address> = (1..=51u8)
+fn a_read_asks_for_at_most_fifty_pools_the_newest_first() {
+    // a is first seen in the first block; while its history is read (3s a read), the 50 bs are
+    // first seen in the second and c in the third.
+    let tokens: Vec<Address> = (1..=52u8)
         .map(|i| Address::left_padding_from(&[0x10, i]))
         .collect();
     let pairs: Vec<Address> = tokens.iter().map(|&t| pair(t, WETH)).collect();
-    let blocks = chain(vec![
-        pairs.iter().map(|&p| sync(p, 1_000, 2_000)).collect(),
-        vec![],
-        vec![],
-    ]);
+    let (a, bs, c) = (pairs[0], &pairs[1..51], pairs[51]);
+    let mut blocks = vec![
+        vec![sync(a, 1_000, 2_000)],
+        bs.iter().map(|&p| sync(p, 1_000, 2_000)).collect(),
+        vec![sync(c, 1_000, 2_000)],
+    ];
+    blocks.resize(13, vec![]);
+    let blocks = chain(blocks);
     let contracts: Vec<(Address, (Address, Address))> = tokens
         .iter()
         .zip(&pairs)
         .map(|(&t, &p)| (p, (t, WETH)))
         .collect();
-    let logs = LogsNode::new(vec![], &blocks, Duration::from_millis(100));
+    let logs = LogsNode::new(vec![], &blocks, Duration::from_secs(3));
     let run = run(history_of(1_000), blocks, Node::knowing(&contracts), logs);
+    // Once a's reads are done, 51 pools wait: c and the newest 49 bs go first, and the first b,
+    // the oldest, last.
+    let next: Vec<Address> = sorted([&bs[1..], &[c]].concat());
     assert_eq!(
         reads(&run.asked),
         vec![
-            (sorted(pairs[..50].to_vec()), 49_000, 49_999),
-            (vec![pairs[50]], 49_000, 49_999),
+            (vec![a], 49_500, 49_999),
+            (vec![a], 49_000, 49_499),
+            (next.clone(), 49_502, 50_001),
+            (next.clone(), 49_002, 49_501),
+            (next, 49_001, 49_001),
+            (vec![bs[0]], 49_501, 50_000),
+            (vec![bs[0]], 49_001, 49_500),
         ]
     );
-    assert_eq!(run.summary.stats.history_pools, 51);
+    assert_eq!(run.summary.stats.history_pools, 52);
 }
 
 #[test]
 fn once_the_blocks_end_no_new_read_starts() {
-    // p1 wants three ranges, but the blocks end at 4s, while its first read takes until 7.05s.
+    // p1 wants six ranges, but the blocks end at 4s, while its first read takes until 7.05s.
     let blocks = chain(vec![
         vec![sync(p1(), 1_000, 2_000), v2_swap(p1(), [0, 200, 100, 0])],
         vec![],
@@ -571,7 +589,7 @@ fn once_the_blocks_end_no_new_read_starts() {
         Node::knowing(&[(p1(), (LOW, WETH))]),
         logs,
     );
-    assert_eq!(reads(&run.asked), vec![(vec![p1()], 49_000, 49_999)]);
+    assert_eq!(reads(&run.asked), vec![(vec![p1()], 49_500, 49_999)]);
     // The read in flight still lands.
     assert_eq!(positions(&run.history), vec![(p1(), 49_500, 0)]);
 }
@@ -595,7 +613,7 @@ fn a_recording_replays_to_the_same_history() {
         .iter()
         .filter(|r| r.source == Source::Logs)
         .count();
-    assert_eq!(log_reads, 3);
+    assert_eq!(log_reads, 5);
 
     let replay = Replay::new(live.recording.clone());
     let config = EngineConfig::decode(&replay.config().unwrap()).unwrap();

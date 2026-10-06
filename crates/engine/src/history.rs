@@ -16,9 +16,9 @@ const SWAP_TOPICS: [B256; 2] = [crate::M1_TOPICS[2], crate::M1_TOPICS[5]];
 /// Pools read together: one read's addresses.
 const BATCH_POOLS: usize = 50;
 
-/// Blocks per read at first. Base's public endpoint takes at most 2,000 (D80); a read refused as
-/// too large is split in two.
-const FIRST_SPAN: u64 = 1_000;
+/// Blocks per read at first. Base's public endpoint takes at most 501 (indexer.md); a read it
+/// refuses is split in two, so a tighter limit costs reads, not history.
+const FIRST_SPAN: u64 = 500;
 
 /// A pool whose history is wanted: its Swaps in `from..=to`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,12 +115,16 @@ impl History {
         ));
     }
 
+    /// The pools tracked most recently, up to `BATCH_POOLS`: a token first seen now is the one a
+    /// chart is about to open, so it waits only for the batch being read, and older pools fill the
+    /// rest of each batch until the queue is empty.
     fn next_batch(&mut self) -> Option<Batch> {
         let take = self.queue.len().min(BATCH_POOLS);
         if take == 0 {
             return None;
         }
-        let pools: BTreeMap<Address, Wanted> = self.queue.drain(..take).collect();
+        let newest = self.queue.len() - take;
+        let pools: BTreeMap<Address, Wanted> = self.queue.drain(newest..).collect();
         let from = pools.values().map(|w| w.from).min()?;
         let to = pools.values().map(|w| w.to).max()?;
         // Newest first, so the most recent candles fill first.
