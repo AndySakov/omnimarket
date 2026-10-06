@@ -168,11 +168,7 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             history_hours,
             record_to,
         } => {
-            let config = EngineConfig {
-                check_every,
-                history_blocks: (history_hours > 0).then(|| history_hours * BASE_BLOCKS_PER_HOUR),
-                ..EngineConfig::base()
-            };
+            let config = follow_config(check_every, history_hours);
             let (summary, recording) = follow(
                 rpc,
                 call_rpc,
@@ -240,6 +236,15 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Base's config with `follow`'s flags: `--history-hours 0` reads no history.
+fn follow_config(check_every: Option<u64>, history_hours: u64) -> EngineConfig {
+    EngineConfig {
+        check_every,
+        history_blocks: (history_hours > 0).then(|| history_hours * BASE_BLOCKS_PER_HOUR),
+        ..EngineConfig::base()
+    }
+}
 
 /// Most trade-history reads started per second, on the follower's endpoint.
 const HISTORY_READS_PER_SECOND: u32 = 2;
@@ -491,6 +496,19 @@ mod tests {
         assert_eq!(text, summary.to_string());
         assert!(text.starts_with("7 blocks, 0 logs"), "{text}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn history_hours_become_blocks_and_zero_reads_none() {
+        assert_eq!(follow_config(Some(10), 6).history_blocks, Some(10_800));
+        assert_eq!(follow_config(None, 1).history_blocks, Some(1_800));
+        assert_eq!(
+            follow_config(Some(10), 0),
+            EngineConfig {
+                check_every: Some(10),
+                ..EngineConfig::base()
+            }
+        );
     }
 
     // indexer.md: "the run exits with code 1 and an error that names the endpoint, gives its

@@ -412,17 +412,14 @@ pub struct CandlesQuery {
 
 /// The candles query from a query string; `None` when a parameter is missing or doesn't parse.
 pub fn parse_candles_query(params: &BTreeMap<String, String>) -> Option<CandlesQuery> {
-    let token = params.get("token")?;
-    if token.len() != 42 || !token.starts_with("0x") {
-        return None;
-    }
     let optional = |key: &str, default: u64| match params.get(key).filter(|v| !v.is_empty()) {
         Some(value) => value.parse().ok(),
         None => Some(default),
     };
     Some(CandlesQuery {
         chain_id: params.get("chain_id")?.parse().ok()?,
-        token: token.parse().ok()?,
+        // 0x and 40 hex digits; the parse refuses any other length.
+        token: params.get("token")?.strip_prefix("0x")?.parse().ok()?,
         interval: crate::candles::interval_named(params.get("interval")?)?,
         from_ms: optional("from_ms", 0)?,
         to_ms: optional("to_ms", u64::MAX)?,

@@ -530,6 +530,14 @@ mod tests {
     }
 
     #[test]
+    fn scaling_divides_by_a_power_of_ten_exactly_or_multiplies_past_it() {
+        assert_eq!(scaled(U256::from(5u64), 1), 0.5);
+        assert_eq!(scaled(U256::from(12_345u64), 2), 123.45);
+        // A token with more decimals than the quote has plus 36.
+        assert_eq!(scaled(U256::from(3u64), -2), 300.0);
+    }
+
+    #[test]
     fn labels_name_the_contracts_intervals() {
         assert_eq!(
             interval_named("15m"),

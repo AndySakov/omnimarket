@@ -654,6 +654,17 @@ fn a_subscriber_gets_the_series_then_each_candle_and_a_fresh_series_after_histor
 }
 
 #[test]
+fn a_trade_on_a_pool_that_doesnt_count_changes_no_candle() {
+    let mut feed = feed_with(&[trade(A, (LOW, USDC), (10, 0), 0, 100 * e(18), 50 * e(6))]);
+    // X is below the floor: its trade counts toward nothing LOW's candles show.
+    let published = feed.apply_trade(&trade(X, (LOW, USDC), (11, 0), 2, e(18), 100 * e(6)));
+    assert!(
+        published.iter().all(|p| !p.topic.starts_with("candles:")),
+        "{published:?}"
+    );
+}
+
+#[test]
 fn a_delta_the_snapshot_already_counted_is_skipped() {
     let mut feed = feed_with(&[]);
     let first = trade(A, (LOW, USDC), (10, 0), 0, 100 * e(18), 50 * e(6));
