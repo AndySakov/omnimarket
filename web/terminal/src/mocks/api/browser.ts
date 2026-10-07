@@ -5,8 +5,8 @@ import { setupWorker } from 'msw/browser'
 import type { DataSource } from '../../api/source'
 import { fixtureHandlers } from './handlers'
 
-export async function startFixtureWorker(source: DataSource): Promise<void> {
-  const worker = setupWorker(...fixtureHandlers(source))
+export async function startFixtureWorker(source: DataSource, options?: Parameters<typeof fixtureHandlers>[1]): Promise<void> {
+  const worker = setupWorker(...fixtureHandlers(source, options))
   await worker.start({
     // Assets, fonts and the app's own modules pass through untouched.
     onUnhandledRequest: 'bypass',

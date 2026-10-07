@@ -1,0 +1,199 @@
+import type { Chain, DiscoveryToken, SafetyState } from './token'
+
+export type TokenWorkspaceState = 'ready' | 'loading' | 'missing' | 'stale' | 'error'
+
+export type TokenMarketTab = 'Trades' | 'Positions' | 'Orders' | 'Holders' | 'Top Traders' | 'Dev Token'
+
+export type TradePanelMode = 'Market' | 'Limit' | 'DCA' | 'Advanced'
+
+export type TradeQuoteState = 'idle' | 'loading' | 'fresh' | 'expired' | 'error'
+
+export type TradeExecutionState = 'idle' | 'review' | 'signing-disabled' | 'pending' | 'failed'
+
+export type PricePoint = {
+  time: string
+  value: number
+}
+
+export type TokenCandle = {
+  time: string
+  open: number
+  high: number
+  low: number
+  close: number
+}
+
+export type TokenVolumePoint = {
+  time: string
+  value: number
+  tone: 'up' | 'down'
+}
+
+export type TokenChartData = {
+  candles: TokenCandle[]
+  volume: TokenVolumePoint[]
+}
+
+// Keep the picker aligned with the v0 CandleInterval contract. The API can add
+// longer intervals later without making the live screen invent a fixture-only
+// subscription topic.
+export const tokenChartIntervals = ['1s', '1m', '5m', '1h'] as const
+
+export type TokenChartInterval = (typeof tokenChartIntervals)[number]
+
+export type TokenChartState = 'ready' | 'loading' | 'stale' | 'empty' | 'error'
+
+export type TokenChartSnapshot = {
+  interval: TokenChartInterval
+  data: TokenChartData | null
+  state: TokenChartState
+  source: 'fixture'
+  updatedLabel: string
+}
+
+export type TokenWorkspaceStreamState = 'loading' | 'ready' | 'empty' | 'stale' | 'error'
+
+export type TokenWorkspaceConnectionState = 'connecting' | 'connected' | 'stale' | 'reconnecting' | 'error'
+
+export type TokenWorkspaceStreamStatus = {
+  state: TokenWorkspaceConnectionState
+  attempt: number
+  label: string
+}
+
+export type TokenMarketSnapshot = {
+  interval: TokenChartInterval
+  token: TokenWorkspaceFixture
+  chart: TokenChartData
+  trades: TokenTradeRow[]
+  sequence: number
+  state: Exclude<TokenWorkspaceStreamState, 'loading'>
+  updatedLabel: string
+}
+
+export type TokenActivity = {
+  id: string
+  side: 'Buy' | 'Sell'
+  amount: string
+  value: string
+  wallet: string
+  time: string
+}
+
+export type TokenTradeRow = TokenActivity & {
+  price: string
+  marketCap: string
+  gas: string
+  trader: string
+  tracking: string
+  txHash: string
+  txUrl: string
+}
+
+export type TokenPool = {
+  venue: string
+  feeTier: string
+  address: string
+  explorerUrl: string
+}
+
+export type TokenEvidenceState = 'not-checked' | 'passed' | 'warning' | 'failed'
+
+export type TokenSafetyCheck = {
+  status: TokenEvidenceState
+  value: string
+  detail: string
+}
+
+export type TokenSafetyEvidence = {
+  sellable: TokenSafetyCheck
+  buyTax: TokenSafetyCheck
+  sellTax: TokenSafetyCheck
+  updatedLabel: string
+}
+
+export type TokenPosition = {
+  id: string
+  wallet: string
+  side: 'Long' | 'Short'
+  size: string
+  entry: string
+  pnl: string
+}
+
+export type TokenOrder = {
+  id: string
+  type: 'Limit' | 'Stop'
+  side: 'Buy' | 'Sell'
+  amount: string
+  trigger: string
+  status: 'Open' | 'Filled' | 'Cancelled'
+}
+
+export type TokenHolder = {
+  id: string
+  wallet: string
+  share: string
+  balance: string
+  label: string
+}
+
+export type TopTrader = {
+  id: string
+  wallet: string
+  volume: string
+  realizedPnl: string
+  winRate: string
+}
+
+export type TokenWorkspaceFixture = DiscoveryToken & {
+  address: string
+  price: string
+  priceEth: string
+  marketCap: string
+  depth24h: string
+  txns24h: string
+  priceChange: string
+  fdv: string
+  totalSupply: string
+  thin: boolean
+  volume24h: string
+  /** Window used for live activity metrics; fixture snapshots default to 24h. */
+  statsWindow?: '5m' | '1h'
+  pair: string
+  pricePoints: PricePoint[]
+  chart: TokenChartData
+  activity: TokenActivity[]
+  trades: TokenTradeRow[]
+  positions: TokenPosition[]
+  orders: TokenOrder[]
+  holderRows: TokenHolder[]
+  topTraders: TopTrader[]
+  developerToken: {
+    wallet: string
+    balance: string
+    share: string
+    lastAction: string
+  }
+  pool: string
+  poolShare: string
+  pools: TokenPool[]
+  safetyEvidence: TokenSafetyEvidence
+  topHolders: string
+  safetyNote: string
+}
+
+export type TradeDraft = {
+  side: 'Buy' | 'Sell' | 'Auto'
+  amount: string
+  asset: 'ETH' | 'SOL' | 'BNB'
+  quoteState: TradeQuoteState
+}
+
+export type SafetyTone = SafetyState | 'neutral'
+
+export function nativeAssetForChain(chain: Chain): TradeDraft['asset'] {
+  if (chain === 'Solana') return 'SOL'
+  if (chain === 'BNB') return 'BNB'
+  return 'ETH'
+}

@@ -1,8 +1,9 @@
 # Frontend Implementation Plan
 
 **Status:** Frontend working plan. Owner: Jutin. Phase 0 foundation is
-implemented and verified on `codex/terminal-foundation`; the next slice is the
-Phase 1 Token Workspace.
+implemented and verified on `main`; Phase 1 Token Workspace is implemented on
+`codex/token-workspace` and is being reviewed in PR #105 against the shared
+typed stream contract.
 
 This is the implementation plan for the full OmniMarket terminal. It uses the
 repository product contract in `docs/spec/frontend.md` as upstream context. A
@@ -104,8 +105,12 @@ position rows, execution timelines, trade receipts and a “Why did this fire?�
 drawer.
 
 Desktop token trading uses a discovery area, a centre chart/detail workspace and
-a persistent trade panel. Mobile is a deliberately stacked flow with sheets and
-a reachable bottom action, never a compressed three-column desktop layout.
+a persistent trade panel. The Token Workspace extends this with a dense metric
+header, reference-style market tabs and a Lightweight Charts candle/volume
+surface. Mobile is a deliberately stacked flow with natural page scrolling and
+the trade panel below the market content, never a compressed three-column desktop
+layout. See [token-workspace-design-system.md](token-workspace-design-system.md)
+for the surface-level tokens and layout contracts.
 
 Every substantial screen implements populated, loading, empty, error, disabled,
 stale/reconnecting, keyboard-focus and overflow states from the start.
@@ -142,16 +147,19 @@ integration from this branch.
 
 - Discovery feed and responsive token table. **Complete as a deterministic
   mocked surface.**
-- Token Workspace: token header/summary, candle/price display, recent trades,
-  basic safety panel and the persistent mocked trade-panel shell.
+- Token Workspace: dense token header/summary, candle/volume display, context
+  rail, reference-style market tabs and the persistent mocked trade-panel shell.
 - Connection status and WebSocket reconnection behaviour.
 - Build against the backend mock server.
 
-The next implementation branch is `codex/token-workspace`. Its design gate must
-lock the token-page desktop/mobile layout, chart and context-rail proportions,
-tab state matrix, trade-panel fixture shape and the API assumptions that need
-the backend collaborator's review. Live generated API types, mock-server
-integration and WebSocket behaviour begin when the backend reaches M2.
+The Token Workspace design gate and implementation notes are in
+[token-workspace-brief.md](token-workspace-brief.md), with the design-system
+contract in [token-workspace-design-system.md](token-workspace-design-system.md).
+The connection-aware fixture adapter and its replacement plan are documented in
+[token-workspace-stream-plan.md](token-workspace-stream-plan.md).
+Live generated API types,
+mock-server integration and WebSocket behaviour begin when the backend reaches
+M2.
 
 ### Phase 2 — M4/M5: trading
 
@@ -190,8 +198,7 @@ responsive table-owned scrolling, loading/empty/error states, accessibility
 coverage and visual baselines. Typecheck, lint, unit tests, production build,
 Playwright flows, visual checks and the Discover accessibility audit have passed.
 
-The checkpoint is **Verified** locally and becomes **PR-ready** after the
-foundation commit is pushed and the collaborator has the review PR. The next
-reviewable product outcome is a mocked Token Workspace; quote signing, live
-market data and backend integration remain explicitly out of scope for that
-slice.
+The foundation checkpoint has merged to `main`. The current follow-up
+checkpoint is PR #105: a fixture-compatible Token Workspace that now consumes
+the shared REST/WebSocket client. Quote signing remains out of scope; live
+candles and safety evidence still depend on backend Issues 80 and 89.
