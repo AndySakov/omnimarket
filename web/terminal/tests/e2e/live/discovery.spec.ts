@@ -74,7 +74,7 @@ async function playLiveDiscovery(page: Page): Promise<Connection[]> {
           snapshot: {
             topic,
             seq: '1',
-            discovery: { ...discoveryFixture, rows: [liveRow(false)] },
+            discovery: discoveryFixture,
           },
         })
       }
@@ -89,14 +89,28 @@ test('live Discover inserts a Base pool without reload and renders the API safet
 
   await expect(page.getByRole('status', { name: /^Market data: Live\./ })).toBeVisible()
   const liveRowLocator = page.getByRole('row').filter({ hasText: 'Live Pool' })
-  await expect(liveRowLocator).toBeVisible()
-  await expect(liveRowLocator.getByText('Not checked yet')).toBeVisible()
+  await expect(page.getByRole('row').filter({ hasText: 'NovaSet (fixture)' })).toBeVisible()
+  await expect(liveRowLocator).toHaveCount(0)
   expect(connections[0]?.topics).toEqual(['status', 'discovery'])
+
+  const navigations: string[] = []
+  page.on('framenavigated', (frame) => navigations.push(frame.url()))
 
   send(connections[0]!.route, {
     delta: {
       topic: 'discovery',
       seq: '2',
+      discoveryRow: liveRow(false),
+    },
+  })
+
+  await expect(liveRowLocator).toBeVisible()
+  await expect(liveRowLocator.getByText('Not checked yet')).toBeVisible()
+
+  send(connections[0]!.route, {
+    delta: {
+      topic: 'discovery',
+      seq: '3',
       discoveryRow: liveRow(true),
     },
   })
@@ -105,4 +119,5 @@ test('live Discover inserts a Base pool without reload and renders the API safet
   await expect(row.getByText('Sell check passed')).toBeVisible()
   await expect(row.getByText('0%/0% taxes')).toBeVisible()
   await expect(row.getByText('Not checked yet')).toHaveCount(0)
+  expect(navigations).toEqual([])
 })

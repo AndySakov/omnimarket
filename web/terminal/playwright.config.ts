@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { LIVE_API_URL } from './tests/e2e/live/liveApi'
 
 export default defineConfig({
   testDir: './tests',
