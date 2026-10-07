@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { LIVE_API_URL } from './tests/e2e/live/liveApi'
 
 export default defineConfig({
   testDir: './tests',
@@ -43,7 +44,9 @@ export default defineConfig({
     {
       // The same app built for the live source, by env alone (#63). Tests play the API server
       // with page.routeWebSocket; nothing listens on LIVE_API_URL.
-      command: `node scripts/build-live.mjs && npx vite preview --outDir dist-live --host 127.0.0.1 --port 4174 --strictPort`,
+      // Keep the launcher in Node so the command works in Windows PowerShell as well as CI's
+      // POSIX shell. The API URL is an argument, not a shell-specific environment assignment.
+      command: `node scripts/playwright-live-server.mjs ${LIVE_API_URL}`,
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: !process.env.CI,
       timeout: 120000,
