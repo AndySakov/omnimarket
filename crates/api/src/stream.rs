@@ -5,20 +5,23 @@
 use std::collections::BTreeMap;
 
 use proto::api::v1::{
-    ClientMessage, Delta, Heartbeat, ServerMessage, Snapshot, StreamError, client_message, delta,
-    server_message, snapshot, stream_error,
+    CandleInterval, ClientMessage, Delta, Heartbeat, ServerMessage, Snapshot, StreamError,
+    client_message, delta, server_message, snapshot, stream_error,
 };
 
+use crate::candles::{candles_topic, interval_named};
 use crate::discovery::Filters;
 use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topic};
 use crate::model::ReadModel;
 
-/// The topics this server serves. Others in the contract arrive with their issues (#80, #85);
+/// The topics this server serves. Others in the contract arrive with their issues (#85);
 /// subscribing to one is an unknown topic until then.
 #[derive(Debug, PartialEq)]
 pub enum Topic {
     /// By lowercase 0x address.
     Token(String),
+    /// By lowercase 0x address, and interval.
+    Candles(String, CandleInterval),
     Discovery,
     Status,
 }
@@ -27,6 +30,7 @@ impl Topic {
     fn name(&self) -> String {
         match self {
             Topic::Token(address) => token_topic(address),
+            Topic::Candles(address, interval) => candles_topic(address, *interval),
             Topic::Discovery => DISCOVERY_TOPIC.to_string(),
             Topic::Status => STATUS_TOPIC.to_string(),
         }
@@ -41,13 +45,18 @@ pub fn parse_topic(name: &str) -> Option<Topic> {
     if name == STATUS_TOPIC {
         return Some(Topic::Status);
     }
-    let address = name.strip_prefix("token:")?.to_ascii_lowercase();
-    let digits = address.strip_prefix("0x")?;
-    if digits.len() == 40 && digits.bytes().all(|b| b.is_ascii_hexdigit()) {
-        Some(Topic::Token(address))
-    } else {
-        None
+    if let Some(rest) = name.strip_prefix("candles:") {
+        let (address, label) = rest.split_once(':')?;
+        return Some(Topic::Candles(address_of(address)?, interval_named(label)?));
     }
+    Some(Topic::Token(address_of(name.strip_prefix("token:")?)?))
+}
+
+/// A 0x address in either case, lowercased.
+fn address_of(text: &str) -> Option<String> {
+    let address = text.to_ascii_lowercase();
+    let digits = address.strip_prefix("0x")?;
+    (digits.len() == 40 && digits.bytes().all(|b| b.is_ascii_hexdigit())).then_some(address)
 }
 
 #[derive(Default)]
@@ -65,8 +74,8 @@ struct TopicState {
 
 struct Sent {
     seq: u64,
-    block_number: u64,
-    snapshot_block: u64,
+    as_of: u64,
+    snapshot_as_of: u64,
 }
 
 impl Session {
@@ -113,29 +122,34 @@ impl Session {
     }
 
     /// Turns a published delta into this connection's message for it, if it's subscribed: the
-    /// topic's snapshot if none has gone out yet, otherwise the next delta. A token tick no newer
-    /// than what the client already has (one applied before its snapshot was taken) is skipped,
-    /// and so is a discovery row as of the snapshot's block or earlier; a block's rows all go
-    /// out together, so the rest of that block's rows still pass.
+    /// topic's snapshot if none has gone out yet or the topic asks for a fresh one, otherwise the
+    /// next delta. A token tick no newer than what the client already has (one applied before
+    /// its snapshot was taken) is skipped, and so is any other delta as of the snapshot or
+    /// earlier: a discovery row as of the snapshot's block (a block's rows all go out together,
+    /// so the rest of that block's rows still pass), or a candle from a trade the snapshot
+    /// already counted.
     pub fn on_published(&mut self, published: &Published, feed: &Feed) -> Option<ServerMessage> {
         let state = self.topics.get_mut(&published.topic)?;
+        let Some(payload) = &published.payload else {
+            return snapshot_of(&published.topic, state, feed);
+        };
         let Some(sent) = &mut state.sent else {
             return snapshot_of(&published.topic, state, feed);
         };
-        let stale = match published.payload {
-            delta::Payload::TokenTick(_) => published.block_number <= sent.block_number,
-            _ => published.block_number <= sent.snapshot_block,
+        let stale = match payload {
+            delta::Payload::TokenTick(_) => published.as_of <= sent.as_of,
+            _ => published.as_of <= sent.snapshot_as_of,
         };
         if stale {
             return None;
         }
         sent.seq += 1;
-        sent.block_number = published.block_number;
+        sent.as_of = published.as_of;
         Some(ServerMessage {
             kind: Some(server_message::Kind::Delta(Delta {
                 topic: published.topic.clone(),
                 seq: sent.seq,
-                payload: Some(published.payload.clone()),
+                payload: Some(payload.clone()),
             })),
         })
     }
@@ -154,25 +168,35 @@ impl Session {
 }
 
 /// The topic's snapshot, seq 0: the whole discovery feed, the engine's status once it has one,
-/// or the token's once it has a price.
+/// the token's once it has a price, or its candles (none yet is an empty series).
 fn snapshot_of(topic: &str, state: &mut TopicState, feed: &Feed) -> Option<ServerMessage> {
-    let (block_number, payload) = if topic == DISCOVERY_TOPIC {
-        let discovery = feed.discovery().feed(&Filters::default());
-        (
-            discovery.block_number,
-            snapshot::Payload::Discovery(discovery),
-        )
-    } else if topic == STATUS_TOPIC {
-        let status = feed.status()?.clone();
-        (status.head_block_number, snapshot::Payload::Status(status))
-    } else {
-        let token = feed.model().token(topic.strip_prefix("token:")?)?.clone();
-        (token.block_number, snapshot::Payload::Token(token))
+    let (as_of, payload) = match parse_topic(topic)? {
+        Topic::Discovery => {
+            let discovery = feed.discovery().feed(&Filters::default());
+            (
+                discovery.block_number,
+                snapshot::Payload::Discovery(discovery),
+            )
+        }
+        Topic::Status => {
+            let status = feed.status()?.clone();
+            (status.head_block_number, snapshot::Payload::Status(status))
+        }
+        Topic::Token(address) => {
+            let token = feed.model().token(&address)?.clone();
+            (token.block_number, snapshot::Payload::Token(token))
+        }
+        Topic::Candles(address, interval) => {
+            let series = feed
+                .candles()
+                .series(None, address.parse().ok()?, interval, 0, u64::MAX);
+            (feed.candles().version(), snapshot::Payload::Candles(series))
+        }
     };
     state.sent = Some(Sent {
         seq: 0,
-        block_number,
-        snapshot_block: block_number,
+        as_of,
+        snapshot_as_of: as_of,
     });
     Some(ServerMessage {
         kind: Some(server_message::Kind::Snapshot(Snapshot {

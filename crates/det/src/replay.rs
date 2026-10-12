@@ -74,7 +74,16 @@ impl Replay {
         ReplayRpc {
             replay: self.clone(),
             calls: Cell::new(0),
+            source: Source::Rpc,
             types: PhantomData,
+        }
+    }
+
+    /// The log-reading endpoint's answers, recorded by `RecordingRpc::logs`.
+    pub fn logs<Req, Resp>(&self) -> ReplayRpc<Req, Resp> {
+        ReplayRpc {
+            source: Source::Logs,
+            ..self.rpc()
         }
     }
 
@@ -197,6 +206,7 @@ impl<E: Recordable + 'static> EventSource for ReplayEvents<E> {
 pub struct ReplayRpc<Req, Resp> {
     replay: Replay,
     calls: Cell<u64>,
+    source: Source,
     types: PhantomData<fn(Req) -> Resp>,
 }
 
@@ -207,8 +217,9 @@ impl<Req, Resp: Recordable + 'static> Rpc for ReplayRpc<Req, Resp> {
     fn call(&self, _request: Req) -> LocalBoxFuture<'static, Resp> {
         let call = self.calls.get();
         self.calls.set(call + 1);
+        let source = self.source;
         self.replay.wait(move |r| {
-            let ours = r.source == Source::Rpc && response_call(&r.payload) == Some(call);
+            let ours = r.source == source && response_call(&r.payload) == Some(call);
             ours.then(|| decode_response(&r.payload).unwrap_or_else(|| corrupt(r)))
         })
     }
@@ -315,6 +326,30 @@ mod tests {
             futures::join!(first, second)
         });
         assert_eq!(answers, (10, 11));
+    }
+
+    // Both endpoints' first call is call 0; each takes only its own source's answer.
+    #[test]
+    fn log_reads_are_numbered_apart_from_rpc_calls() {
+        let response = |seq, source, answer: u64| {
+            record(
+                seq,
+                source,
+                [0u64.to_le_bytes(), answer.to_le_bytes()].concat(),
+            )
+        };
+        let replay = Replay::new(vec![
+            response(0, Source::Logs, 20),
+            response(1, Source::Rpc, 10),
+        ]);
+        let rpc = replay.rpc::<(), u64>();
+        let logs = replay.logs::<(), u64>();
+        let answers = replay.run(async move {
+            let call = rpc.call(());
+            let read = logs.call(());
+            futures::join!(call, read)
+        });
+        assert_eq!(answers, (10, 20));
     }
 
     impl Recordable for u64 {

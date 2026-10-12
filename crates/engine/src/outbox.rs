@@ -263,6 +263,8 @@ pub trait Outbox {
     fn publish_trade(&self, trade: &Trade);
     fn publish_price(&self, update: &PriceUpdate);
     fn publish_status(&self, status: &EngineStatus);
+    /// A backfilled trade (#80).
+    fn publish_history(&self, trade: &Trade);
 }
 
 /// Keeps everything published in memory, for tests and replays. Clones share the lists.
@@ -272,6 +274,7 @@ pub struct InMemoryOutbox {
     trades: Rc<RefCell<Vec<Trade>>>,
     prices: Rc<RefCell<Vec<PriceUpdate>>>,
     statuses: Rc<RefCell<Vec<EngineStatus>>>,
+    history: Rc<RefCell<Vec<Trade>>>,
 }
 
 impl InMemoryOutbox {
@@ -289,6 +292,10 @@ impl InMemoryOutbox {
 
     pub fn statuses(&self) -> Vec<EngineStatus> {
         self.statuses.borrow().clone()
+    }
+
+    pub fn history(&self) -> Vec<Trade> {
+        self.history.borrow().clone()
     }
 }
 
@@ -308,19 +315,25 @@ impl Outbox for InMemoryOutbox {
     fn publish_status(&self, status: &EngineStatus) {
         self.statuses.borrow_mut().push(status.clone());
     }
+
+    fn publish_history(&self, trade: &Trade) {
+        self.history.borrow_mut().push(trade.clone());
+    }
 }
 
 /// Where `KafkaOutbox` publishes each kind of record.
+#[derive(Clone)]
 pub struct KafkaTopics {
     pub updates: KafkaPublisher,
     pub trades: KafkaPublisher,
     pub prices: KafkaPublisher,
     pub statuses: KafkaPublisher,
+    pub history: KafkaPublisher,
 }
 
-/// Publishes pool updates to `pool-updates.<chain>` and trades to `trades.<chain>`, both keyed
-/// by pool, price updates to `prices.<chain>`, keyed by token, and statuses to
-/// `status.<chain>`, keyed by core instance and stamped with the run.
+/// Publishes pool updates to `pool-updates.<chain>`, trades to `trades.<chain>` and backfilled
+/// trades to `trade-history.<chain>`, all keyed by pool, price updates to `prices.<chain>`, keyed
+/// by token, and statuses to `status.<chain>`, keyed by core instance and stamped with the run.
 pub struct KafkaOutbox {
     topics: KafkaTopics,
     run: Run,
@@ -356,6 +369,12 @@ impl Outbox for KafkaOutbox {
             self.run.core_instance.as_bytes(),
             &status.to_proto(&self.run).encode_to_vec(),
         );
+    }
+
+    fn publish_history(&self, trade: &Trade) {
+        self.topics
+            .history
+            .publish(trade.pool.as_slice(), &trade.to_proto().encode_to_vec());
     }
 }
 

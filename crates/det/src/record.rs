@@ -18,6 +18,8 @@ pub enum Source {
     Rng,
     Event,
     Rpc,
+    /// A log read: a second RPC, numbered on its own.
+    Logs,
 }
 
 /// One input a core received.
@@ -45,6 +47,7 @@ impl InputRecord {
             Source::Rng => InputSource::Rng,
             Source::Event => InputSource::Event,
             Source::Rpc => InputSource::Rpc,
+            Source::Logs => InputSource::Logs,
             Source::Config => InputSource::Config,
         };
         proto::det::v1::InputRecord {
@@ -62,6 +65,7 @@ impl InputRecord {
             Ok(InputSource::Rng) => Source::Rng,
             Ok(InputSource::Event) => Source::Event,
             Ok(InputSource::Rpc) => Source::Rpc,
+            Ok(InputSource::Logs) => Source::Logs,
             Ok(InputSource::Config) => Source::Config,
             Ok(InputSource::Unspecified) | Err(_) => {
                 return Err(InvalidInputRecord::UnknownSource(record.source));
@@ -222,6 +226,8 @@ pub struct RecordingRpc<Req, Resp> {
     inner: Box<dyn Rpc<Request = Req, Response = Resp>>,
     recorder: Recorder,
     calls: Cell<u64>,
+    /// `Rpc`, or `Logs` for a core's second endpoint, so the two number their calls apart.
+    source: Source,
 }
 
 impl<Req, Resp> RecordingRpc<Req, Resp> {
@@ -230,6 +236,15 @@ impl<Req, Resp> RecordingRpc<Req, Resp> {
             inner,
             recorder,
             calls: Cell::new(0),
+            source: Source::Rpc,
+        }
+    }
+
+    /// Records a log-reading endpoint's answers under `Source::Logs`.
+    pub fn logs(inner: Box<dyn Rpc<Request = Req, Response = Resp>>, recorder: Recorder) -> Self {
+        Self {
+            source: Source::Logs,
+            ..Self::new(inner, recorder)
         }
     }
 }
@@ -242,10 +257,11 @@ impl<Req, Resp: Recordable + 'static> Rpc for RecordingRpc<Req, Resp> {
         let call = self.calls.get();
         self.calls.set(call + 1);
         let recorder = self.recorder.clone();
+        let source = self.source;
         let response = self.inner.call(request);
         Box::pin(async move {
             let response = response.await;
-            recorder.write(Source::Rpc, encode_response(call, &response));
+            recorder.write(source, encode_response(call, &response));
             response
         })
     }
@@ -329,6 +345,10 @@ mod tests {
             );
             let rpc = RecordingRpc::new(
                 Box::new(SimRpc::new(|c: char| (Duration::from_millis(5), c))),
+                recorder.clone(),
+            );
+            let logs = RecordingRpc::logs(
+                Box::new(SimRpc::new(|c: char| (Duration::from_millis(1), c))),
                 recorder,
             );
 
@@ -336,6 +356,7 @@ mod tests {
             recorded_clock.now();
             let draw = rng.next_u64();
             assert_eq!(rpc.call('z').await, 'z');
+            assert_eq!(logs.call('y').await, 'y');
             assert_eq!(events.next().await, None);
 
             let records = sink.records();
@@ -350,7 +371,8 @@ mod tests {
                     (1, Source::Clock, at(10), encode_u64(10_000_000)),
                     (2, Source::Rng, at(10), encode_u64(draw)),
                     (3, Source::Rpc, at(15), vec![0, 0, 0, 0, 0, 0, 0, 0, b'z']),
-                    (4, Source::Event, at(15), vec![0]),
+                    (4, Source::Logs, at(16), vec![0, 0, 0, 0, 0, 0, 0, 0, b'y']),
+                    (5, Source::Event, at(16), vec![0]),
                 ]
             );
         });
@@ -381,6 +403,7 @@ mod tests {
             Source::Rng,
             Source::Event,
             Source::Rpc,
+            Source::Logs,
         ] {
             let record = InputRecord {
                 seq: 3,

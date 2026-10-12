@@ -108,7 +108,7 @@ fn rows(published: &[Published]) -> Vec<DiscoveryRow> {
     published
         .iter()
         .filter_map(|p| match &p.payload {
-            delta::Payload::DiscoveryRow(row) => Some(row.clone()),
+            Some(delta::Payload::DiscoveryRow(row)) => Some(row.clone()),
             _ => None,
         })
         .collect()
@@ -170,7 +170,7 @@ fn a_pool_created_during_the_session_is_new_within_one_block() {
     assert!(
         discovery_only(published.clone())
             .iter()
-            .all(|p| p.block_number == 10)
+            .all(|p| p.as_of == 10)
     );
     let new = rows(&published);
     assert_eq!(new.len(), 1, "{new:?}");
@@ -276,7 +276,7 @@ fn a_row_leaves_when_its_pool_ages_out_of_new() {
     assert!(published.is_empty(), "{published:?}");
     let published = discovery_only(tick(&mut feed, 17));
     assert!(matches!(&published[..], [p] if matches!(&p.payload,
-            delta::Payload::DiscoveryRowRemoved(r) if r.token == hex(&[0xa1; 20]))));
+            Some(delta::Payload::DiscoveryRowRemoved(r)) if r.token == hex(&[0xa1; 20]))));
 }
 
 #[test]

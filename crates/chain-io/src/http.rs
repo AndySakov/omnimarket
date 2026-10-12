@@ -2,9 +2,9 @@ use alloy::eips::{BlockId, BlockNumberOrTag};
 use alloy::providers::{Provider, ProviderBuilder, RootProvider};
 use alloy::rpc::types::{Filter, TransactionRequest};
 use futures::future::LocalBoxFuture;
-use types::chain::{B256, CallResult, EthCall, Log};
+use types::chain::{B256, BlockLog, CallResult, EthCall, Log, LogsQuery, LogsResult};
 
-use crate::{CallEndpoint, ChainError, ChainReader, Header};
+use crate::{CallEndpoint, ChainError, ChainReader, Header, LogsEndpoint};
 
 /// A node over JSON-RPC on HTTP.
 pub struct HttpChain {
@@ -48,6 +48,57 @@ impl CallEndpoint for HttpChain {
                     _ => Err(rpc_error(error)),
                 },
             }
+        })
+    }
+}
+
+impl LogsEndpoint for HttpChain {
+    /// A refusal the node answers with (`-32020 backend response too large`, a range over its
+    /// limit) is the read's result; anything else is a failure to retry. A log without its
+    /// block's number, hash or timestamp fails the whole read.
+    fn logs_in_range<'a>(
+        &'a self,
+        query: &'a LogsQuery,
+    ) -> LocalBoxFuture<'a, Result<LogsResult, ChainError>> {
+        Box::pin(async move {
+            let filter = Filter::new()
+                .from_block(query.from_block)
+                .to_block(query.to_block)
+                .address(query.addresses.clone())
+                .event_signature(query.topics.clone());
+            let logs = match self.provider.get_logs(&filter).await {
+                Ok(logs) => logs,
+                Err(error) => {
+                    return match error.as_error_resp() {
+                        Some(payload) if !is_retryable(payload.code, &payload.message) => {
+                            Ok(LogsResult::Failed(payload.message.to_string()))
+                        }
+                        _ => Err(rpc_error(error)),
+                    };
+                }
+            };
+            let read = logs
+                .into_iter()
+                .map(|log| {
+                    Some(BlockLog {
+                        block_number: log.block_number?,
+                        block_hash: log.block_hash?,
+                        block_timestamp: log.block_timestamp?,
+                        log: Log {
+                            address: log.address(),
+                            topics: log.topics().to_vec(),
+                            data: log.data().data.clone(),
+                            log_index: log.log_index?,
+                            transaction_hash: log.transaction_hash?,
+                        },
+                    })
+                })
+                .collect::<Option<Vec<_>>>();
+            Ok(read.map(LogsResult::Returned).unwrap_or_else(|| {
+                LogsResult::Failed(
+                    "a log without its block number, hash, timestamp, index or transaction".into(),
+                )
+            }))
         })
     }
 }

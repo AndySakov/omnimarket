@@ -3,10 +3,10 @@
 //!   api --kafka BROKERS [--listen ADDR] [--cors-origin URL] [--group-id ID]
 //!       [--new-pool-window-ms MS] [--trending-min-depth-usd USD]
 //!
-//! Consumes `pool-updates.base`, `trades.base`, `prices.base` and `status.base` from the start
-//! and serves contract v0 (D91): `/health`, `GET /v1/status`,
-//! `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery` and the WebSocket stream at
-//! `/v1/stream`, and Prometheus metrics at `/metrics`.
+//! Consumes `pool-updates.base`, `trades.base`, `trade-history.base`, `prices.base` and
+//! `status.base` from the start and serves contract v0 (D91): `/health`, `GET /v1/status`,
+//! `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery`, `GET /v1/candles` and the
+//! WebSocket stream at `/v1/stream`, and Prometheus metrics at `/metrics`.
 
 use std::net::SocketAddr;
 use std::process::ExitCode;

@@ -6,13 +6,14 @@ use std::collections::VecDeque;
 use pricing::PricingConfig;
 use prost::Message as _;
 use types::Timestamp;
-use types::chain::{Address, B256, Block, CallResult, EthCall};
+use types::chain::{Address, B256, Block, CallResult, EthCall, LogsQuery, LogsResult};
 use venues::v2::Deployment;
 
-use crate::outbox::{PoolUpdate, PriceUpdate};
+use crate::history::History;
+use crate::outbox::{PoolState, PoolUpdate, PriceUpdate};
 use crate::prices::{Coverage, Prices};
 use crate::status::EngineStatus;
-use crate::trades::Trade;
+use crate::trades::{Trade, Venue};
 use crate::v2::V2Pools;
 use crate::v3::V3Pools;
 
@@ -26,6 +27,9 @@ pub const BASE_QUOTE_ASSETS: [types::chain::Address; 3] = [
     // WETH
     alloy_primitives::address!("4200000000000000000000000000000000000006"),
 ];
+
+/// Base makes a block every 2s.
+pub const BASE_BLOCKS_PER_HOUR: u64 = 1_800;
 
 /// How many recent block hashes the engine keeps, to find where a reorg forked.
 const RECENT_BLOCKS: usize = 128;
@@ -43,6 +47,9 @@ pub struct EngineConfig {
     pub quote_assets: Vec<types::chain::Address>,
     /// `None`: no pricing, as recordings made before it existed expect.
     pub pricing: Option<PricingConfig>,
+    /// Blocks of Swaps before a pool was first seen to backfill as trade history. `None`: no
+    /// history, as recordings made before it existed expect.
+    pub history_blocks: Option<u64>,
 }
 
 impl EngineConfig {
@@ -59,6 +66,7 @@ impl EngineConfig {
             check_sample: self.check_sample as u64,
             quote_assets: self.quote_assets.iter().map(|a| a.to_vec()).collect(),
             pricing: self.pricing.as_ref().map(pricing_to_proto),
+            history_blocks: self.history_blocks,
         }
         .encode_to_vec()
     }
@@ -88,6 +96,7 @@ impl EngineConfig {
                 Some(pricing) => Some(pricing_from_proto(pricing)?),
                 None => None,
             },
+            history_blocks: config.history_blocks,
         })
     }
 
@@ -100,6 +109,9 @@ impl EngineConfig {
             check_sample: 20,
             quote_assets: BASE_QUOTE_ASSETS.to_vec(),
             pricing: Some(PricingConfig::base()),
+            // `engine follow` turns it on (`--history-hours`); a core reads history only with a
+            // log endpoint attached.
+            history_blocks: None,
         }
     }
 }
@@ -181,6 +193,15 @@ pub struct Stats {
     pub price_updates: u64,
     /// Tokens with a published display price.
     pub tokens_priced: u64,
+    /// Pools whose trade history was queued for backfill.
+    pub history_pools: u64,
+    pub history_reads: u64,
+    /// Reads the node refused, or that answered too many logs; each splits its range in two.
+    pub history_read_failures: u64,
+    /// Blocks whose history read failed even alone, so their trades are missing.
+    pub history_blocks_dropped: u64,
+    /// Trade records published as history.
+    pub history_trades: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -197,6 +218,8 @@ pub struct Summary {
     pub prices_digest: blake3::Hash,
     /// `None` without pricing.
     pub coverage: Option<Coverage>,
+    /// Over every history trade published, in order: its proto bytes. `None` without history.
+    pub history_digest: Option<blake3::Hash>,
 }
 
 /// The text `engine follow` and `engine replay` print, and a pinned replay fixture's summary
@@ -261,6 +284,19 @@ impl std::fmt::Display for Summary {
                 writeln!(f, "  unquoted tokens trading against {token}: {count}")?;
             }
         }
+        // Only with history on, so a recording from before it prints what it always did.
+        if let Some(digest) = &self.history_digest {
+            writeln!(
+                f,
+                "history: {} pools, {} reads ({} failed, {} blocks dropped), {} trades, digest {}",
+                s.history_pools,
+                s.history_reads,
+                s.history_read_failures,
+                s.history_blocks_dropped,
+                s.history_trades,
+                digest
+            )?;
+        }
         Ok(())
     }
 }
@@ -272,6 +308,8 @@ pub(crate) enum Pending {
     Prices(crate::prices::Call),
 }
 
+pub(crate) use crate::history::Read as LogRead;
+
 /// What one step asks of the outside world.
 #[derive(Default)]
 pub(crate) struct Effects {
@@ -281,6 +319,9 @@ pub(crate) struct Effects {
     pub prices: Vec<PriceUpdate>,
     /// Set once per block, after the block is applied.
     pub status: Option<EngineStatus>,
+    pub log_reads: Vec<(LogRead, LogsQuery)>,
+    /// Backfilled trades, for `trade-history.<chain>`.
+    pub history: Vec<Trade>,
 }
 
 pub(crate) struct State {
@@ -296,6 +337,8 @@ pub(crate) struct State {
     prices: Option<Prices>,
     /// The clock reading when the first block arrived: uptime counts from it.
     started: Option<Timestamp>,
+    history: Option<History>,
+    history_digest: blake3::Hasher,
 }
 
 impl State {
@@ -307,6 +350,10 @@ impl State {
                 .pricing
                 .clone()
                 .map(|pricing| Prices::new(config.chain_id, config.quote_assets.clone(), pricing)),
+            history: config
+                .history_blocks
+                .map(|blocks| History::new(config.chain_id, config.quote_assets.clone(), blocks)),
+            history_digest: blake3::Hasher::new(),
             config,
             recent: VecDeque::with_capacity(RECENT_BLOCKS),
             stats: Stats::default(),
@@ -426,9 +473,48 @@ impl State {
         self.finish(effects);
     }
 
-    /// Folds this step's updates and trades into their digests, counts them, and notes the
-    /// updates for pricing.
-    fn finish(&mut self, effects: &Effects) {
+    pub fn on_log_read(&mut self, read: LogRead, result: LogsResult, effects: &mut Effects) {
+        if let Some(history) = &mut self.history {
+            history.on_answer(read, result, &mut self.stats, effects);
+        }
+        self.finish(effects);
+    }
+
+    /// Folds this step's updates and trades into their digests, counts them, notes the updates
+    /// for pricing, and queues the history of pools that just became tracked.
+    fn finish(&mut self, effects: &mut Effects) {
+        if let Some(history) = &mut self.history {
+            for update in &effects.updates {
+                if update.before.is_some() {
+                    continue;
+                }
+                let pool = match &update.after {
+                    PoolState::V2(_) => self
+                        .v2
+                        .pair(&update.pool)
+                        .map(|p| (Venue::UniswapV2, (p.token0, p.token1))),
+                    PoolState::V3(_) => self
+                        .v3
+                        .pool(&update.pool)
+                        .map(|p| (Venue::UniswapV3, (p.token0, p.token1))),
+                };
+                if let Some((venue, tokens)) = pool {
+                    history.want(
+                        update.pool,
+                        venue,
+                        tokens,
+                        update.block_number,
+                        &mut self.stats,
+                    );
+                }
+            }
+            history.next(effects);
+            for trade in &effects.history {
+                self.history_digest
+                    .update(&trade.to_proto().encode_length_delimited_to_vec());
+            }
+            self.stats.history_trades += effects.history.len() as u64;
+        }
         if let Some(prices) = &mut self.prices {
             prices.on_updates(&effects.updates, &self.v2, &self.v3);
         }
@@ -455,6 +541,10 @@ impl State {
             trades_digest: self.trades_digest.finalize(),
             prices_digest: self.prices_digest.finalize(),
             coverage: self.prices.as_ref().map(Prices::coverage),
+            history_digest: self
+                .history
+                .as_ref()
+                .map(|_| self.history_digest.finalize()),
         }
     }
 }

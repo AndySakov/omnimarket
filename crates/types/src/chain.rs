@@ -43,3 +43,33 @@ pub enum CallResult {
     /// The node answered with an error, such as a revert.
     Failed(String),
 }
+
+/// A ranged log read, `eth_getLogs` over `from_block..=to_block`: the logs of `addresses`
+/// whose first topic is one of `topics`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogsQuery {
+    pub addresses: Vec<Address>,
+    pub topics: Vec<B256>,
+    pub from_block: u64,
+    pub to_block: u64,
+}
+
+/// What a log read gives the core. Transport failures and rate limits are retried below it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LogsResult {
+    /// In block and log order.
+    Returned(Vec<BlockLog>),
+    /// The node refused the read, e.g. as too large, or the answer was more logs than a read
+    /// may return.
+    Failed(String),
+}
+
+/// A log from a ranged read, with the block it's in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockLog {
+    pub block_number: u64,
+    pub block_hash: B256,
+    /// Seconds since the Unix epoch.
+    pub block_timestamp: u64,
+    pub log: Log,
+}

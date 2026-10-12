@@ -43,6 +43,7 @@
 - Answer quote requests (routes across pools)
 - Evaluate trigger orders on each relevant price change
 - Publish pool updates, swaps, prices, and reorg corrections to Kafka
+- For the demo, read back the last hours of each newly tracked pool's Swaps as trade history, through a recorded logs worker beside the head follower (D103). The history job proper stays on the cold path (D15)
 - Emit lineage IDs on every record (D53); read inputs only through recorded, deterministic interfaces (D49, D54)
 
 ## Execution service responsibilities

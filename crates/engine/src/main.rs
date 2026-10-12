@@ -1,14 +1,14 @@
 //! The Base Chain Engine binary.
 //!
 //!   engine follow [--rpc URL] [--call-rpc URL] [--minutes N] [--kafka BROKERS] [--otlp URL]
-//!                 [--metrics-listen ADDR] [--check-every N] [--record-to DIR]
+//!                 [--metrics-listen ADDR] [--check-every N] [--history-hours N] [--record-to DIR]
 //!   engine replay --core-instance ID (--kafka BROKERS | --from-archive)
 //!   engine archive --kafka BROKERS --core-instance ID
 //!
 //! `follow` runs the core on the live chain. With `--kafka` it records inputs to
 //! `inputs.base` and publishes pool updates to `pool-updates.base`, trade records to
-//! `trades.base`, prices to `prices.base` and its status after each block to `status.base`;
-//! otherwise all stay in memory. With `--record-to` it also writes the recording
+//! `trades.base`, prices to `prices.base`, its status after each block to `status.base` and each
+//! newly tracked pool's earlier trades to `trade-history.base`; otherwise all stay in memory. With `--record-to` it also writes the recording
 //! and its summary to a directory, as a pinned replay fixture (D99). If `--rpc` or `--call-rpc`
 //! can't answer, before the run starts or during it, it
 //! stops with an error naming that flag (D88). `replay` runs the core again from a recording,
@@ -29,8 +29,9 @@ use det::{
     RecordingEventSource, RecordingRpc, Replay, SeededRng, SystemClock,
 };
 use engine::{
-    Engine, EngineConfig, EngineMetrics, INPUT_TOPIC, InMemoryOutbox, KafkaOutbox, KafkaTopics,
-    M1_TOPICS, Mode, POOL_UPDATES_TOPIC, PRICES_TOPIC, Run, STATUS_TOPIC, Summary, TRADES_TOPIC,
+    BASE_BLOCKS_PER_HOUR, Engine, EngineConfig, EngineMetrics, INPUT_TOPIC, InMemoryOutbox,
+    KafkaOutbox, KafkaTopics, M1_TOPICS, Mode, POOL_UPDATES_TOPIC, PRICES_TOPIC, Run, STATUS_TOPIC,
+    Summary, TRADE_HISTORY_TOPIC, TRADES_TOPIC,
 };
 
 #[derive(Parser)]
@@ -65,6 +66,10 @@ enum Command {
         /// Most `eth_call`s started per second.
         #[arg(long, default_value_t = 5)]
         calls_per_second: u32,
+        /// Hours of trades before each pool was first seen to read back from `--rpc` (#80).
+        /// 0 reads none.
+        #[arg(long, default_value_t = 6)]
+        history_hours: u64,
         /// Write the recording (`inputs.pb.zst`) and its summary (`summary.txt`) to this
         /// directory: a pinned replay fixture (D99).
         #[arg(long, conflicts_with = "kafka")]
@@ -160,12 +165,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             metrics_listen,
             check_every,
             calls_per_second,
+            history_hours,
             record_to,
         } => {
-            let config = EngineConfig {
-                check_every,
-                ..EngineConfig::base()
-            };
+            let config = follow_config(check_every, history_hours);
             let (summary, recording) = follow(
                 rpc,
                 call_rpc,
@@ -224,7 +227,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 Box::new(replay.events()),
                 Box::new(replay.rpc()),
                 Box::new(InMemoryOutbox::default()),
-            );
+            )
+            .with_logs(Box::new(replay.logs()));
             print_summary(&replay.run(engine.run())?);
             Ok(())
         }
@@ -232,6 +236,18 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Base's config with `follow`'s flags: `--history-hours 0` reads no history.
+fn follow_config(check_every: Option<u64>, history_hours: u64) -> EngineConfig {
+    EngineConfig {
+        check_every,
+        history_blocks: (history_hours > 0).then(|| history_hours * BASE_BLOCKS_PER_HOUR),
+        ..EngineConfig::base()
+    }
+}
+
+/// Most trade-history reads started per second, on the follower's endpoint.
+const HISTORY_READS_PER_SECOND: u32 = 2;
 
 /// Where `follow` reports itself.
 struct Observe {
@@ -279,6 +295,13 @@ fn follow(
         sender,
     )
     .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?;
+    let logs_worker = match config.history_blocks {
+        Some(_) => Some(
+            chain_io::spawn_logs_worker(&rpc, HISTORY_READS_PER_SECOND)
+                .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?,
+        ),
+        None => None,
+    };
 
     let core_instance = format!("base-{:016x}", SeededRng::from_os().seed());
     let in_memory = InMemorySink::default();
@@ -289,24 +312,23 @@ fn follow(
             det::kafka::ensure_topic(brokers, TRADES_TOPIC)?;
             det::kafka::ensure_topic(brokers, PRICES_TOPIC)?;
             det::kafka::ensure_topic(brokers, STATUS_TOPIC)?;
+            det::kafka::ensure_topic(brokers, TRADE_HISTORY_TOPIC)?;
             Some((
                 KafkaSink::new(brokers, INPUT_TOPIC, &core_instance)?,
-                KafkaPublisher::new(brokers, POOL_UPDATES_TOPIC)?,
-                KafkaPublisher::new(brokers, TRADES_TOPIC)?,
-                KafkaPublisher::new(brokers, PRICES_TOPIC)?,
-                KafkaPublisher::new(brokers, STATUS_TOPIC)?,
+                KafkaTopics {
+                    updates: KafkaPublisher::new(brokers, POOL_UPDATES_TOPIC)?,
+                    trades: KafkaPublisher::new(brokers, TRADES_TOPIC)?,
+                    prices: KafkaPublisher::new(brokers, PRICES_TOPIC)?,
+                    statuses: KafkaPublisher::new(brokers, STATUS_TOPIC)?,
+                    history: KafkaPublisher::new(brokers, TRADE_HISTORY_TOPIC)?,
+                },
             ))
         }
         None => None,
     };
     let outbox: Box<dyn engine::Outbox> = match &kafka_sink {
-        Some((_, updates, trades, prices, statuses)) => Box::new(KafkaOutbox::new(
-            KafkaTopics {
-                updates: updates.clone(),
-                trades: trades.clone(),
-                prices: prices.clone(),
-                statuses: statuses.clone(),
-            },
+        Some((_, topics)) => Box::new(KafkaOutbox::new(
+            topics.clone(),
             // With Kafka, the inputs always go to `inputs.base`.
             Run {
                 mode: Mode::Live,
@@ -318,7 +340,7 @@ fn follow(
     };
     let outbox = metrics.outbox(outbox);
     let sink: Box<dyn det::RecordingSink> = match &kafka_sink {
-        Some((sink, _, _, _, _)) => Box::new(sink.clone()),
+        Some((sink, _)) => Box::new(sink.clone()),
         None => Box::new(in_memory.clone()),
     };
     let recorder = Recorder::new(sink, Box::new(SystemClock));
@@ -332,10 +354,20 @@ fn follow(
         )),
         Box::new(RecordingRpc::new(
             Box::new(ChannelRpc::new(calls)),
-            recorder,
+            recorder.clone(),
         )),
         outbox,
     );
+    let (engine, logs_thread) = match logs_worker {
+        Some(worker) => (
+            engine.with_logs(Box::new(RecordingRpc::logs(
+                Box::new(ChannelRpc::new(worker.requests)),
+                recorder,
+            ))),
+            Some(worker.thread),
+        ),
+        None => (engine, None),
+    };
 
     // The core is one task on a current-thread runtime (D74); the follower and the call worker
     // have their own threads. If the call worker gives up on its endpoint mid-run, the core is
@@ -357,21 +389,25 @@ fn follow(
         .join()
         .expect("the follower thread doesn't panic")
         .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?;
-    // The engine is gone, so the call worker's channel is closed and it stops.
+    // The engine is gone, so the call and logs workers' channels are closed and they stop.
     call_worker
         .join()
         .expect("the call worker thread doesn't panic");
+    if let Some(thread) = logs_thread {
+        thread.join().expect("the logs worker thread doesn't panic");
+    }
 
     println!("core instance {core_instance}");
     match kafka_sink {
-        Some((sink, updates, trades, prices, statuses)) => {
+        Some((sink, topics)) => {
             sink.flush(TIMEOUT)?;
-            updates.flush(TIMEOUT)?;
-            trades.flush(TIMEOUT)?;
-            prices.flush(TIMEOUT)?;
-            statuses.flush(TIMEOUT)?;
+            topics.updates.flush(TIMEOUT)?;
+            topics.trades.flush(TIMEOUT)?;
+            topics.prices.flush(TIMEOUT)?;
+            topics.statuses.flush(TIMEOUT)?;
+            topics.history.flush(TIMEOUT)?;
             println!(
-                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}, statuses on {STATUS_TOPIC}"
+                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}, statuses on {STATUS_TOPIC}, trade history on {TRADE_HISTORY_TOPIC}"
             );
         }
         None => println!("{} inputs recorded in memory", in_memory.records().len()),
@@ -451,6 +487,7 @@ mod tests {
             trades_digest: blake3::hash(b"trades"),
             prices_digest: blake3::hash(b"prices"),
             coverage: None,
+            history_digest: None,
         };
         write_fixture(&dir.join("nested"), &summary, &recording).unwrap();
         let inputs = std::fs::read(dir.join("nested/inputs.pb.zst")).unwrap();
@@ -459,6 +496,19 @@ mod tests {
         assert_eq!(text, summary.to_string());
         assert!(text.starts_with("7 blocks, 0 logs"), "{text}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn history_hours_become_blocks_and_zero_reads_none() {
+        assert_eq!(follow_config(Some(10), 6).history_blocks, Some(10_800));
+        assert_eq!(follow_config(None, 1).history_blocks, Some(1_800));
+        assert_eq!(
+            follow_config(Some(10), 0),
+            EngineConfig {
+                check_every: Some(10),
+                ..EngineConfig::base()
+            }
+        );
     }
 
     // indexer.md: "the run exits with code 1 and an error that names the endpoint, gives its

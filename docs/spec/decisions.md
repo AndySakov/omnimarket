@@ -276,6 +276,8 @@ A tier-2 undo to block A restores each touched pool's *before* value from its fi
 
 ## D15 — History job: build it ourselves
 
+*(Amended by D103: for the demo, the engine reads hours of each newly tracked pool's history as recorded log reads, and the API builds candles from it in memory.)*
+
 **Date:** 2026-09-28 · **Status:** Decided
 
 **Decision:** The history job (D9) is custom: the same `getLogs` loop as the reconciler, run over past block ranges, writing replay-safe into ClickHouse.
@@ -1860,7 +1862,7 @@ Both variants made identical quote and firing decisions. Removing `biased;` brok
 - **Pool discovery:** a pool becomes known from its creation event, or from its first followed event (`Sync`, `Swap`, `Mint`, `Burn`) if it was created before the engine started. Each is proven genuine by recomputing its CREATE2 address from the factory, its tokens (and fee) and the init code hash. A contract answering `factory()` can lie; its address can't.
 
 **Rejected:**
-- *A factory scan from genesis at cold start.* The free endpoint caps `eth_getLogs` at 2,000 blocks, so covering Base's ~52M blocks takes about 26,000 calls and returns over a million v2 pairs, most never traded again. Cold start would take hours.
+- *A factory scan from genesis at cold start.* The free endpoint caps `eth_getLogs` at 2,000 blocks, so covering Base's ~52M blocks takes about 26,000 calls and returns over a million v2 pairs, most never traded again. Cold start would take hours. *(2026-10-06: the cap is now 501 blocks, so about 104,000 calls; indexer.md.)*
 - *A free third-party WebSocket.* No signup-free Base WebSocket is documented by Base, and polling measured fine: blocks first seen ~473ms after their timestamp (verification.md).
 
 **Why:** A pool that trades shows up in the logs we already follow, and a pool that never trades can't be priced anyway. Proving pools by address keeps discovery free of extra trust.
@@ -2304,3 +2306,33 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - D19's depeg check isn't built: stablecoins are always pinned at $1 for now. #117 holds it.
 - Quote-asset coverage on Base is measured in verification.md; a token trading only against another token (cbBTC, a launchpad's base token) is unpriced until that token joins the quote assets.
 - D11's tiers aren't built (#41): every pool the engine tracks is priced. The floor applies already.
+
+---
+
+## D103 — Trade history is read by the engine as recorded log reads; the API builds USD candles from it in memory
+
+**Date:** 2026-10-03 · **Status:** Decided (#80; amends D15 for the demo)
+
+**Decision:**
+- **The engine reads the history.** When a pool becomes tracked, the engine reads its Swaps over a window before the block it was first seen in (`engine follow --history-hours`, default 6; 0 reads none) and publishes each as a trade record (D102) on `trade-history.<chain>`, keyed by pool. The window ends the block before the pool's first live trade, so in one session history and live never overlap.
+- **The reads are inputs.** A logs worker on its own thread answers them with ranged `eth_getLogs` on the follower's endpoint (`--rpc`; PublicNode doesn't serve ranges past ~90 blocks, D82), one at a time and at most 2 a second, retrying transport failures and rate limits below the core. Each answer is recorded (`det::Source::Logs`), so a replay publishes the same history. The window is part of the recorded config (D83); a recording without it replays with no history.
+- **Batched and split.** A read asks for up to 50 pools over 500 blocks, the newest range first, so the latest candles fill first. Each batch takes the pools tracked most recently, so a token first seen now waits only for the batch being read; older pools fill the rest of each batch until the queue is empty. One the node refuses (Base's public endpoint caps a range at 501 blocks, as of 2026-10-06, and refuses large answers, `-32020`), or that answers more than 2,000 logs, splits in two, newer half first; a single block refused alone is dropped and counted. Once the blocks end, no new read starts.
+- **The API builds the candles** in memory (D96's shortcut), from `trades.<chain>` and `trade-history.<chain>`, for every interval in the contract. A candle is kept per pool, interval and open time, exactly: open and close are the trades with the lowest and highest (block, log index), high and low a max and a min of the raw price, volume a sum of quote base units, and each trade counts once by (block hash, log index), D15's key. So the candles are a function of the set of trades, whatever order or how often they arrive.
+- **USD when served.** A token's candle merges its pools counted in its latest price update (its main pool when none is), each in USD: USDC and USDT at $1 (D100's pinned stablecoins), WETH at WETH's own USD close for that candle, or failing that its nearest earlier one, or its nearest later one (a candle whose trades have no price doesn't count). Pools quoted in anything else are left out.
+- **Deltas.** A live trade publishes the candle it changed at each interval on `candles:<address>:<interval>`. History publishes no deltas: once a token takes history, its candle topics send a fresh snapshot with the next live trade.
+
+**Rejected:**
+- *Backfill in the API.* Its reads wouldn't be recorded inputs, so a rebuilt API could see a different history from the live one, and it would need its own RPC client and rate limits next to the engine's.
+- *Reading history when a token is first subscribed to* (the issue's other trigger). It makes the engine depend on API subscriptions, which aren't inputs it records; reading on tracking needs nothing outside the engine, and every chart opens full.
+- *History on `trades.<chain>`.* Discovery's windows and trending would count old trades as live, and its merge by topic position (data.md) would wait on old blocks.
+- *USD at each trade's block, from the display price.* No price update exists before the session, which is all of the history.
+- *Summing USD per trade.* Floating-point sums depend on order; base units don't.
+- *A delta per history trade.* A backfill read answers with hundreds of trades at once: connections would fall behind and resync anyway.
+
+**Why:** A chart that opens empty for a token first seen mid-session isn't a trading terminal (#64). Reading in the engine keeps the backfill inside what the flight recorder replays (D54), and keying on the trade's natural key makes the backfill-to-live hand-off, and any restart that reads history twice, count each trade once.
+
+**Consequence:**
+- The API holds every trade's key and every pool's candles at all seven intervals, from the start of its topics (`trades.base` keeps 7 days), in memory; 1s candles dominate. ClickHouse (D41) replaces this after the demo.
+- A reorg's replaced trades stay counted (their block hash differs): Base follows canonical blocks (D77), and until tiered undo (#40) a reorg is only counted.
+- A token's counted pools changing, or a WETH price move, shows in candles that already went out at the next snapshot, not as deltas.
+- History reads take a share of the follower endpoint's rate limit; the pace leaves the follower its share (verification.md).

@@ -4,6 +4,7 @@
 mod calls;
 mod follower;
 mod http;
+mod logs;
 mod retry;
 
 use std::time::Duration;
@@ -16,6 +17,9 @@ pub use calls::{
 };
 pub use follower::{FollowerConfig, Start, check_block_endpoint, follow_head, spawn_head_follower};
 pub use http::HttpChain;
+pub use logs::{
+    LogsEndpoint, LogsRequest, LogsWorker, MAX_LOGS, answer_log_reads, spawn_logs_worker,
+};
 
 /// Base's free public RPC (D17): HTTP only, `eth_getLogs` limited to 2,000 blocks a call, and
 /// about 20 `eth_call`s per 30 seconds (D82).

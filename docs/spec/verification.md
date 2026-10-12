@@ -130,6 +130,25 @@ Of the 224 unpriced tokens, 190 trade against **ADS** (`0xb20A4Bd059F5914a2F8B9c
 
 Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 and v3 only (no Aerodrome, no v4 yet), not D11's active tier (#41). The thin share reflects that the floor counts every tracked pool, memecoin pools included.
 
+## Measured: trade history and candles (#80, D103)
+
+`engine follow --minutes 22 --kafka localhost:9092 --check-every 50 --history-hours 6` on live Base with the default endpoints (`--rpc https://mainnet.base.org`, `--call-rpc https://base-rpc.publicnode.com`), 2026-10-06, with the `api` binary consuming the topics on the same machine. A throwaway probe read `pool-updates.base`, `trades.base` and `trade-history.base` from each run's start. For each pool first tracked after a 5-minute warm-up, it timed how long after the pool's discovery record its history reached its window's start (a history trade within 300 blocks, 10 minutes, of the block it was first seen in minus 10,800). For each token no live or history trade had named before, it timed how long until `GET /v1/candles` (1m, from 6h before its first live trade) reached back to within 10 minutes of that window's start. Tokens with candles in their window before this run could have read them (left over from an earlier run) were skipped.
+
+| Run | First read | Batches take | Pools whose history reached its window start | Tokens first seen mid-session with 6h of 1m candles |
+|---|---|---|---|---|
+| 1 | 1,000 blocks | oldest pools first | not measured | 14: median 23.8s, max 34.3s, 11 within 30s |
+| 2 | 500 blocks | oldest pools first | not measured | 5: median 28.5s, max 62.6s, 3 within 30s |
+| 3 (as built) | 500 blocks | newest pools first | 43, tracked in the run's last 11 minutes: median 17.5s, p90 21.7s, max 22.3s, all within 30s | 3: 12.9s and 14.0s, and 35.2s for one tracked in the first 10 minutes |
+
+**(verify)** A token first seen mid-session shows at least 6h of 1m candles within 30s on Base's public RPC. As built, every pool measured once the session's first 10 minutes had passed got there within 23s; one token tracked while the startup backlog was being read took 35s. To re-measure on the demo VM (#82), over a longer session, where the network and the machine's load (this one's load average reached 25 to 37 during earlier attempts) are the demo's own.
+
+- **Base's range limit moved.** `eth_getLogs` on `mainnet.base.org` took at most 501 blocks a read (`-32614 eth_getLogs is limited to a 500 range`, every time over three tries), where it took 2,000 on 2026-09-30. Run 1's 1,000-block reads were all refused and split: 809 of its 2,360 reads.
+- **Throughput.** Each run read 690 to 720 pools' history in 2,284 to 2,381 reads, 1.7 to 1.8 a second against the 2-a-second cap, for 170,000 to 190,000 history trades, with no block dropped. In runs 2 and 3, 65 and 80 reads were refused as too large and split.
+- **The live path kept its share.** Lag stayed between 0.9s and 1.9s through every run, no v3 bootstrap failed, and run 3's 518 shadow checks all passed. A 2-minute A/B on 2026-10-03, while PublicNode was degraded, tracked 31 v2 pairs and 5 v3 pools with history off and 40 and 11 with it on.
+- **Most new tokens have nothing to backfill.** Of the tokens first seen in runs 1 and 2, 134 of 196 and 119 of 146 had no history candles: their pools were created during the session (launchpad tokens), or hadn't traded in 6 hours. Tokens with history but no trade near the window's start (48 and 22) got their last history candle within 30s for 40 and 21 of them.
+- **Replay and rebuild.** `engine replay --kafka` of run 3's 8,123 inputs, 2,381 of them log reads, printed the same summary as the live run, history line and digest included. A second API rebuilt from the topics served the same candles, byte for byte, as the API that had consumed the runs live: 33 tokens at every interval, 231 series, 18,508 candles.
+- Earlier attempts stopped on D88's guard: a PublicNode call (and once a dRPC one) went unanswered for 60s. A run with history off stopped the same way, so it wasn't the backfill.
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

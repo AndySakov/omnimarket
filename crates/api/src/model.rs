@@ -17,6 +17,8 @@ pub enum ModelError {
     BadToken { len: usize },
     /// The block hash isn't 32 bytes.
     BadHash { len: usize },
+    /// An address field isn't 20 bytes, or an amount is more than 32.
+    BadField { field: &'static str, len: usize },
 }
 
 #[derive(Default)]

@@ -15,6 +15,7 @@ struct Counts {
     pool_updates: u64,
     trades: u64,
     prices: u64,
+    history: u64,
 }
 
 /// Shared between the outbox the core publishes through and whatever scrapes it.
@@ -48,7 +49,8 @@ impl EngineMetrics {
             )
             .labelled(&[("topic", crate::POOL_UPDATES_TOPIC)], counts.pool_updates)
             .labelled(&[("topic", crate::TRADES_TOPIC)], counts.trades)
-            .labelled(&[("topic", crate::PRICES_TOPIC)], counts.prices),
+            .labelled(&[("topic", crate::PRICES_TOPIC)], counts.prices)
+            .labelled(&[("topic", crate::TRADE_HISTORY_TOPIC)], counts.history),
         ];
         if let Some(s) = &counts.status {
             metrics.extend([
@@ -123,6 +125,11 @@ impl Outbox for Metered {
     fn publish_status(&self, status: &EngineStatus) {
         self.inner.publish_status(status);
         self.metrics.counts().status = Some(status.clone());
+    }
+
+    fn publish_history(&self, trade: &Trade) {
+        self.inner.publish_history(trade);
+        self.metrics.counts().history += 1;
     }
 }
 
@@ -215,11 +222,15 @@ mod tests {
         for _ in 0..3 {
             outbox.publish_price(&price());
         }
+        for _ in 0..4 {
+            outbox.publish_history(&trade());
+        }
         let text = metrics.render();
         for line in [
             "omnimarket_engine_records_published_total{topic=\"pool-updates.base\"} 1\n",
             "omnimarket_engine_records_published_total{topic=\"trades.base\"} 2\n",
             "omnimarket_engine_records_published_total{topic=\"prices.base\"} 3\n",
+            "omnimarket_engine_records_published_total{topic=\"trade-history.base\"} 4\n",
         ] {
             assert!(text.contains(line), "{line:?} missing from\n{text}");
         }
@@ -227,9 +238,10 @@ mod tests {
             (
                 inner.updates().len(),
                 inner.trades().len(),
-                inner.prices().len()
+                inner.prices().len(),
+                inner.history().len()
             ),
-            (1, 2, 3)
+            (1, 2, 3, 4)
         );
     }
 }

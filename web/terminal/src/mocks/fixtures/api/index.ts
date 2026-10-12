@@ -22,6 +22,11 @@ export function apiFixtureJson(schema: DescMessage): JsonValue {
 
 const candleFiles = import.meta.glob<JsonValue>('./candles/*.json', { eager: true, import: 'default' })
 
+/** The per-interval candle series fixtures, keyed by interval label, e.g. `15m`. */
+export const candleSeriesFixturesJson: Readonly<Record<string, JsonValue>> = Object.fromEntries(
+  Object.entries(candleFiles).map(([path, json]) => [path.slice('./candles/'.length, -'.json'.length), json]),
+)
+
 /**
  * The candle series fixture for an interval, as the wire carries it: `candles/<interval>.json`
  * where there is one, otherwise the `CandleSeries` message fixture.
