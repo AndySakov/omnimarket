@@ -36,6 +36,7 @@ test('keeps discovery regions contained across supported breakpoints', async ({ 
       const toolbar = rect('.discovery-toolbar')
       const layout = rect('.discovery-layout')
       const tableScroll = document.querySelector<HTMLElement>('.discovery-table-scroll')
+      const chainHints = [...document.querySelectorAll<HTMLElement>('.chain-rail__item .sr-only')]
 
       return {
         documentFitsViewport: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 && document.body.scrollHeight <= document.body.clientHeight + 1,
@@ -43,6 +44,10 @@ test('keeps discovery regions contained across supported breakpoints', async ({ 
         tableOwnsVerticalScroll: Boolean(tableScroll && tableScroll.scrollHeight > tableScroll.clientHeight),
         tableOwnsHorizontalScroll: Boolean(tableScroll && tableScroll.scrollWidth > tableScroll.clientWidth),
         actionFitsCell: Boolean(action && actionCell && action.left >= actionCell.left - 1 && action.right <= actionCell.right + 1 && action.top >= actionCell.top - 1 && action.bottom <= actionCell.bottom + 1),
+        chainHintsHidden: chainHints.length === 3 && chainHints.every((hint) => {
+          const style = getComputedStyle(hint)
+          return style.position === 'absolute' && style.width === '1px' && style.height === '1px' && style.overflow === 'hidden'
+        }),
         avatarsLoaded: [...document.querySelectorAll<HTMLImageElement>('.token-avatar img')].every((image) => image.complete && image.naturalWidth > 0),
       }
     })
@@ -52,6 +57,7 @@ test('keeps discovery regions contained across supported breakpoints', async ({ 
     expect(metrics.tableOwnsVerticalScroll, viewport.name).toBe(true)
     expect(metrics.tableOwnsHorizontalScroll, viewport.name).toBe(viewport.expectsHorizontalTableScroll)
     expect(metrics.actionFitsCell, viewport.name).toBe(true)
+    expect(metrics.chainHintsHidden, viewport.name).toBe(true)
     expect(metrics.avatarsLoaded, viewport.name).toBe(true)
   }
 })
