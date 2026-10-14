@@ -120,7 +120,10 @@ def checkout_head(n, sha):
     # Untracked files from the last review go; ignored ones (target/, node_modules/) stay, so builds stay warm.
     git(tree, "clean", "-q", "-fd")
     head = git(tree, "rev-parse", "HEAD").stdout.strip()
-    merged = git(tree, "merge", "-q", "--no-ff", "--no-commit", "origin/main", check=False)
+    # Git wants an identity to start a merge even though this one is never committed; a machine without
+    # one (CI, a fresh cloud session) would otherwise fail here.
+    merged = git(tree, "-c", "user.name=watchdog prep", "-c", "user.email=watchdog@localhost",
+                 "merge", "-q", "--no-ff", "--no-commit", "origin/main", check=False)
     conflicts = git(tree, "diff", "--name-only", "--diff-filter=U").stdout.split()
     if merged.returncode != 0 and not conflicts:
         sys.exit(f"watchdog: merging origin/main into {head[:7]} failed: {merged.stderr.strip() or merged.stdout.strip()}")
