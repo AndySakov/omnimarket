@@ -1,0 +1,33 @@
+2026-10-02T16:36:40.1614913Z Cache Size: ~1852 MB (1942327309 B)
+2026-10-02T16:36:40.1721514Z [command]/usr/bin/tar -xf /home/runner/work/_temp/2d70dc1a-0fe4-413d-ba94-cd3c5ee477ab/cache.tzst -P -C /home/runner/work/omnimarket/omnimarket --use-compress-program unzstd
+2026-10-02T16:36:52.8921916Z Cache restored successfully
+2026-10-02T16:36:53.2273337Z Cache restored from key: mutants-targets-4a00e875b63ae622923ce8cf58624346cf7de47bec59c5d6ec0566b4212d68ae-36985141334
+2026-10-02T16:36:53.5707601Z ##[group]Run scripts/mutants.sh --diff "origin/main"
+2026-10-02T16:36:53.5708295Z [36;1mscripts/mutants.sh --diff "origin/main"[0m
+2026-10-02T16:36:53.5789685Z shell: /usr/bin/bash -e {0}
+2026-10-02T16:36:53.5790121Z ##[endgroup]
+2026-10-02T16:36:54.5621307Z mutants: checking the unmutated workspace's tests pass
+2026-10-02T16:37:18.2344737Z mutants: mutants in code changed since origin/main; 2 workers, logs in /home/runner/work/omnimarket/omnimarket/target/mutants/runs
+2026-10-02T16:41:27.8510155Z ## Mutation testing
+2026-10-02T16:41:27.8510447Z 
+2026-10-02T16:41:27.8510644Z mutants in code changed since origin/main.
+2026-10-02T16:41:27.8511014Z 
+2026-10-02T16:41:27.8511200Z | Caught | Missed | Timed out | Unviable |
+2026-10-02T16:41:27.8511707Z |---|---|---|---|
+2026-10-02T16:41:27.8512044Z | 33 | 4 | 0 | 8 |
+2026-10-02T16:41:27.8512251Z 
+2026-10-02T16:41:27.8512403Z ### Missed: no test failed
+2026-10-02T16:41:27.8512673Z 
+2026-10-02T16:41:27.8517369Z - `crates/engine/src/outbox.rs:337:9: replace <impl Outbox for KafkaOutbox>::publish with ()`
+2026-10-02T16:41:27.8519022Z - `crates/engine/src/outbox.rs:343:9: replace <impl Outbox for KafkaOutbox>::publish_trade with ()`
+2026-10-02T16:41:27.8519800Z - `crates/engine/src/outbox.rs:349:9: replace <impl Outbox for KafkaOutbox>::publish_price with ()`
+2026-10-02T16:41:27.8520500Z - `crates/engine/src/outbox.rs:355:9: replace <impl Outbox for KafkaOutbox>::publish_status with ()`
+2026-10-02T16:41:27.8541377Z ##[error]Process completed with exit code 2.
+2026-10-02T16:41:27.8594152Z ##[group]Run cat target/mutants/last/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+2026-10-02T16:41:27.8594765Z [36;1mcat target/mutants/last/summary.md >> "$GITHUB_STEP_SUMMARY" || true[0m
+2026-10-02T16:41:27.8657316Z shell: /usr/bin/bash -e {0}
+2026-10-02T16:41:27.8657583Z ##[endgroup]
+2026-10-02T16:41:27.8798922Z ##[group]Run actions/upload-artifact@v4
+2026-10-02T16:41:27.8799221Z with:
+2026-10-02T16:41:27.8799417Z   name: mutants
+2026-10-02T16:41:27.8799676Z   path: target/mutants/last
