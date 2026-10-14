@@ -86,6 +86,29 @@ jobs:
             web/terminal/test-results
             web/terminal/storybook-static
 
+  # Every path a PR changes has the docs CLAUDE.md's update table names for it changed too, or the PR
+  # body waives one with a line `Docs unchanged: <doc>: <reason>` (#135). The body is read when the job
+  # runs, so after adding a waiver, re-run this job alone.
+  update-table:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The PR merged into its base; the merge's first parent is the base.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Check the update table
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > pr-body.md
+          scripts/check-update-table --base HEAD^1 --head HEAD --body pr-body.md --summary "$GITHUB_STEP_SUMMARY"
+
   # Every acceptance criterion of the issue a PR closes names the test that proves it, and that
   # test passed in this run (D95). The PR body and the issues are read when the job runs, so after
   # editing the body, re-run this job alone.
