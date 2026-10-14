@@ -1,0 +1,27 @@
+2026-10-02T16:41:07.8013918Z [36;1mfor n in $(target/debug/criteria closes pr-body.md); do[0m
+2026-10-02T16:41:07.8014760Z [36;1m  gh api "repos/$REPO/issues/$n" --jq '.body // ""' > "issues/$n.md"[0m
+2026-10-02T16:41:07.8015152Z [36;1mdone[0m
+2026-10-02T16:41:07.8015378Z [36;1mstatus=0[0m
+2026-10-02T16:41:07.8015824Z [36;1mtarget/debug/criteria check pr-body.md issues test-results/*/*.log > summary.md || status=$?[0m
+2026-10-02T16:41:07.8016339Z [36;1mcat summary.md[0m
+2026-10-02T16:41:07.8016630Z [36;1mcat summary.md >> "$GITHUB_STEP_SUMMARY"[0m
+2026-10-02T16:41:07.8016938Z [36;1mexit "$status"[0m
+2026-10-02T16:41:07.8086776Z shell: /usr/bin/bash -e {0}
+2026-10-02T16:41:07.8087073Z env:
+2026-10-02T16:41:07.8087307Z   CACHE_ON_FAILURE: false
+2026-10-02T16:41:07.8087632Z   CARGO_INCREMENTAL: 0
+2026-10-02T16:41:07.8090683Z   GH_TOKEN: ***
+2026-10-02T16:41:07.8090944Z   REPO: AndySakov/omnimarket
+2026-10-02T16:41:07.8091216Z   PR: 131
+2026-10-02T16:41:07.8091428Z ##[endgroup]
+2026-10-02T16:41:08.9067775Z ## Acceptance criteria
+2026-10-02T16:41:08.9068100Z 
+2026-10-02T16:41:08.9068453Z Every criterion has a row, and every test the rows name passed in this run.
+2026-10-02T16:41:08.9068999Z 
+2026-10-02T16:41:08.9069206Z ## Manual evidence for the watchdog
+2026-10-02T16:41:08.9069633Z 
+2026-10-02T16:41:08.9069851Z | Criterion | Evidence |
+2026-10-02T16:41:08.9093350Z |---|---|
+2026-10-02T16:41:08.9094113Z | "`docs/spec/observability.md` lists the fields" | `docs/spec/observability.md`, "Engine status (built, #79)" |
+2026-10-02T16:41:08.9203791Z Post job cleanup.
+2026-10-02T16:41:09.0425071Z ##[group]Cache Configuration

@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""The watchdog's chores (D81, D90), over GitHub's REST API only, like scripts/work.
+
+  scripts/watchdog queue [--wait]        open PRs whose head's check runs have all finished and that no
+                                         watchdog comment names yet; --wait polls every 2 minutes until one does
+  scripts/watchdog prep <pr> [--dry-run] post the pending marker, check the head out in the watchdog worktree
+                                         with origin/main merged, and print the review's brief; --dry-run
+                                         posts nothing
+
+The watchdog worktree is a detached worktree next to the main checkout (`<checkout>-watchdog`), created on
+first use. `prep` runs every git command there, so the checkout it's run from is never touched.
+"""
+
+import importlib.machinery
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+work = importlib.machinery.SourceFileLoader("work", str(Path(__file__).resolve().parent / "work")).load_module()
+
+REPO = work.REPO
+POLL_SECONDS = 120
+# The first lines the watchdog-status workflow reads (.github/workflows/watchdog-status.yml).
+NAMES_HEAD = re.compile(r"## Watchdog (?:reviewing|(?:re-)?review:) `([0-9a-f]{7,40})`")
+VERDICT = re.compile(r"## Watchdog (?:re-)?review: `([0-9a-f]{7,40})` (passes|fails)")
+# Kept out of the brief's diff, each as one stat line: what a reviewer reads in the worktree, if at all.
+LOCKFILES = {"Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
+IMAGES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+def first_line(comment):
+    return (comment.get("body") or "").splitlines()[0].strip() if comment.get("body") else ""
+
+
+def names_head(comment, sha):
+    """Whether a watchdog comment, its pending marker or verdict, is for the commit `sha`."""
+    m = NAMES_HEAD.match(first_line(comment))
+    return bool(m) and sha.startswith(m.group(1))
+
+
+def check_runs(sha):
+    """The latest run of each check on `sha`, by name: a rerun replaces the run before it."""
+    latest = {}
+    for run in sorted(work.gh(f"repos/{REPO}/commits/{sha}/check-runs?per_page=100")["check_runs"], key=lambda r: r["id"]):
+        latest[run["name"]] = run
+    return latest
+
+
+def waiting():
+    """Open PRs, oldest first, whose head's check runs have all finished and that no watchdog comment
+    names. A head with no check run yet isn't finished."""
+    prs = sorted(work.gh(f"repos/{REPO}/pulls?state=open&per_page=100"), key=lambda p: p["created_at"])
+    for pr in prs:
+        sha = pr["head"]["sha"]
+        runs = check_runs(sha)
+        if not runs or any(run["status"] != "completed" for run in runs.values()):
+            continue
+        if any(names_head(c, sha) for c in work.gh_all(f"repos/{REPO}/issues/{pr['number']}/comments")):
+            continue
+        yield pr
+
+
+def cmd_queue(args):
+    while True:
+        found = list(waiting())
+        for pr in found:
+            print(f"#{pr['number']} {pr['head']['sha'][:7]} {pr['title']}")
+        if found or "--wait" not in args:
+            return
+        time.sleep(POLL_SECONDS)
+
+
+# --- The worktree --------------------------------------------------------------------------------
+
+
+# Which repository git acts on. Set by a git hook, they would point every command below at the caller's
+# checkout, whatever `-C` says.
+LOCATION = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"}
+
+
+def git(cwd, *args, check=True):
+    env = {k: v for k, v in os.environ.items() if k not in LOCATION}
+    out = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, env=env)
+    if check and out.returncode != 0:
+        sys.exit(f"watchdog: git {' '.join(args)} failed in {cwd}: {out.stderr.strip()}")
+    return out
+
+
+def watchdog_worktree():
+    """`<main checkout>-watchdog`, next to the main checkout of the repository this is run from."""
+    common = Path(git(Path.cwd(), "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+    checkout = common.parent
+    return checkout, checkout.parent / f"{checkout.name}-watchdog"
+
+
+def checkout_head(n, sha):
+    """Brings the watchdog worktree to PR `n`'s head with origin/main merged in, uncommitted, and returns
+    the files that conflict. Creates the worktree on first use; never touches any other checkout."""
+    checkout, tree = watchdog_worktree()
+    if not (tree / ".git").exists():
+        git(checkout, "worktree", "add", "--detach", str(tree))
+    # A merge left from the last review would stop the checkout.
+    if git(tree, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).returncode == 0:
+        git(tree, "merge", "--abort")
+    git(tree, "fetch", "-q", "origin", f"+refs/pull/{n}/head:refs/watchdog/pr-{n}", "+refs/heads/main:refs/remotes/origin/main")
+    git(tree, "checkout", "-q", "--detach", "--force", f"refs/watchdog/pr-{n}")
+    # Untracked files from the last review go; ignored ones (target/, node_modules/) stay, so builds stay warm.
+    git(tree, "clean", "-q", "-fd")
+    head = git(tree, "rev-parse", "HEAD").stdout.strip()
+    merged = git(tree, "merge", "-q", "--no-ff", "--no-commit", "origin/main", check=False)
+    conflicts = git(tree, "diff", "--name-only", "--diff-filter=U").stdout.split()
+    if merged.returncode != 0 and not conflicts:
+        sys.exit(f"watchdog: merging origin/main into {head[:7]} failed: {merged.stderr.strip() or merged.stdout.strip()}")
+    return {"path": tree, "head": head, "matches": head == sha, "conflicts": conflicts}
+
+
+# --- The brief -----------------------------------------------------------------------------------
+
+
+def section(text, heading, level=2):
+    """The body under a markdown heading, up to the next heading of that level or higher."""
+    hashes = "#" * level
+    m = re.search(rf"^{hashes}\s+{re.escape(heading)}\s*$(.*?)(?=^#{{1,{level}}}\s|^---\s*$|\Z)", text or "", re.M | re.S | re.I)
+    return m.group(1).strip() if m else None
+
+
+TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def log_summary(log, heading):
+    """The summary a job printed under `heading`: its last occurrence, up to the next workflow command
+    (`##[...]`) or the job's cleanup."""
+    lines = [ANSI.sub("", TIMESTAMP.sub("", line)) for line in (log or "").splitlines()]
+    starts = [i for i, line in enumerate(lines) if line.strip() == heading]
+    if not starts:
+        return None
+    out = []
+    for line in lines[starts[-1]:]:
+        if line.startswith("##[") or line.startswith("Post job cleanup."):
+            break
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def job_log(run):
+    """A finished check run's job log (an Actions job's id is its check run's), or None once GitHub has
+    dropped it."""
+    out = subprocess.run(["gh", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{run['id']}/logs"],
+                         capture_output=True, text=True)
+    return out.stdout if out.returncode == 0 else None
+
+
+def condensed(filename):
+    """Whether a file's diff is cut to one stat line: generated code, lockfiles, JSON fixtures and images."""
+    name = filename.rsplit("/", 1)[-1]
+    return ("/generated/" in f"/{filename}" or re.search(r"_pb\.(ts|js)$", name) is not None
+            or name in LOCKFILES or (name.endswith(".json") and "/fixtures/" in f"/{filename}")
+            or name.lower().endswith(IMAGES))
+
+
+# The docs keep a paragraph to a line, so a one-word change would otherwise carry a whole paragraph.
+AROUND_CHANGE = 60
+
+
+def elide(old, new):
+    """A changed line pair cut to what changed, with `AROUND_CHANGE` characters either side."""
+    prefix = 0
+    while prefix < min(len(old), len(new)) and old[prefix] == new[prefix]:
+        prefix += 1
+    suffix = 0
+    while suffix < min(len(old), len(new)) - prefix and old[-1 - suffix] == new[-1 - suffix]:
+        suffix += 1
+    start = max(0, prefix - AROUND_CHANGE)
+
+    def cut(text):
+        stop = min(len(text), len(text) - suffix + AROUND_CHANGE)
+        return ("…" if start else "") + text[start:stop] + ("…" if stop < len(text) else "")
+
+    return cut(old), cut(new)
+
+
+def compact(patch):
+    """A patch without its unchanged lines (each hunk's header gives its lines, to read in the worktree),
+    and each removed line that's followed by an added one shown as the pair's changed span. Lines only
+    added or only removed stay whole."""
+    lines, out, i = patch.split("\n"), [], 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("-"):
+            removed, added = [], []
+            while i < len(lines) and lines[i].startswith("-"):
+                removed.append(lines[i][1:])
+                i += 1
+            while i < len(lines) and lines[i].startswith("+"):
+                added.append(lines[i][1:])
+                i += 1
+            for k in range(max(len(removed), len(added))):
+                if k < len(removed) and k < len(added):
+                    old, new = elide(removed[k], added[k])
+                    out += ["-" + old, "+" + new]
+                else:
+                    out.append("-" + removed[k] if k < len(removed) else "+" + added[k])
+            continue
+        if not line.startswith(" "):
+            out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
+def diff_section(files):
+    out = []
+    for f in files:
+        stat = f"{f['filename']} | {f['status']} +{f['additions']} -{f['deletions']}"
+        if condensed(f["filename"]):
+            out.append(stat)
+        elif not f.get("patch"):
+            out.append(f"{stat} (no patch from the API: read it in the worktree)")
+        else:
+            out.append(f"--- {stat}\n{compact(f['patch'])}")
+    return "\n".join(out)
+
+
+def since_last_verdict(comments, sha):
+    """For a re-review: the last verdict on an earlier head, its blocking findings, and every comment
+    after it. None when no earlier head has a verdict."""
+    verdicts = [i for i, c in enumerate(comments) if VERDICT.match(first_line(c)) and not names_head(c, sha)]
+    if not verdicts:
+        return None
+    last = comments[verdicts[-1]]
+    m = VERDICT.match(first_line(last))
+    blocking = section(last["body"], "Blocking", level=3) or "(none)"
+    later = [f"{c['user']['login']} · {c['created_at']}\n{c['body'].strip()}" for c in comments[verdicts[-1] + 1:]
+             if not NAMES_HEAD.match(first_line(c))]
+    return {"sha": m.group(1), "outcome": m.group(2), "blocking": blocking, "later": later}
+
+
+def brief(pr, comments, tree, runs, statuses, issues, files, logs):
+    n, sha = pr["number"], pr["head"]["sha"]
+    out = [f"# PR #{n}: {pr['title']}",
+           f"head {sha} · base {pr['base']['ref']} · mergeable: {pr.get('mergeable')} ({pr.get('mergeable_state')})"]
+    checks = [f"{name}={run['conclusion'] or run['status']}" for name, run in sorted(runs.items())]
+    checks += [f"{s['context']}={s['state']}" for s in statuses]
+    out.append("checks: " + " · ".join(checks))
+    if tree:
+        where = f"worktree {tree['path']} at {tree['head'][:7]} with origin/main merged, uncommitted"
+        if not tree["matches"]:
+            where += f" (the API's head is {sha[:7]}: the branch moved; prep again)"
+        out.append(where + (": conflicts in " + ", ".join(tree["conflicts"]) if tree["conflicts"] else ": no conflicts"))
+    for issue in issues:
+        out += ["", f"## Closes #{issue['number']}: {issue['title']}",
+                section(issue.get("body"), "Acceptance criteria") or "(no acceptance criteria section)"]
+    out += ["", "## The PR's acceptance criteria", section(pr.get("body"), "Acceptance criteria") or "(no table)"]
+    for name, heading in (("criteria", "## Acceptance criteria"), ("mutants", "## Mutation testing"),
+                          ("regression-check", "## Regression check")):
+        if name not in runs:
+            continue
+        summary = log_summary(logs.get(name), heading) if logs.get(name) else None
+        # A level down, under this brief's own heading for the job.
+        summary = re.sub(r"^(#+) ", r"#\1 ", summary, flags=re.M) if summary else None
+        out += ["", f"## The {name} job", summary or "(no summary in its log, or the log is gone)"]
+    earlier = since_last_verdict(comments, sha)
+    if earlier:
+        out += ["", f"## Since the last verdict ({earlier['sha']} {earlier['outcome']})", "### Its blocking findings",
+                earlier["blocking"], "### Comments since"] + (earlier["later"] or ["(none)"])
+    out += ["", "## Diff", diff_section(files)]
+    return "\n".join(out)
+
+
+def cmd_prep(args):
+    numbers = [a for a in args if not a.startswith("--")]
+    if len(numbers) != 1:
+        sys.exit("usage: scripts/watchdog prep <pr> [--dry-run]")
+    n = int(numbers[0])
+    dry_run = "--dry-run" in args
+    pr = work.gh(f"repos/{REPO}/pulls/{n}")
+    sha = pr["head"]["sha"]
+    comments = work.gh_all(f"repos/{REPO}/issues/{n}/comments")
+    if not any(names_head(c, sha) for c in comments):
+        marker = f"## Watchdog reviewing `{sha[:7]}`"
+        if dry_run:
+            print(f"(dry run: would post {marker!r})", file=sys.stderr)
+        else:
+            work.gh(f"repos/{REPO}/issues/{n}/comments", "POST", {"body": marker})
+    tree = checkout_head(n, sha)
+    runs = check_runs(sha)
+    statuses = work.gh(f"repos/{REPO}/commits/{sha}/status")["statuses"]
+    issues = [work.gh(f"repos/{REPO}/issues/{i}") for i in sorted(work.closing_refs(pr.get("body")))]
+    files = work.gh_all(f"repos/{REPO}/pulls/{n}/files")
+    logs = {name: job_log(runs[name]) for name in ("criteria", "mutants", "regression-check")
+            if name in runs and runs[name]["status"] == "completed"}
+    print(brief(pr, comments, tree, runs, statuses, issues, files, logs))
+
+
+COMMANDS = {"queue": cmd_queue, "prep": cmd_prep}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        sys.exit(__doc__)
+    COMMANDS[sys.argv[1]](sys.argv[2:])
