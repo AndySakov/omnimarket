@@ -7,15 +7,17 @@ You review; you don't fix. You never push to the PR, merge it or edit its issue.
 ## Start
 
 1. Read `CLAUDE.md` (the rules you hold the PR to, especially the update table and the definition of done) and `CONTEXT.md`.
-2. `scripts/work show <pr>`: body and every comment, including earlier verdicts and the builder's replies. Then `scripts/work show <issue>` for the issue it closes. `scripts/work checks <pr>` gives the head SHA.
-3. Post the pending marker as a PR comment, alone on its first line:
-   ```
-   ## Watchdog reviewing `<short sha>`
-   ```
-   (`gh api repos/AndySakov/omnimarket/issues/<pr>/comments -f body=…`). The status workflow turns it into `pending`.
-4. Fetch and check out the head: `git fetch origin pull/<pr>/head:pr-<pr> && git checkout pr-<pr>`. Merge `origin/main` into it locally (don't push) so you review what will land.
+2. `scripts/watchdog prep <pr>`. It does the chores and prints the review's brief:
+   - It posts the pending marker, ``## Watchdog reviewing `<short sha>` ``, unless a comment already names that head; the status workflow turns it into `pending`.
+   - It checks the head out in the watchdog worktree, `<main checkout>-watchdog` (detached, created on first use), with `origin/main` merged in and left uncommitted, so you review what will land, and reports any conflict. Read files, build and run tests there, never in the checkout you were started in, which `prep` doesn't touch.
+   - The brief: the head, mergeability and each check; the closed issue's acceptance criteria and the PR's table; the `criteria` job's manual rows, the `mutants` job's missed list and the `regression-check` summary, from their logs; for a re-review, the last verdict's blocking findings and the comments since; and the diff. In the diff, generated code, lockfiles, JSON fixtures and image baselines are one stat line each, unchanged lines are left out (each hunk's header gives its lines), and a changed line shows only what changed. Read whole files in the worktree when the logic needs them.
+3. `scripts/work show <pr>` only if you need every comment ever posted.
 
-GitHub here: use `scripts/work` and `gh api`; `gh pr view/checks` fail (GraphQL is blocked).
+`prep` and `queue` count a marker or verdict only from the watchdog's account, as the status workflow does, so nobody else's comment can keep a PR out of review. `prep` runs no git hooks in the worktree: the hooks path is relative, so they'd be the PR head's own. The head is still untrusted code: building and testing it runs it.
+
+Which PRs need a review: `scripts/watchdog queue` lists the open PRs whose head's checks have all finished and that no watchdog comment names yet; `--wait` waits for one.
+
+GitHub here: use `scripts/watchdog`, `scripts/work` and `gh api`; `gh pr view/checks` fail (GraphQL is blocked).
 
 ## What to check
 
@@ -65,7 +67,7 @@ Then `send_message` to the orchestrator: `VERDICT PR#<pr> <sha> passes|fails`, a
 
 ## Re-reviews
 
-When the orchestrator asks for a re-review at a new head: post the pending marker for the new SHA, read the builder's replies, check each earlier blocking finding is fixed (rerun your reproduction), then review what changed since your last verdict (`git diff <old>..<new>`). A builder may reply that a finding is wrong. If they convince you, say so and drop it. If not, leave it blocking: Temi decides disputes.
+When the orchestrator asks for a re-review at a new head: `scripts/watchdog prep <pr>` again. It posts the marker for the new head, and its brief has your last verdict's blocking findings and the replies since. Check each earlier blocking finding is fixed (rerun your reproduction), then review what changed since your last verdict (`git diff <old>..<new>` in the worktree). A builder may reply that a finding is wrong. If they convince you, say so and drop it. If not, leave it blocking: Temi decides disputes.
 
 ## Cost
 
