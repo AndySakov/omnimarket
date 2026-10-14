@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Checks a change against CLAUDE.md's "When you change X, update Y" table (#135).
+
+  scripts/check-update-table [--base <ref>] [--head <ref>] [--body <file>] [--summary <file>] [--table <file>]
+
+Each path the change touches (between the merge base of <base> and <head>, and <head>; default
+origin/main and HEAD) is matched against the table's rows, read from CLAUDE.md (or <file> for
+--table), so the table has one source. A row's backticked paths match a path they equal or, ending in
+`/`, a path under them. Every doc the row names unconditionally must have changed too, unless the PR
+body in --body waives it with a line `Docs unchanged: <doc>: <reason>`.
+
+What only a reviewer can judge stays manual, and the summary lists it for the watchdog: a doc the
+row names with a condition ("`docs/spec/architecture.md` if a component boundary moves"), and the
+parts of a row that aren't paths ("A latency budget", "CI").
+
+The summary (Markdown) is printed, and appended to <file> with --summary (CI's job summary).
+Exits 0 when every doc changed or is waived, 1 when one didn't, 2 on a usage or git error.
+"""
+
+import argparse
+import fnmatch
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+HEADING = "## When you change X, update Y"
+WAIVER = re.compile(r"^\s*Docs unchanged:\s*`?([^`:\s]+)`?\s*:\s*(\S.*?)\s*$", re.M)
+BACKTICKED = re.compile(r"`([^`]+)`")
+
+
+@dataclass
+class Row:
+    change: str
+    paths: list
+    # What the change column says that isn't a path: "CI", "lineage or brakes", "A latency budget".
+    words: str
+    required: list
+    # (doc, its condition), e.g. ("docs/spec/architecture.md", "if a component boundary moves").
+    conditional: list
+
+
+def read_table(text):
+    """The update table's rows, from the section under `HEADING`."""
+    start = text.find(HEADING)
+    if start < 0:
+        sys.exit(f"check-update-table: no '{HEADING}' section")
+    rows = []
+    for line in text[start:].splitlines()[1:]:
+        if line.startswith("#"):
+            break
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 2 or not line.lstrip().startswith("|") or set(cells[0]) <= set("-: ") or cells[0] == "Change":
+            continue
+        change, update = cells
+        paths = BACKTICKED.findall(change)
+        words = BACKTICKED.sub("", change).replace("**", "")
+        words = re.sub(r"^[\s,]+|[\s,]+$", "", re.sub(r"\s*,\s*(,\s*)*", ", ", words))
+        required, conditional = [], []
+        for part in update.split(";"):
+            docs = BACKTICKED.findall(part)
+            if not docs:
+                continue
+            condition = re.search(r"\bif\b.*$", BACKTICKED.sub("", part))
+            if condition:
+                conditional += [(doc, condition.group(0).strip()) for doc in docs]
+            else:
+                required += docs
+        rows.append(Row(change, paths, words, required, conditional))
+    return rows
+
+
+def matches(path, pattern):
+    if pattern.endswith("/"):
+        return path.startswith(pattern)
+    return path == pattern or fnmatch.fnmatchcase(path, pattern)
+
+
+def git(*args):
+    # Outside a git hook's variables (GIT_INDEX_FILE, ...), so the refs given are what's read.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    out = subprocess.run(["git", *args], capture_output=True, text=True, env=env)
+    if out.returncode != 0:
+        print(f"check-update-table: git {' '.join(args)} failed: {out.stderr.strip()}", file=sys.stderr)
+        sys.exit(2)
+    return out.stdout
+
+
+def changed_paths(base, head):
+    merge_base = git("merge-base", base, head).strip()
+    # --no-renames lists a moved file under both its paths, so moving one out of a row still counts.
+    return git("diff", "--name-only", "--no-renames", merge_base, head).split()
+
+
+def check(rows, changed, body):
+    """(path, doc) pairs whose doc didn't change and isn't waived, the waivers used, and what's manual."""
+    waivers = {doc: reason for doc, reason in WAIVER.findall(body or "")}
+    touched = set(changed)
+    missing, used, conditional = [], {}, []
+    for path in changed:
+        for row in rows:
+            if not any(matches(path, p) for p in row.paths):
+                continue
+            for doc in row.required:
+                if doc in touched or doc == path:
+                    continue
+                if doc in waivers:
+                    used[doc] = waivers[doc]
+                else:
+                    missing.append((path, doc))
+            conditional += [(doc, condition, path) for doc, condition in row.conditional if doc not in touched]
+    return missing, used, conditional
+
+
+def summary(rows, missing, used, conditional):
+    out = ["## Update table", ""]
+    if missing:
+        out += ["Each of these changed without the doc CLAUDE.md's update table names for it:", "",
+                "| Changed | Doc not changed |", "|---|---|"]
+        out += [f"| `{path}` | `{doc}` |" for path, doc in missing]
+        out += ["", "Change the doc, or waive it with a line in the PR body: `Docs unchanged: <doc>: <reason>`."]
+    else:
+        out.append("Every changed path's docs changed too, or are waived.")
+    if used:
+        out += ["", "### Waived", ""] + [f"- `{doc}`: {reason}" for doc, reason in sorted(used.items())]
+    out += ["", "### For the watchdog", "", "Only a reviewer can tell whether these apply:", ""]
+    seen = set()
+    for doc, condition, path in conditional:
+        if (doc, condition) not in seen:
+            seen.add((doc, condition))
+            out.append(f"- `{doc}` {condition} (the change touches `{path}`)")
+    manual = [row for row in rows if row.words]
+    out.append("- Rows that aren't paths: " + "; ".join(
+        f"{row.words} → " + ", ".join(f"`{d}`" for d in row.required + [d for d, _ in row.conditional])
+        for row in manual) + ".")
+    return "\n".join(out) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--base", default="origin/main")
+    parser.add_argument("--head", default="HEAD")
+    parser.add_argument("--body", help="the PR body, for waiver lines")
+    parser.add_argument("--summary", help="append the summary to this file")
+    parser.add_argument("--table", default="CLAUDE.md", help="the file holding the table")
+    args = parser.parse_args()
+    try:
+        rows = read_table(Path(args.table).read_text())
+        body = Path(args.body).read_text() if args.body else ""
+    except OSError as e:
+        print(f"check-update-table: {e}", file=sys.stderr)
+        return 2
+    missing, used, conditional = check(rows, changed_paths(args.base, args.head), body)
+    text = summary(rows, missing, used, conditional)
+    print(text, end="")
+    if args.summary:
+        with open(args.summary, "a") as f:
+            f.write(text)
+    return 1 if missing else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
