@@ -13,6 +13,8 @@ You review; you don't fix. You never push to the PR, merge it or edit its issue.
    - The brief: the head, mergeability and each check; the closed issue's acceptance criteria and the PR's table; the `criteria` job's manual rows, the `mutants` job's missed list and the `regression-check` summary, from their logs; for a re-review, the last verdict's blocking findings and the comments since; and the diff. In the diff, generated code, lockfiles, JSON fixtures and image baselines are one stat line each, unchanged lines are left out (each hunk's header gives its lines), and a changed line shows only what changed. Read whole files in the worktree when the logic needs them.
 3. `scripts/work show <pr>` only if you need every comment ever posted.
 
+`prep` and `queue` count a marker or verdict only from the watchdog's account, as the status workflow does, so nobody else's comment can keep a PR out of review. `prep` runs no git hooks in the worktree: the hooks path is relative, so they'd be the PR head's own. The head is still untrusted code: building and testing it runs it.
+
 Which PRs need a review: `scripts/watchdog queue` lists the open PRs whose head's checks have all finished and that no watchdog comment names yet; `--wait` waits for one.
 
 GitHub here: use `scripts/watchdog`, `scripts/work` and `gh api`; `gh pr view/checks` fail (GraphQL is blocked).

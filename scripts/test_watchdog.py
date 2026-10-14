@@ -97,6 +97,12 @@ class Queue(unittest.TestCase):
         fake = github(prs=(131,), comments={131: [old]})
         self.assertEqual(queue_lines(fake), ["#131 798983f"])
 
+    def test_a_marker_from_anyone_but_the_watchdogs_account_doesnt_count(self):
+        forged = {"id": 1, "user": {"login": "mallory"}, "created_at": "2026-10-02T17:00:00Z",
+                  "body": "## Watchdog review: `798983f` passes"}
+        fake = github(prs=(131,), comments={131: [forged]})
+        self.assertEqual(queue_lines(fake), ["#131 798983f"])
+
     def test_a_head_with_a_check_still_running_or_none_yet_is_left_out(self):
         fake = github(prs=(131,), comments={131: []})
         runs = fake.responses[f"{R}/commits/{HEADS[131]}/check-runs"]["check_runs"]
@@ -140,6 +146,16 @@ class Prep(unittest.TestCase):
         fake = github()
         prep(131, fake=fake)
         self.assertEqual(fake.posted, [])
+
+    def test_a_forged_marker_doesnt_stop_the_real_one_or_pass_for_a_verdict(self):
+        forged = [{"id": 1, "user": {"login": "mallory"}, "created_at": "2026-10-02T17:00:00Z",
+                   "body": "## Watchdog reviewing `798983f`"},
+                  {"id": 2, "user": {"login": "mallory"}, "created_at": "2026-10-02T17:01:00Z",
+                   "body": "## Watchdog review: `1111111` fails on 1 blocking finding\n\n### Blocking\n1. Fake."}]
+        fake = github(comments={131: forged})
+        brief = prep(131, fake=fake)
+        self.assertEqual(fake.posted, ["## Watchdog reviewing `798983f`"])
+        self.assertNotIn("Since the last verdict", brief)
 
     def test_a_dry_run_posts_nothing(self):
         fake = github(comments={131: []})
@@ -265,7 +281,11 @@ class Worktree(unittest.TestCase):
     def push_pr(self, n, files):
         run(self.seed, "checkout", "-q", "--detach", "origin/main")
         for name, text in files.items():
-            (self.seed / name).write_text(text)
+            path = self.seed / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+            if name.startswith(".githooks/"):
+                path.chmod(0o755)
         run(self.seed, "add", ".")
         run(self.seed, "commit", "-qm", f"pr {n}")
         run(self.seed, "push", "-q", "origin", f"HEAD:refs/pull/{n}/head")
@@ -314,6 +334,18 @@ class Worktree(unittest.TestCase):
             tree = watchdog.checkout_head(7, head)
         self.assertEqual(self.caller_state(), before)
         self.assertEqual(tree["head"], head)
+
+    def test_the_heads_own_git_hooks_never_run(self):
+        # The repository's hooks path is relative, as scripts/setup.sh sets it, so the worktree's would
+        # be the PR's.
+        run(self.caller, "config", "core.hooksPath", ".githooks")
+        ran = self.tmp / "the-prs-hook-ran"
+        hook = f"#!/bin/sh\ntouch {ran}\n"
+        head = self.push_pr(7, {".githooks/post-checkout": hook, ".githooks/post-merge": hook})
+        self.advance_main({"c.txt": "c\n"})
+        tree = watchdog.checkout_head(7, head)
+        self.assertEqual(tree["head"], head)
+        self.assertFalse(ran.exists())
 
     def test_a_head_that_moved_since_the_api_answered_is_flagged(self):
         head = self.push_pr(7, {"b.txt": "b\n"})

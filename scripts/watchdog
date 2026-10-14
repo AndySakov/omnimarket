@@ -36,10 +36,16 @@ def first_line(comment):
     return (comment.get("body") or "").splitlines()[0].strip() if comment.get("body") else ""
 
 
+def watchdogs(comment):
+    """Whether the watchdog's account posted it: the only one the watchdog-status workflow takes a
+    marker or verdict from. Anyone else's would otherwise keep a PR out of the queue."""
+    return comment["user"]["login"] in work.AGENT_LOGINS
+
+
 def names_head(comment, sha):
     """Whether a watchdog comment, its pending marker or verdict, is for the commit `sha`."""
     m = NAMES_HEAD.match(first_line(comment))
-    return bool(m) and sha.startswith(m.group(1))
+    return bool(m) and watchdogs(comment) and sha.startswith(m.group(1))
 
 
 def check_runs(sha):
@@ -78,14 +84,16 @@ def cmd_queue(args):
 
 
 # Which repository git acts on. Set by a git hook, they would point every command below at the caller's
-# checkout, whatever `-C` says.
+# checkout, whatever `-C` says. And no hooks: the repository's hooks path is relative (`.githooks`), so in
+# the watchdog worktree a checkout would run the hooks of the PR's own head.
 LOCATION = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
             "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"}
 
 
 def git(cwd, *args, check=True):
     env = {k: v for k, v in os.environ.items() if k not in LOCATION}
-    out = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, env=env)
+    out = subprocess.run(["git", "-C", str(cwd), "-c", "core.hooksPath=/dev/null", *args],
+                         capture_output=True, text=True, env=env)
     if check and out.returncode != 0:
         sys.exit(f"watchdog: git {' '.join(args)} failed in {cwd}: {out.stderr.strip()}")
     return out
@@ -229,7 +237,8 @@ def diff_section(files):
 def since_last_verdict(comments, sha):
     """For a re-review: the last verdict on an earlier head, its blocking findings, and every comment
     after it. None when no earlier head has a verdict."""
-    verdicts = [i for i, c in enumerate(comments) if VERDICT.match(first_line(c)) and not names_head(c, sha)]
+    verdicts = [i for i, c in enumerate(comments)
+                if VERDICT.match(first_line(c)) and watchdogs(c) and not names_head(c, sha)]
     if not verdicts:
         return None
     last = comments[verdicts[-1]]
