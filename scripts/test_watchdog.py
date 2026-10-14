@@ -269,6 +269,8 @@ class Worktree(unittest.TestCase):
         self.seed = seed
         self.caller = self.tmp / "omnimarket"
         run(self.tmp, "clone", "-q", str(origin), str(self.caller))
+        # No identity, as on CI's runner: prep's merge must not need the caller's.
+        run(self.caller, "config", "user.name", "")
         (self.caller / "a.txt").write_text("my uncommitted work\n")
         (self.caller / "untracked.txt").write_text("mine\n")
         self.cwd = os.getcwd()
