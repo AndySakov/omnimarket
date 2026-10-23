@@ -133,6 +133,10 @@ class CheckingDNumbers(unittest.TestCase):
     def test_an_unreserved_number_fails(self):
         self.assertEqual(self.problems([104]), ["D104 has no reservation in the D-number ledger (#116)"])
 
+    def test_each_problem_a_number_has_is_listed(self):
+        self.assertEqual(self.problems([105], main=self.MAIN + "\n## D105 — unreserved\n"),
+                         ["D105 is already on main", "D105 has no reservation in the D-number ledger (#116)"])
+
     def test_a_reserved_number_nothing_else_has_passes_whatever_the_gaps(self):
         # D101 was reserved and never merged. Main jumps from D1 to D100, or has only D1.
         self.assertEqual(self.problems([101]), [])
@@ -144,10 +148,18 @@ class CheckingDNumbers(unittest.TestCase):
         # A PR merged into main: main's D100 and the PR's own D100.
         self.assertEqual(work.added_d_numbers(main, main + "\n## D100 — mine\n"), {100})
 
-    def test_an_open_pr_that_only_edits_a_heading_adds_nothing(self):
-        files = [{"filename": "docs/spec/decisions.md", "patch": "@@ -1 +1 @@\n-## D80 — old\n+## D80 — new"}]
+    def test_an_open_pr_that_only_edits_a_heading_or_another_file_adds_nothing(self):
+        files = [{"filename": "docs/spec/decisions.md", "patch": "@@ -1 +1 @@\n-## D80 — old\n+## D80 — new"},
+                 {"filename": "docs/spec/data.md", "patch": "@@ -1 +1,2 @@\n+## D200 — a heading, not an entry"}]
         self.assertEqual(work.d_numbers_a_pr_adds(files), set())
+        self.assertEqual(work.d_numbers_a_pr_adds(files[1:]), set())
         self.assertEqual(work.d_numbers_a_pr_adds(recorded("pr-148-files.json")), {103})
+
+    def test_an_open_pr_whose_patch_github_left_out_fails_the_check(self):
+        # GitHub's files API leaves `patch` out of a very large diff.
+        self.assertIsNone(work.d_numbers_a_pr_adds([{"filename": "docs/spec/decisions.md", "changes": 2400}]))
+        self.assertEqual(work.d_entry_problems({101}, set(), {148: None}, {101}, 116), [
+            "Open PR #148 changes docs/spec/decisions.md, but GitHub left its patch out, so the numbers it adds can't be checked"])
 
 
 # Outside the repository's git hook's variables (GIT_DIR, GIT_INDEX_FILE, ...): verify.sh runs these tests
@@ -162,16 +174,23 @@ def git(cwd, *args):
 
 
 class RecordedGitHub:
-    """This PR, #150; #148 and its recorded files; and the ledger, #116, with its recorded comments."""
+    """This change's PR, #150 on branch `mine` at `sha`; #148 and its recorded files; and the ledger, #116,
+    with its recorded comments. Keeps every path asked for."""
+
+    def __init__(self):
+        self.sha = "0" * 40
+        self.calls = []
 
     def gh(self, path, method="GET", fields=None, check=True):
+        self.calls.append(path)
         assert (method, path) == ("GET", f"repos/{work.REPO}/issues?labels=d-ledger&state=open&per_page=10"), path
         return [{"number": 116}]
 
     def gh_all(self, path):
+        self.calls.append(path)
         return {
-            f"repos/{work.REPO}/pulls?state=open": [{"number": 150, "head": {"ref": "mine"}},
-                                                    {"number": 148, "head": {"ref": "theirs"}}],
+            f"repos/{work.REPO}/pulls?state=open": [{"number": 150, "head": {"ref": "mine", "sha": self.sha}},
+                                                    {"number": 148, "head": {"ref": "theirs", "sha": "1" * 40}}],
             f"repos/{work.REPO}/pulls/148/files": recorded("pr-148-files.json"),
             f"repos/{work.REPO}/issues/116/comments": recorded("ledger-comments.json"),
         }[path]
@@ -186,9 +205,9 @@ class CheckingDNumbersAsCiDoes(unittest.TestCase):
         environment = mock.patch.dict(os.environ, CLEAN_ENV, clear=True)
         environment.start()
         self.addCleanup(environment.stop)
-        github = RecordedGitHub()
+        self.github = RecordedGitHub()
         for name in ("gh", "gh_all"):
-            patch = mock.patch.object(work, name, getattr(github, name))
+            patch = mock.patch.object(work, name, getattr(self.github, name))
             patch.start()
             self.addCleanup(patch.stop)
         self.repo = Path(tempfile.mkdtemp()).resolve()
@@ -217,9 +236,15 @@ class CheckingDNumbersAsCiDoes(unittest.TestCase):
         git(self.repo, "merge", "-q", "--no-ff", "-m", "merge", "pr")
         summary = self.repo.parent / f"{self.repo.name}-summary.md"
         self.addCleanup(summary.unlink, missing_ok=True)
-        with self.assertRaises(SystemExit) as exit, contextlib.redirect_stdout(io.StringIO()):
-            work.cmd_check_d(["--base", "HEAD^1", "--head", "HEAD", "--pr", "150", "--summary", str(summary)])
-        return exit.exception.code, summary.read_text()
+        code, printed = self.run_check("--base", "HEAD^1", "--head", "HEAD", "--pr", "150", "--summary", str(summary))
+        self.assertEqual(printed, summary.read_text())
+        return code, printed
+
+    def run_check(self, *args):
+        out = io.StringIO()
+        with self.assertRaises(SystemExit) as exit, contextlib.redirect_stdout(out):
+            work.cmd_check_d(list(args))
+        return exit.exception.code, out.getvalue()
 
     def test_a_reserved_number_nothing_else_has_passes(self):
         self.assertEqual(self.check("\n## D101 — new\n\nWhy.\n"), (0,
@@ -233,8 +258,27 @@ class CheckingDNumbersAsCiDoes(unittest.TestCase):
         self.assertEqual(self.check("\n## D103 — new\n\nWhy.\n\n## D104 — new\n\nWhy.\n"), (1,
             "## D-numbers\n\n- D103 is also added by open PR #148\n- D104 has no reservation in the D-number ledger (#116)\n"))
 
-    def test_a_change_adding_no_entry_passes(self):
+    def test_a_change_adding_no_entry_passes_without_asking_github(self):
         self.assertEqual(self.check("\nMore on D100.\n"), (0, "## D-numbers\n\nThis change adds no D-entry.\n"))
+        self.assertEqual(self.github.calls, [])
+
+    def test_locally_a_number_main_took_since_the_branch_forked_fails(self):
+        # The defaults: the branch against origin/main, and its PR found by the branch's name.
+        git(self.repo, "checkout", "-q", "-b", "mine")
+        self.commit(self.DECISIONS + "\n## D101 — mine\n\nWhy.\n")
+        git(self.repo, "checkout", "-q", "main")
+        self.commit(self.DECISIONS.replace("## D100", "## D101 — theirs\n\nWhy.\n\n## D100"))
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "main")
+        git(self.repo, "checkout", "-q", "mine")
+        self.assertEqual(self.run_check(), (1, "## D-numbers\n\n- D101 is already on main\n"))
+
+    def test_on_a_detached_head_its_pr_is_the_one_at_that_commit(self):
+        git(self.repo, "update-ref", "refs/remotes/origin/main", "main")
+        git(self.repo, "checkout", "-q", "--detach")
+        self.commit(self.DECISIONS + "\n## D101 — new\n\nWhy.\n")
+        self.github.sha = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.run_check(), (0,
+            "## D-numbers\n\nEach D-entry this change adds is reserved, and on neither main nor another open PR: D101.\n"))
 
 
 if __name__ == "__main__":

@@ -562,22 +562,29 @@ def added_d_numbers(before, after):
 
 
 def d_numbers_a_pr_adds(files):
-    """The D-numbers an open PR adds, from its files' patches: a heading it adds and doesn't remove."""
-    patch = next((f.get("patch") for f in files if f["filename"] == DECISIONS), None)
+    """The D-numbers an open PR adds, from its files' patches: a heading it adds and doesn't remove.
+    None when it changes decisions.md but GitHub left out the patch, as it does for a very large diff."""
+    entry = next((f for f in files if f["filename"] == DECISIONS), {"patch": ""})
+    if "patch" not in entry:
+        return None
+    patch = entry["patch"]
     removed = d_counts(patch, prefix="-")
     return {n for n, count in d_counts(patch, prefix="+").items() if count > removed[n]}
 
 
 def d_entry_problems(added, on_main, others, reserved, ledger):
     """Why each added D-number can't merge: already on main, added by another open PR (`others` maps
-    each PR to the numbers it adds), or not reserved in the ledger. Gaps in the numbering are fine."""
+    each PR to the numbers it adds, or None when they can't be read), or not reserved in the ledger.
+    Gaps in the numbering are fine."""
     problems = []
     for n in sorted(added):
         if n in on_main:
             problems.append(f"D{n} is already on main")
-        problems += [f"D{n} is also added by open PR #{pr}" for pr, numbers in sorted(others.items()) if n in numbers]
+        problems += [f"D{n} is also added by open PR #{pr}" for pr, numbers in sorted(others.items()) if numbers and n in numbers]
         if n not in reserved:
             problems.append(f"D{n} has no reservation in the D-number ledger" + (f" (#{ledger})" if ledger else ""))
+    problems += [f"Open PR #{pr} changes {DECISIONS}, but GitHub left its patch out, so the numbers it adds can't be checked"
+                 for pr, numbers in sorted(others.items()) if numbers is None]
     return problems
 
 
@@ -600,8 +607,10 @@ def cmd_check_d(args):
     problems = []
     if added:
         prs = gh_all(f"repos/{REPO}/pulls?state=open")
+        # Without --pr, this change's own PR is the one on this branch, or at this commit when detached.
+        commit = subprocess.run(["git", "rev-parse", head], capture_output=True, text=True).stdout.strip()
         mine = int(opts["--pr"]) if opts["--pr"] else next(
-            (pr["number"] for pr in prs if pr["head"]["ref"] == current_branch()), None)
+            (pr["number"] for pr in prs if pr["head"]["ref"] == current_branch() or pr["head"]["sha"] == commit), None)
         others = {pr["number"]: d_numbers_a_pr_adds(gh_all(f"repos/{REPO}/pulls/{pr['number']}/files"))
                   for pr in prs if pr["number"] != mine}
         ledger = find_ledger()
