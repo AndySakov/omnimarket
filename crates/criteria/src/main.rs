@@ -5,14 +5,18 @@
 //!   acceptance-criteria table against `<issues-dir>/<n>.md` for each closed issue and the tests
 //!   that passed in the given libtest-format outputs. It prints the job summary in Markdown, and
 //!   exits 1 when the check fails.
+//! - `criteria mutants <pr-body.md> <missed.txt>` checks the PR's "Missed mutants" table against
+//!   cargo-mutants' list of missed mutants (#137). It prints the summary, and exits 1 when a missed
+//!   mutant has no row or no reason.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::ExitCode;
 
+use criteria::mutants::{check_mutants, missed_mutants, mutant_rows};
 use criteria::{Closed, check, closed_issues, issue_criteria, passed_tests, pr_rows};
 
-const USAGE: &str = "usage: criteria closes <pr-body.md>\n       criteria check <pr-body.md> <issues-dir> <test-output>...";
+const USAGE: &str = "usage: criteria closes <pr-body.md>\n       criteria check <pr-body.md> <issues-dir> <test-output>...\n       criteria mutants <pr-body.md> <missed.txt>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -26,6 +30,7 @@ fn main() -> ExitCode {
         ["check", body, issues, outputs @ ..] if !outputs.is_empty() => {
             run_check(body, issues, outputs)
         }
+        ["mutants", body, missed] => run_mutants(body, missed),
         _ => Err(USAGE.to_string()),
     };
     match result {
@@ -75,6 +80,16 @@ fn run_check(body: &str, issues_dir: &str, outputs: &[&str]) -> Result<ExitCode,
         );
     }
     let report = check(&closed, &rows, &passed);
+    print!("{}", report.summary());
+    Ok(if report.problems.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+fn run_mutants(body: &str, missed: &str) -> Result<ExitCode, String> {
+    let report = check_mutants(&missed_mutants(&read(missed)?), &mutant_rows(&read(body)?));
     print!("{}", report.summary());
     Ok(if report.problems.is_empty() {
         ExitCode::SUCCESS

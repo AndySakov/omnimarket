@@ -22,6 +22,17 @@ issue), write `manual: <evidence>`; the job lists those for the watchdog. -->
 | <criterion, quoted> | `test_name` in `crate/tests/file.rs` |
 | <criterion> | manual: <the run, its command and result> |
 
+## Missed mutants
+
+<!-- CI's `mutants` job checks this table. One row per mutant `scripts/mutants.sh --diff origin/main`
+misses, copied from its `missed.txt` as cargo-mutants prints it (`file:line:col: description`, with
+`\|` for a pipe), and why no test catches it. A missed mutant with no row, or a row with no reason,
+fails the job; a row for a mutant the run didn't miss is listed as stale. Leave it empty when
+nothing is missed. -->
+
+| Mutant | Why no test catches it |
+|---|---|
+
 ## Not verified
 
 <anything you couldn't run or check, and why>

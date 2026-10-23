@@ -28,7 +28,7 @@ If your brief names a **PR** instead (a stalled one, D87 rule 1): `scripts/work 
 - **Iterate cheaply.** Use `cargo test -p <crate>` and `cargo clippy -p <crate> --all-targets -- -D warnings` while working; each commit runs the full `scripts/verify.sh` through the git hook (about 1–3 minutes warm). The hook runs on every commit, so commit at meaningful green points, not every edit. Never `--no-verify`.
 - **Live runs** (measurements, recordings, fixtures): Base RPC is reachable here. Use `--rpc https://mainnet.base.org --call-rpc https://base-rpc.publicnode.com` (D80, D82, D88). For Kafka, Postgres or object storage: `scripts/stack up`.
 - **Docs in the same commit**, per CLAUDE.md's update table. A choice about OmniMarket's behaviour or architecture gets a D-entry (CLAUDE.md, Decisions), numbered as "Work alongside other builders" says; a process change goes in `docs/agents/process.md` instead. An unverified claim is marked **(verify)**, and a measured one goes in `docs/spec/verification.md`.
-- **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or explain in the PR why not.
+- **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or give the reason no test catches it in the PR body's "Missed mutants" table, which CI's `mutants` job checks.
 
 ## Work alongside other builders
 
@@ -69,7 +69,7 @@ Every criterion of the issue gets a row, quoted as the issue words it: CI's `cri
 ## Get it reviewed
 
 1. Subscribe to the PR's activity (your environment's PR-watching instructions describe it), then end your turn. CI results and comments wake you; don't poll.
-2. When `scripts/work checks <pr>` shows `verify`, `frontend` and `criteria` all `success` on your head: `send_message` to the orchestrator: `READY PR#<pr> <sha>`. Red instead: root-cause it, fix, push, and repeat. "Flaky" isn't a cause.
+2. When `scripts/work checks <pr>` shows `verify`, `frontend`, `criteria` and `d-numbers` all `success` on your head: `send_message` to the orchestrator: `READY PR#<pr> <sha>`. Red instead: root-cause it, fix, push, and repeat. "Flaky" isn't a cause.
 3. The watchdog posts ``## Watchdog review: `<sha>` passes`` or ``fails on N findings``.
    - **Fails:** fix every blocking finding on this branch, reply on the PR saying what each commit changed, push, wait for green, then send `READY` again. Non-blocking findings: fix the quick ones, and answer the rest in one line each.
    - **You think a finding is wrong:** reply on the PR with why, `send_message` `DISPUTE PR#<pr>: <one line>`, and stop. Temi decides; don't push past it.

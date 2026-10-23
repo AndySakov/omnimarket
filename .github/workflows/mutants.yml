@@ -1,19 +1,13 @@
 name: Mutants
 
-# Mutation testing (D89). Not a required check: it reports which mutants of the code no test
-# catches, for the author and the watchdog to read.
-# - On a PR that touches Rust: only mutants in the PR's changed code, a fresh verdict.
+# Mutation testing (D89): which mutants of the code no test catches.
+# - On every PR: only mutants in the PR's changed code, a fresh verdict. A PR with no Rust in its
+#   diff stops before building anything. The `mutants` job then fails the PR on a missed mutant its
+#   body gives no reason for (#137).
 # - Nightly on main: every mutant not already caught. The ledger of caught mutants is cached
 #   per ISO week, so the first run each week tests everything again.
 on:
   pull_request:
-    paths:
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/mutants.toml"
-      - "scripts/mutants.sh"
-      - ".github/workflows/mutants.yml"
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
@@ -23,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mutants:
+  mutation-testing:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -54,10 +48,11 @@ jobs:
             target/mutants/ledger.from
           key: mutants-ledger-${{ steps.keys.outputs.week }}-${{ github.run_id }}
           restore-keys: mutants-ledger-${{ steps.keys.outputs.week }}-
+      # Exit 2 means mutants were missed or timed out: that's the report, not a failed run. The
+      # `mutants` job judges a PR's misses.
       - name: Mutants in this PR's changes
         if: github.event_name == 'pull_request'
-        run: scripts/mutants.sh --diff "origin/${{ github.base_ref }}"
-      # Exit 2 means mutants were missed: that's the report, not a failed run.
+        run: scripts/mutants.sh --diff "origin/${{ github.base_ref }}" || [ $? -eq 2 ]
       - name: Mutants across the workspace
         if: github.event_name != 'pull_request'
         run: scripts/mutants.sh || [ $? -eq 2 ]
@@ -86,3 +81,46 @@ jobs:
             target/mutants/ledger.txt
             target/mutants/ledger.from
           key: mutants-ledger-${{ steps.keys.outputs.week }}-${{ github.run_id }}
+
+  # Every mutant the PR's run missed has a row in the PR body's "Missed mutants" table giving the
+  # reason no test catches it (#137). Timed-out mutants are listed, not failed (#145). The body is
+  # read when the job runs, so after editing it, re-run this job alone: the mutants aren't run again.
+  mutants:
+    if: always() && github.event_name == 'pull_request'
+    needs: mutation-testing
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --quiet -p criteria
+      - uses: actions/download-artifact@v4
+        if: needs.mutation-testing.result == 'success'
+        with:
+          name: mutants
+          path: mutants
+      # One step, so the watchdog's brief finds the run's summary and the check under one heading.
+      - name: Check each missed mutant has a reason
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN: ${{ needs.mutation-testing.result }}
+        run: |
+          if [ "$RUN" != success ]; then
+            echo "The mutation-testing job ended in $RUN, so there's no list of missed mutants to check." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          cat mutants/last/summary.md
+          echo
+          gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' > pr-body.md
+          missed=mutants/last/missed.txt
+          [ -f "$missed" ] || missed=/dev/null
+          status=0
+          target/debug/criteria mutants pr-body.md "$missed" > reasons.md || status=$?
+          cat reasons.md
+          cat reasons.md >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
