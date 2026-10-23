@@ -12,6 +12,7 @@ first use. `prep` runs every git command there, so the checkout it's run from is
 """
 
 import importlib.machinery
+import importlib.util
 import os
 import re
 import subprocess
@@ -20,7 +21,9 @@ import time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-work = importlib.machinery.SourceFileLoader("work", str(Path(__file__).resolve().parent / "work")).load_module()
+loader = importlib.machinery.SourceFileLoader("work", str(Path(__file__).resolve().parent / "work"))
+work = importlib.util.module_from_spec(importlib.util.spec_from_loader("work", loader))
+loader.exec_module(work)
 
 REPO = work.REPO
 POLL_SECONDS = 120

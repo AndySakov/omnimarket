@@ -151,3 +151,11 @@ The table reads the `discovery` topic through the stream client (#63), and
 In fixture mode `src/mocks/api/discoveryFeed.ts` serves a six-row feed that
 moves prices every second and adds a new pool every 6s. Stories for each state
 are in `DiscoveryPage.stories.tsx`.
+
+For `VITE_DATA_SOURCE=live`, the same generated stream hooks consume the API's
+`discovery` snapshot and `discoveryRow` deltas; no fixture client or alternate
+row contract is used. The live-source Playwright coverage in
+`tests/e2e/live/discovery.spec.ts` proves a Base pool can arrive during the
+session without a reload and that its generated safety verdict replaces the
+initial `Not checked yet` state. Until backend #89 supplies evidence, an absent
+verdict must remain `Not checked yet` and must never be presented as passed.

@@ -6,6 +6,7 @@ PR's claim lapsing, Jutin's own claims, and which PR body lines take an issue.""
 
 import contextlib
 import importlib.machinery
+import importlib.util
 import io
 import json
 import os
@@ -20,7 +21,9 @@ from unittest import mock
 # Loading the script without a .py name would otherwise leave a __pycache__ in scripts/.
 sys.dont_write_bytecode = True
 SCRIPT = Path(__file__).resolve().parent / "work"
-work = importlib.machinery.SourceFileLoader("work", str(SCRIPT)).load_module()
+loader = importlib.machinery.SourceFileLoader("work", str(SCRIPT))
+work = importlib.util.module_from_spec(importlib.util.spec_from_loader("work", loader))
+loader.exec_module(work)
 
 
 class FakeLedger:
