@@ -20,6 +20,7 @@ if [[ -f Cargo.toml ]]; then
   fi
   python3 scripts/test_regression_check.py
   python3 scripts/test_work.py
+  python3 scripts/test_check_update_table.py
   python3 scripts/test_watchdog.py
   ran=1
 fi

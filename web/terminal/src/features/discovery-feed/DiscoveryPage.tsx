@@ -358,7 +358,7 @@ function ChainRail({ activeChain, onChainChange }: ChainRailProps) {
             </span>
             <span>{label}</span>
             <span className={`chain-rail__status ${live ? 'chain-rail__status--live' : ''}`} aria-hidden="true">{live ? 'Live' : 'Soon'}</span>
-            <span className="sr-only" id={`chain-hint-${tone}`}>{hint}</span>
+            <span className="chain-rail__hint sr-only" id={`chain-hint-${tone}`}>{hint}</span>
           </button>
         )
       })}

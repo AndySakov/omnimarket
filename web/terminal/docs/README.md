@@ -18,9 +18,10 @@ not silently change that contract.
 ## Current delivery checkpoint
 
 Phase 0 is implemented and locally verified for the global terminal shell and
-Discover surface and is present on `main`. PR #105 is the active Token
-Workspace review, migrating the page onto the shared typed stream client.
-`codex/token-workspace` is the active follow-up branch for that review.
+Discover surface and is present on `main`. Token Workspace / PR #105 is merged.
+The focused live-Discover follow-up is on `codex/discovery-live` for issue #118;
+its frontend wiring is verified against the live-source build, while safety
+verdicts remain dependent on backend #89.
 
 ## Verification
 
