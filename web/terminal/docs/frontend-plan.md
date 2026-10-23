@@ -138,17 +138,22 @@ copying branding, assets, code or copy.
 - Build a mocked terminal shell using realistic data and failure states.
   **Complete for the global header and Discover surface.**
 
-The remaining Phase 0 handoff is operational rather than a new UI feature:
-commit the verified foundation, push `codex/terminal-foundation` to the personal
-fork, and open the collaborator review PR. Do not start live API or wallet
-integration from this branch.
+The Phase 0 handoff is complete on `main`. The current frontend follow-up is
+the live Discover integration; real safety evidence remains dependent on
+backend #89.
 
 ### Phase 1 — M2: discovery and token detail
 
 - Discovery feed and responsive token table. **Complete as a deterministic
   mocked surface.**
-- Token Workspace: dense token header/summary, candle/volume display, context
-  rail, reference-style market tabs and the persistent mocked trade-panel shell.
+- Live Discover API integration (#118): use the same generated stream client
+  when `VITE_DATA_SOURCE=live`, accept discovery-row deltas without a reload,
+  and map the generated safety verdict at the row boundary. **Frontend wiring
+  and live-source coverage complete; live safety evidence remains dependent on
+  backend #89.**
+- Token Workspace / PR #105: dense token header/summary, candle/volume display,
+  context rail, reference-style market tabs and the persistent mocked trade-panel
+  shell. **Merged to `main`.**
 - Connection status and WebSocket reconnection behaviour.
 - Build against the backend mock server.
 
@@ -199,6 +204,6 @@ coverage and visual baselines. Typecheck, lint, unit tests, production build,
 Playwright flows, visual checks and the Discover accessibility audit have passed.
 
 The foundation checkpoint has merged to `main`. The current follow-up
-checkpoint is PR #105: a fixture-compatible Token Workspace that now consumes
-the shared REST/WebSocket client. Quote signing remains out of scope; live
-candles and safety evidence still depend on backend Issues 80 and 89.
+checkpoint is the live Discover integration on `codex/discovery-live`. Quote
+signing remains out of scope; live candles and safety evidence still depend on
+backend Issues 80 and 89.
