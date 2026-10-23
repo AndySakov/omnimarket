@@ -320,9 +320,9 @@ def cmd_prep(args):
 KINDS = ("update-table", "d-number", "mutants", "fixture-invariants", "region-states", "hostile-input",
          "interleaving", "io-bounds", "live-claim", "copy-accuracy", "other")
 AUTOMATION_LABEL = "watchdog-automation"
-# Reviews that log a kind, with no open issue automating it, before it needs one.
+# PRs whose verdicts log a kind, with no open issue automating it, before it needs one.
 REPEATS = 2
-MANUAL_LINE = re.compile(r"\s*[-*]\s+`([a-z-]+)`")
+MANUAL_LINE = re.compile(r"\s*(?:[-*]|\d+\.)\s+`([a-z-]+)`")
 KINDS_LINE = re.compile(r"(?im)^kinds?:(.*)$")
 
 
@@ -342,42 +342,45 @@ def manual_kinds(body):
 
 
 def issue_kinds(issue):
-    """The kinds an automation issue automates: the backticked names on its `Kinds:` line."""
+    """The kinds an automation issue automates: the names on its `Kinds:` line, backticked or not.
+    None when it has no such line."""
     m = KINDS_LINE.search(issue.get("body") or "")
-    return set(re.findall(r"`([a-z-]+)`", m.group(1))) if m else set()
+    return set(re.findall(r"[a-z][a-z-]*", m.group(1))) & set(KINDS) if m else None
 
 
 def ledger(comments, issues):
     """Each kind with the reviews whose verdict logged it, the open issue automating it, and whether
-    it needs one: none open, and REPEATS reviews since the last one for it closed. `other` is read, never
-    filed. Also the (PR, kind) pairs tagged with a kind watchdog.md doesn't list."""
+    it needs one: none open, and logged on REPEATS PRs since the last issue for it closed (a review and
+    its re-review are one PR). `other` is read, never filed. Also the (PR, kind) pairs tagged with a kind
+    watchdog.md doesn't list, and the automation issues whose `Kinds:` line names none it does."""
     logged = {kind: [] for kind in KINDS}
     unknown = []
     for c in comments:
         m = VERDICT.match(first_line(c))
         if not (m and watchdogs(c)):
             continue
-        pr = int(c["issue_url"].rsplit("/", 1)[1])
+        pr, sha = int(c["issue_url"].rsplit("/", 1)[1]), m.group(1)[:7]
         for kind in manual_kinds(c["body"]):
-            if kind in logged:
-                logged[kind].append({"pr": pr, "sha": m.group(1)[:7], "at": c["created_at"]})
-            else:
+            if kind not in logged:
                 unknown.append((pr, kind))
+            elif not any((r["pr"], r["sha"]) == (pr, sha) for r in logged[kind]):
+                logged[kind].append({"pr": pr, "sha": sha, "at": c["created_at"]})
+    unreadable = [i["number"] for i in issues if issue_kinds(i) == set()]
     rows = []
     for kind in KINDS:
-        covering = [i for i in issues if kind in issue_kinds(i)]
+        covering = [i for i in issues if kind in (issue_kinds(i) or set())]
         open_issue = next((i["number"] for i in covering if i["state"] == "open"), None)
         last_closed = max((i["closed_at"] for i in covering if i["state"] == "closed"), default="")
-        since = [r for r in logged[kind] if r["at"] > last_closed]
+        since = {r["pr"] for r in logged[kind] if r["at"] > last_closed}
         rows.append({"kind": kind, "reviews": logged[kind], "open": open_issue,
                      "needs_issue": kind != "other" and open_issue is None and len(since) >= REPEATS})
-    return rows, unknown
+    return rows, unknown, unreadable
 
 
 def cmd_ledger(_args):
     comments = work.gh_all(f"repos/{REPO}/issues/comments")
     issues = work.gh_all(f"repos/{REPO}/issues?labels={AUTOMATION_LABEL}&state=all")
-    rows, unknown = ledger(comments, issues)
+    rows, unknown, unreadable = ledger(comments, issues)
     for row in rows:
         reviews = ", ".join(f"#{r['pr']} {r['sha']}" for r in row["reviews"])
         line = f"{row['kind']}: {len(row['reviews'])} review{'' if len(row['reviews']) == 1 else 's'}"
@@ -385,10 +388,12 @@ def cmd_ledger(_args):
         if row["open"]:
             line += f"; automated by #{row['open']}"
         elif row["needs_issue"]:
-            line += f"; NEEDS AN ISSUE: labelled critical, {AUTOMATION_LABEL} and its track, its body starting `Kinds: {row['kind']}`"
+            line += f"; NEEDS AN ISSUE, labelled critical, {AUTOMATION_LABEL} and its track, its first line: Kinds: `{row['kind']}`"
         print(line)
     for pr, kind in unknown:
         print(f"#{pr}'s verdict tags `{kind}`, which isn't a kind in docs/agents/handoff/watchdog.md")
+    for n in unreadable:
+        print(f"#{n}'s Kinds: line names no kind in docs/agents/handoff/watchdog.md, so it automates none")
 
 
 COMMANDS = {"queue": cmd_queue, "prep": cmd_prep, "ledger": cmd_ledger}

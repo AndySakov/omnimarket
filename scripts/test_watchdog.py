@@ -225,59 +225,104 @@ def verdict(pr, sha, at, manual, login="AndySakov"):
 
 class Ledger(unittest.TestCase):
     """Against the comments on #147, #150, #151 and #154 and the `watchdog-automation` issues, as recorded
-    on 2026-10-23: #135 (`update-table`) closed at 10:54, #136 to #140 open with their kinds, and no
-    verdict yet with a `### Manual checks` section, so each test adds verdicts that have one."""
+    on 2026-10-23: #135 (`update-table`) closed at 10:54, #136 to #140 open with their kinds, #134 and #141
+    with no `Kinds:` line, and no verdict yet with a `### Manual checks` section, so each test adds verdicts
+    that have one."""
 
-    def rows(self, *verdicts):
-        rows, unknown = watchdog.ledger(recorded("ledger-comments.json") + list(verdicts),
-                                        recorded("automation-issues.json"))
-        return {r["kind"]: r for r in rows}, unknown
+    def rows(self, *verdicts, issues=()):
+        rows, unknown, unreadable = watchdog.ledger(recorded("ledger-comments.json") + list(verdicts),
+                                                    recorded("automation-issues.json") + list(issues))
+        return {r["kind"]: r for r in rows}, unknown, unreadable
 
     def test_the_recorded_verdicts_log_no_manual_check_and_nothing_needs_an_issue(self):
-        rows, unknown = self.rows()
+        rows, unknown, unreadable = self.rows()
         self.assertEqual({k: len(r["reviews"]) for k, r in rows.items() if r["reviews"]}, {})
         self.assertEqual([k for k, r in rows.items() if r["needs_issue"]], [])
-        self.assertEqual(unknown, [])
+        self.assertEqual((unknown, unreadable), ([], []))
 
     def test_each_kind_maps_to_the_open_issue_whose_kinds_line_names_it(self):
-        rows, _ = self.rows()
+        rows, _, _ = self.rows()
         self.assertEqual({k: r["open"] for k, r in rows.items() if r["open"]},
                          {"d-number": 136, "mutants": 137, "fixture-invariants": 138, "region-states": 139,
                           "hostile-input": 139, "interleaving": 140, "io-bounds": 140})
 
-    def test_a_kind_logged_in_two_reviews_with_no_issue_needs_one(self):
-        rows, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy"]),
-                            verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy", "live-claim"]))
+    def test_a_kinds_line_is_read_with_or_without_backticks_and_an_unreadable_one_is_reported(self):
+        self.assertEqual(watchdog.issue_kinds({"body": "Kinds: copy-accuracy, `live-claim`\n\n## Problem"}),
+                         {"copy-accuracy", "live-claim"})
+        self.assertIsNone(watchdog.issue_kinds({"body": "## Problem\n\nNo kinds here."}))
+        typo = {"number": 170, "state": "open", "closed_at": None, "body": "Kinds: `copy`\n"}
+        self.assertEqual(self.rows(issues=[typo])[2], [170])
+
+    def test_a_kind_logged_on_two_prs_with_no_issue_needs_one(self):
+        rows, _, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy"]),
+                               verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy", "live-claim"]))
         self.assertTrue(rows["copy-accuracy"]["needs_issue"])
         self.assertEqual([(r["pr"], r["sha"]) for r in rows["copy-accuracy"]["reviews"]], [(160, "aaaaaaa"), (161, "bbbbbbb")])
         self.assertFalse(rows["live-claim"]["needs_issue"])
 
+    def test_a_review_and_its_re_review_are_one_pr_and_a_reposted_verdict_is_one_review(self):
+        rows, _, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy"]),
+                               verdict(160, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy"]),
+                               verdict(160, "bbbbbbb", "2026-10-24T11:00:00Z", ["copy-accuracy"]))
+        self.assertEqual([(r["pr"], r["sha"]) for r in rows["copy-accuracy"]["reviews"]], [(160, "aaaaaaa"), (160, "bbbbbbb")])
+        self.assertFalse(rows["copy-accuracy"]["needs_issue"])
+
+    def test_the_issue_the_hint_describes_is_one_the_ledger_reads(self):
+        flagged = [verdict(160 + i, f"{i}aaaaaa", f"2026-10-24T0{i}:00:00Z", ["copy-accuracy"]) for i in (1, 2)]
+        fake = FakeGitHub({f"{R}/issues/comments": recorded("ledger-comments.json") + flagged,
+                           f"{R}/issues": recorded("automation-issues.json")})
+        out = io.StringIO()
+        with mock.patch.object(work, "gh", fake.gh), contextlib.redirect_stdout(out):
+            watchdog.cmd_ledger([])
+        hint = next(line for line in out.getvalue().splitlines() if line.startswith("copy-accuracy:"))
+        filed = {"number": 170, "state": "open", "closed_at": None, "body": hint.split("its first line: ", 1)[1] + "\n\n## Problem"}
+        rows, _, unreadable = self.rows(*flagged, issues=[filed])
+        self.assertEqual((rows["copy-accuracy"]["open"], rows["copy-accuracy"]["needs_issue"], unreadable), (170, False, []))
+
     def test_a_kind_an_open_issue_automates_needs_no_other(self):
-        rows, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["interleaving"]),
-                            verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["interleaving"]))
+        rows, _, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["interleaving"]),
+                               verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["interleaving"]))
         self.assertEqual((len(rows["interleaving"]["reviews"]), rows["interleaving"]["needs_issue"]), (2, False))
 
     def test_only_reviews_since_the_last_issue_for_a_kind_closed_count(self):
         before = [verdict(140 + i, f"{i}aaaaaa", f"2026-10-22T0{i}:00:00Z", ["update-table"]) for i in (1, 2)]
-        rows, _ = self.rows(*before)
+        rows, _, _ = self.rows(*before)
         self.assertEqual((len(rows["update-table"]["reviews"]), rows["update-table"]["needs_issue"]), (2, False))
         after = [verdict(160 + i, f"{i}bbbbbb", f"2026-10-24T0{i}:00:00Z", ["update-table"]) for i in (1, 2)]
-        rows, _ = self.rows(*before, *after)
+        rows, _, _ = self.rows(*before, *after)
         self.assertTrue(rows["update-table"]["needs_issue"])
+        # A second issue for the kind, closed later: only reviews after it count.
+        later = {"number": 170, "state": "closed", "closed_at": "2026-10-25T00:00:00Z", "body": "Kinds: `update-table`"}
+        rows, _, _ = self.rows(*before, *after, issues=[later])
+        self.assertFalse(rows["update-table"]["needs_issue"])
+
+    def test_an_open_issue_covers_its_kind_whatever_closed_ones_come_first(self):
+        earlier = {"number": 170, "state": "closed", "closed_at": "2026-10-25T00:00:00Z", "body": "Kinds: `copy-accuracy`"}
+        reopened = {"number": 171, "state": "open", "closed_at": None, "body": "Kinds: `copy-accuracy`"}
+        rows, _, _ = self.rows(issues=[earlier, reopened])
+        self.assertEqual(rows["copy-accuracy"]["open"], 171)
 
     def test_a_kind_tagged_twice_in_one_verdict_is_one_review(self):
-        rows, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy", "copy-accuracy"]))
+        rows, _, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy", "copy-accuracy"]))
         self.assertEqual((len(rows["copy-accuracy"]["reviews"]), rows["copy-accuracy"]["needs_issue"]), (1, False))
+
+    def test_only_the_manual_checks_sections_lines_count(self):
+        body = ("## Watchdog review: `aaaaaaa` passes\n\n### Verified\n- `live-claim`: the manual checks ran\n\n"
+                "### Manual checks\n1. `copy-accuracy`: numbered\n- `interleaving`: bulleted\n\n"
+                "### Non-blocking\n- `io-bounds`: after the next heading\n\n---\n- `hostile-input`: after the rule\n")
+        self.assertEqual(watchdog.manual_kinds(body), ["copy-accuracy", "interleaving"])
+        self.assertEqual(watchdog.manual_kinds(body.replace("\n\n### Non-blocking\n- `io-bounds`: after the next heading", "")),
+                         ["copy-accuracy", "interleaving"])
 
     def test_other_accounts_and_pending_markers_dont_count(self):
         marker = verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy"])
         marker["body"] = marker["body"].replace("## Watchdog review: `aaaaaaa` passes", "## Watchdog reviewing `aaaaaaa`")
-        rows, _ = self.rows(verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy"], login="jutin0852"), marker)
+        rows, _, _ = self.rows(verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy"], login="jutin0852"), marker)
         self.assertEqual(rows["copy-accuracy"]["reviews"], [])
 
     def test_other_is_read_never_filed_and_an_unknown_kind_is_reported(self):
-        rows, unknown = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["other", "flaky-ci"]),
-                                  verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["other"]))
+        rows, unknown, _ = self.rows(verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["other", "flaky-ci"]),
+                                     verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["other"]))
         self.assertEqual((len(rows["other"]["reviews"]), rows["other"]["needs_issue"]), (2, False))
         self.assertEqual(unknown, [(160, "flaky-ci")])
 
@@ -286,11 +331,34 @@ class Ledger(unittest.TestCase):
         table = doc[doc.index("| Kind | The check by hand |"):].split("\n\n")[0]
         self.assertEqual(tuple(re.findall(r"(?m)^\| `([a-z-]+)` \|", table)), watchdog.KINDS)
 
+    def test_ledger_reads_every_page_of_comments_and_every_automation_issue(self):
+        filler = [{"id": i, "user": {"login": "AndySakov"}, "created_at": "2026-10-20T00:00:00Z",
+                   "issue_url": f"https://api.github.com/{R}/issues/100", "body": "Taking this"} for i in range(100)]
+        later = [verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy"]),
+                 verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy"])]
+        asked = []
+
+        def gh(path, method="GET", fields=None, check=True):
+            asked.append(path)
+            base, _, query = path.partition("?")
+            page = re.search(r"(?:^|&)page=(\d+)", query).group(1)
+            if base == f"{R}/issues":
+                return recorded("automation-issues.json") if page == "1" else []
+            return {"1": filler, "2": later}.get(page, [])
+
+        out = io.StringIO()
+        with mock.patch.object(work, "gh", gh), contextlib.redirect_stdout(out):
+            watchdog.cmd_ledger([])
+        self.assertIn("copy-accuracy: 2 reviews (#160 aaaaaaa, #161 bbbbbbb); NEEDS AN ISSUE", out.getvalue())
+        self.assertIn(f"{R}/issues/comments?per_page=100&page=2", asked)
+        self.assertIn(f"{R}/issues?labels=watchdog-automation&state=all&per_page=100&page=1", asked)
+
     def test_ledger_prints_each_kind_with_its_reviews(self):
         fake = FakeGitHub({f"{R}/issues/comments": recorded("ledger-comments.json") + [
-            verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy", "interleaving"]),
+            verdict(160, "aaaaaaa", "2026-10-24T09:00:00Z", ["copy-accuracy", "interleaving", "flaky-ci"]),
             verdict(161, "bbbbbbb", "2026-10-24T10:00:00Z", ["copy-accuracy"])],
-            f"{R}/issues": recorded("automation-issues.json")})
+            f"{R}/issues": recorded("automation-issues.json") + [
+                {"number": 170, "state": "open", "closed_at": None, "body": "Kinds: `copy`"}]})
         out = io.StringIO()
         with mock.patch.object(work, "gh", fake.gh), contextlib.redirect_stdout(out):
             watchdog.cmd_ledger([])
@@ -304,9 +372,11 @@ class Ledger(unittest.TestCase):
             "interleaving: 1 review (#160 aaaaaaa); automated by #140",
             "io-bounds: 0 reviews; automated by #140",
             "live-claim: 0 reviews",
-            "copy-accuracy: 2 reviews (#160 aaaaaaa, #161 bbbbbbb); NEEDS AN ISSUE: labelled critical, "
-            "watchdog-automation and its track, its body starting `Kinds: copy-accuracy`",
+            "copy-accuracy: 2 reviews (#160 aaaaaaa, #161 bbbbbbb); NEEDS AN ISSUE, labelled critical, "
+            "watchdog-automation and its track, its first line: Kinds: `copy-accuracy`",
             "other: 0 reviews",
+            "#160's verdict tags `flaky-ci`, which isn't a kind in docs/agents/handoff/watchdog.md",
+            "#170's Kinds: line names no kind in docs/agents/handoff/watchdog.md, so it automates none",
         ])
 
 

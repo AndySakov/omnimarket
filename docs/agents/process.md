@@ -10,6 +10,8 @@ The first five sections were D-entries before this file existed, and keep their 
 
 *(Amended by D90: the watchdog posts its verdict as a PR comment, and the `watchdog-status` workflow turns it into the `watchdog/review` status; the watchdog runs on the build account; builders merge once `verify`, `frontend` and `watchdog/review` pass.)*
 
+*(2026-10-23, #141: the watchdog no longer reruns the checks CI ran green on the reviewed head; it runs only what CI can't, and logs its manual checks so repeats become automation (`handoff/watchdog.md`, "Cost").)*
+
 **Date:** 2026-09-30 · **Status:** Decided (process; from auditing M0 and M1)
 
 **Decision:** A separate watchdog agent session reviews every PR before it merges. It checks the change against its issue, the D-entries and CLAUDE.md's update table, runs the tests, and posts a `watchdog/review` commit status on the PR's head commit (`pending`, then `success` or `failure`) with its findings as a PR comment. Branch protection on `main` requires `verify` and `watchdog/review`, and applies to admins. Each push needs a fresh review. The protocol is in CLAUDE.md.
@@ -174,7 +176,7 @@ Rejected: the orchestrator assigning numbers (a round trip per entry, and Jutin'
 
 ## Automating the watchdog's checks
 
-The watchdog reviews every PR on Temi's small token budget, so the checks it repeats by hand should become scripts or CI jobs. Each verdict ends with a `### Manual checks` section: one line per check done by hand, tagged with a kind (`handoff/watchdog.md`, "Cost"). `scripts/watchdog ledger` counts the kinds across every verdict. A kind logged in two or more reviews, with no open issue automating it, gets one, filed by the watchdog:
+The watchdog reviews every PR on Temi's small token budget, so the checks it repeats by hand should become scripts or CI jobs. Each verdict ends with a `### Manual checks` section: one line per check done by hand, tagged with a kind (`handoff/watchdog.md`, "Cost"). `scripts/watchdog ledger` counts the kinds across every verdict. A kind logged on two or more PRs, with no open issue automating it, gets one, filed by the watchdog. Only a check a script could do is logged: judging a reason, a waiver or a design is the review itself.
 
 - **Labelled `watchdog-automation`**, plus `critical` (Temi's call, 2026-10-02: the watchdog's spend limits how many PRs merge) and its track.
 - **Its body's first line names the kinds it automates,** ``Kinds: `<kind>`, …``. The ledger reads that line: an open issue covers its kinds, and once it closes, only reviews after it count again.
