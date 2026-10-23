@@ -28,7 +28,7 @@ If your brief names a **PR** instead (a stalled one, D87 rule 1): `scripts/work 
 - **Iterate cheaply.** Use `cargo test -p <crate>` and `cargo clippy -p <crate> --all-targets -- -D warnings` while working; each commit runs the full `scripts/verify.sh` through the git hook (about 1–3 minutes warm). The hook runs on every commit, so commit at meaningful green points, not every edit. Never `--no-verify`.
 - **Live runs** (measurements, recordings, fixtures): Base RPC is reachable here. Use `--rpc https://mainnet.base.org --call-rpc https://base-rpc.publicnode.com` (D80, D82, D88). For Kafka, Postgres or object storage: `scripts/stack up`.
 - **Docs in the same commit**, per CLAUDE.md's update table. A choice about OmniMarket's behaviour or architecture gets a D-entry (CLAUDE.md, Decisions), numbered as "Work alongside other builders" says; a process change goes in `docs/agents/process.md` instead. An unverified claim is marked **(verify)**, and a measured one goes in `docs/spec/verification.md`.
-- **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or explain in the PR why not.
+- **Mutants:** before opening the PR, run `scripts/mutants.sh --diff origin/main`. Add tests for any missed mutant in code you wrote, or give the reason no test catches it in the PR body's "Missed mutants" table, which CI's `mutants` job checks.
 
 ## Work alongside other builders
 

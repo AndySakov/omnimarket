@@ -2022,6 +2022,7 @@ MegaETH keeps D10's reconciler, since its fast loop (mini-blocks) is provisional
 - **Diff mode.** `--diff BASE` tests only mutants in code changed since BASE, as a fresh verdict, and leaves the ledger alone. A diff with no Rust in it stops before building anything.
 - **The unmutated workspace passes first.** cargo-mutants' baseline runs only the mutated packages' tests, so if another package's test already failed, every mutant would look caught. The script runs the whole workspace's tests on the snapshot before any shard starts.
 - **CI:** the `mutants` workflow. On PRs that touch Rust it tests the changed code. Nightly on `main` it tests every mutant not in the ledger, and the ledger is cached per ISO week, so the week's first run is fresh. The workers' target dirs are cached from `main`'s runs. It isn't a required check.
+  *(2026-10-23, #137: it runs on every PR. The `mutants` job fails a PR whose body gives no reason for one of the run's missed mutants, and becomes a required check once it has run green on two PRs.)*
 
 **Found while measuring** (a 4-core container, 2026-09-30 and 2026-10-01):
 - cargo-mutants' default copies the tree for each job and builds the copy cold. With 3 jobs, each copy's first build took 800–900s under contention (123s alone), and 18 of about 400 mutants were done after 25 minutes.
