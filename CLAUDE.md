@@ -82,7 +82,7 @@ M0 creates the workspace and the commands. Until then there is nothing to run. O
 
 Run the real thing before claiming done, and say what you could not verify.
 
-Passing tests only show the code ran. To check that a change's tests would notice its code doing the wrong thing, run `scripts/mutants.sh --diff origin/main`: it lists the mutations of the changed code that no test catches (D89). CI's `mutants` workflow runs the same on every PR that touches Rust.
+Passing tests only show the code ran. To check that a change's tests would notice its code doing the wrong thing, run `scripts/mutants.sh --diff origin/main`: it lists the mutations of the changed code that no test catches (D89). CI's `mutants` workflow runs the same on every PR.
 
 ## When you change X, update Y
 
@@ -119,6 +119,7 @@ Passing tests only show the code ran. To check that a change's tests would notic
 
 - After opening a PR or pushing to one, wait for the checks: `scripts/work checks <n>` (in cloud sessions `gh pr checks` fails: GraphQL is blocked there). While you wait, you may start the next issue in the "Current mode" order on a new branch off `main`.
 - A PR whose body closes an issue labelled `bug` (`Fixes #n`, `Closes #n`) also gets CI's `regression-check` job (D92): the PR's new or changed tests must fail on `main`'s code and pass on its head. On any other PR it passes at once. It isn't required yet; once it's green on two fix PRs it joins `verify` and `watchdog/review`. When it fails, read its job summary: a test that passes on `main` too doesn't show the bug.
+- CI's `mutants` job checks the PR body's "Missed mutants" table: every mutant the PR's run missed needs a row, copied as cargo-mutants prints it, giving the reason no test catches it. A missing row or an empty reason fails it; the reasons are listed for the watchdog. After editing the table, re-run that job alone. It becomes a required check once it has run green on two PRs.
 - On `failure`, read the latest watchdog comment (`scripts/work show <n>`), fix every blocking finding on the same branch, and push. Each push needs a fresh review.
 - CI's `criteria` job checks the PR body's "Acceptance criteria" table (`.github/pull_request_template.md`, D95): every criterion of the closed issue has a row, every row names tests or `manual:` evidence, and every test a row names passed in this run. `manual:` rows are listed in its summary, and the watchdog checks their evidence. After editing the body, re-run that job. It becomes a required check once it has run green on two PRs.
 - CI's `update-table` job checks the "When you change X, update Y" table above against the PR (#135): a changed path whose row's doc didn't change fails it, unless the PR body has a line `Docs unchanged: <doc>: <reason>`. Its summary lists the waivers and the rows only a reviewer can judge, for the watchdog. After adding a waiver, re-run that job. Like `criteria`, it becomes a required check once it has run green on two PRs.
