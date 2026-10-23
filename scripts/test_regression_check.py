@@ -5,6 +5,7 @@ The end-to-end cases build a throwaway git repository holding one small crate wi
 and a branch per kind of fix PR, then run the script on each branch as CI would."""
 
 import importlib.machinery
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -21,7 +22,9 @@ SCRIPT = ROOT / "scripts" / "regression-check"
 # Outside the repository's git hook's variables (GIT_INDEX_FILE, ...): verify.sh runs these tests
 # from the pre-commit hook, and the throwaway repository's git calls mustn't reach this one.
 CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-rc = importlib.machinery.SourceFileLoader("regression_check", str(SCRIPT)).load_module()
+loader = importlib.machinery.SourceFileLoader("regression_check", str(SCRIPT))
+rc = importlib.util.module_from_spec(importlib.util.spec_from_loader("regression_check", loader))
+loader.exec_module(rc)
 
 
 class ReadingRust(unittest.TestCase):
