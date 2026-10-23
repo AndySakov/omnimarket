@@ -7,9 +7,13 @@
 //!   the tests that prove it (in backticks) or `manual: <evidence>`.
 //! - Passed tests are the `test <name> ... ok` lines of libtest output. CI writes the frontend's
 //!   Vitest and Playwright results in the same shape, with ` > ` between title segments.
+//!
+//! [`mutants`] checks the PR's "Missed mutants" table the same way, for the `mutants` job (#137).
 
 use std::collections::BTreeSet;
 use std::fmt;
+
+pub mod mutants;
 
 /// The heading both an issue and a PR body put their criteria under, at any level.
 const SECTION: &str = "acceptance criteria";
@@ -123,8 +127,9 @@ impl Report {
     }
 }
 
-/// The lines under the body's `## Acceptance criteria` heading, up to the next heading.
-fn section(body: &str) -> Vec<&str> {
+/// The lines under the body's first heading that starts with `heading` (lowercase), up to the next
+/// heading.
+fn section<'a>(body: &'a str, heading: &str) -> Vec<&'a str> {
     let mut lines = body.lines().map(|l| l.trim_end_matches('\r'));
     if !lines.by_ref().any(|l| {
         is_heading(l)
@@ -132,11 +137,28 @@ fn section(body: &str) -> Vec<&str> {
                 .trim_start_matches('#')
                 .trim()
                 .to_lowercase()
-                .starts_with(SECTION)
+                .starts_with(heading)
     }) {
         return Vec::new();
     }
     lines.take_while(|l| !is_heading(l)).collect()
+}
+
+/// The cells of each row of the table under `heading`. The first table row is the header, and the
+/// separator row (`|---|---|`) isn't a row.
+fn table(body: &str, heading: &str) -> Vec<Vec<String>> {
+    section(body, heading)
+        .into_iter()
+        .map(str::trim)
+        .filter(|l| l.starts_with('|'))
+        .skip(1)
+        .map(split_cells)
+        .filter(|cells| {
+            !cells
+                .iter()
+                .all(|c| c.chars().all(|ch| matches!(ch, '-' | ':' | ' ')))
+        })
+        .collect()
 }
 
 /// A Markdown heading (`## Why`), not a line that starts with an issue number (`#98 …`).
@@ -151,7 +173,7 @@ pub fn issue_criteria(body: &str) -> Vec<String> {
     let mut criteria: Vec<String> = Vec::new();
     // Whether the previous line belongs to a criterion, so an indented line continues it.
     let mut open = false;
-    for line in section(body) {
+    for line in section(body, SECTION) {
         let trimmed = line.trim();
         let item = ["- [ ]", "- [x]", "- [X]", "* [ ]", "* [x]", "* [X]"]
             .iter()
@@ -208,28 +230,16 @@ pub fn closed_issues(body: &str) -> Vec<u64> {
     issues.into_iter().collect()
 }
 
-/// The rows of a PR body's acceptance-criteria table. The first table row is the header.
+/// The rows of a PR body's acceptance-criteria table.
 pub fn pr_rows(body: &str) -> Vec<Row> {
-    let mut rows = Vec::new();
-    let table = section(body)
+    table(body, SECTION)
         .into_iter()
-        .map(str::trim)
-        .filter(|l| l.starts_with('|'))
-        .skip(1);
-    for line in table {
-        let cells = split_cells(line);
-        let is_separator = cells
-            .iter()
-            .all(|c| c.chars().all(|ch| matches!(ch, '-' | ':' | ' ')));
-        if is_separator || cells.len() < 2 {
-            continue;
-        }
-        rows.push(Row {
+        .filter(|cells| cells.len() >= 2)
+        .map(|cells| Row {
             criterion: cells[0].clone(),
             proof: read_proof(&cells[1]),
-        });
-    }
-    rows
+        })
+        .collect()
 }
 
 /// A table line's cells, trimmed. `\|` is a pipe inside a cell.
