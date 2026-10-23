@@ -7,6 +7,7 @@ and the worktree is checked out in throwaway git repositories, so these run offl
 import contextlib
 import copy
 import importlib.machinery
+import importlib.util
 import io
 import json
 import os
@@ -20,7 +21,9 @@ from unittest import mock
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
-watchdog = importlib.machinery.SourceFileLoader("watchdog", str(HERE / "watchdog")).load_module()
+loader = importlib.machinery.SourceFileLoader("watchdog", str(HERE / "watchdog"))
+watchdog = importlib.util.module_from_spec(importlib.util.spec_from_loader("watchdog", loader))
+loader.exec_module(watchdog)
 work = watchdog.work
 FIXTURES = HERE / "fixtures" / "watchdog"
 R = f"repos/{watchdog.REPO}"
