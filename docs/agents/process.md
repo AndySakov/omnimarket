@@ -169,3 +169,15 @@ Up to six builders and Jutin work at once. On 2026-10-01 two PRs opened four sec
 - **Builders talk to each other.** An overlap is settled by `send_message` between the two sessions: who changes what, and who merges first. The one that merges second merges `main` in. A change to a shared contract (`proto/`, generated API types, public crate APIs, workspace dependencies, `scripts/work`, CLAUDE.md) goes to the orchestrator as `CONTRACT #n: …`, and it relays the line to every running builder.
 
 Rejected: the orchestrator assigning numbers (a round trip per entry, and Jutin's agent can't reach it); renumbering at merge (a review cycle each time); a reserved-numbers file in the repo (reserving would need a merge through the gate).
+
+---
+
+## Automating the watchdog's checks
+
+The watchdog reviews every PR on Temi's small token budget, so the checks it repeats by hand should become scripts or CI jobs. Each verdict ends with a `### Manual checks` section: one line per check done by hand, tagged with a kind (`handoff/watchdog.md`, "Cost"). `scripts/watchdog ledger` counts the kinds across every verdict. A kind logged in two or more reviews, with no open issue automating it, gets one, filed by the watchdog:
+
+- **Labelled `watchdog-automation`**, plus `critical` (Temi's call, 2026-10-02: the watchdog's spend limits how many PRs merge) and its track.
+- **Its body's first line names the kinds it automates,** ``Kinds: `<kind>`, …``. The ledger reads that line: an open issue covers its kinds, and once it closes, only reviews after it count again.
+- **The PR that lands the check deletes the manual step** from `handoff/watchdog.md`.
+
+`other` is never filed. When two `other` lines are the same check, it becomes a kind.
