@@ -5,6 +5,7 @@ Each runs the script on a throwaway repository holding a copy of this repository
 table under test is the real one, and a copy with a row added shows the table alone decides."""
 
 import importlib.machinery
+import importlib.util
 import os
 import subprocess
 import sys
@@ -16,7 +17,9 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "check-update-table"
 CLAUDE = (HERE.parent / "CLAUDE.md").read_text()
-check = importlib.machinery.SourceFileLoader("check_update_table", str(SCRIPT)).load_module()
+loader = importlib.machinery.SourceFileLoader("check_update_table", str(SCRIPT))
+check = importlib.util.module_from_spec(importlib.util.spec_from_loader("check_update_table", loader))
+loader.exec_module(check)
 # Outside the repository's git hook's variables (GIT_DIR, GIT_INDEX_FILE, ...): verify.sh runs these tests
 # from the pre-commit hook, and with them every git command here would act on the repository itself.
 CLEAN_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}

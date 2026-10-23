@@ -14,6 +14,10 @@ if [[ -f Cargo.toml ]]; then
   cargo test --workspace
   scripts/check-determinism.sh
   need python3
+  if grep -n -d skip 'load_module[(]' scripts/*; then
+    echo "verify: Python 3.15 removed load_module; load a script with spec_from_loader and exec_module" >&2
+    exit 1
+  fi
   python3 scripts/test_regression_check.py
   python3 scripts/test_work.py
   python3 scripts/test_check_update_table.py
