@@ -1,5 +1,6 @@
 use alloy::eips::{BlockId, BlockNumberOrTag};
 use alloy::providers::{Provider, ProviderBuilder, RootProvider};
+use alloy::rpc::client::RpcClient;
 use alloy::rpc::types::{Filter, TransactionRequest};
 use futures::future::LocalBoxFuture;
 use types::chain::{B256, BlockLog, CallResult, EthCall, Log, LogsQuery, LogsResult};
@@ -19,6 +20,13 @@ impl HttpChain {
         Ok(Self {
             provider: ProviderBuilder::default().connect_http(url),
         })
+    }
+
+    /// A node behind any JSON-RPC client rather than an HTTP URL: the fault tests' scripted node.
+    pub fn with_client(client: RpcClient) -> Self {
+        Self {
+            provider: ProviderBuilder::default().connect_client(client),
+        }
     }
 }
 
