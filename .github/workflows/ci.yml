@@ -122,3 +122,23 @@ jobs:
           cat summary.md
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
+
+  # Each D-entry a PR adds to docs/spec/decisions.md is reserved in the D-number ledger, and on neither
+  # main nor another open PR (docs/agents/process.md, "Coordination between workers").
+  d-numbers:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The PR merged into its base; the merge's first parent is the base.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Check the D-numbers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: scripts/work check-d --base HEAD^1 --head HEAD --pr "$PR" --summary "$GITHUB_STEP_SUMMARY"

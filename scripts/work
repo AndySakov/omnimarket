@@ -15,6 +15,8 @@ docs/agents/issue-tracker.md with REST calls, and applies CLAUDE.md's work order
   scripts/work merge <pr>               merge with a merge commit, only once the gate has passed
   scripts/work labels                   create the labels this workflow uses (safe to rerun)
   scripts/work reserve-d <title>        reserve the next free D-number in the ledger, and print it
+  scripts/work check-d [--base <ref>] [--head <ref>] [--pr <n>] [--summary <file>]
+                                        fail when a D-entry the change adds is on main, added by another open PR, or unreserved
   scripts/work overlaps                 other branches and PRs touching the files this branch touches, and who holds them
 
 Labels: `wip` marks a claimed issue (frontend issues keep Jutin as assignee, so the label is the
@@ -28,6 +30,7 @@ import re
 import signal
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 # Piping into `head` ends quietly instead of with a BrokenPipeError traceback.
@@ -482,14 +485,27 @@ The earliest comment for a number holds it. Don't edit or delete comments here; 
 and never used is just a gap."""
 
 
+DECISIONS = "docs/spec/decisions.md"
+
+
+def d_counts(text, prefix=""):
+    """How many `## D<n>` headings the text has for each number."""
+    return Counter(int(n) for n in re.findall(rf"(?m)^{re.escape(prefix)}## D(\d+)\b", text or ""))
+
+
 def d_numbers_in(text, prefix=""):
-    return {int(n) for n in re.findall(rf"(?m)^{re.escape(prefix)}## D(\d+)\b", text or "")}
+    return set(d_counts(text, prefix))
+
+
+def find_ledger():
+    found = gh(f"repos/{REPO}/issues?labels={LEDGER_LABEL}&state=open&per_page=10")
+    return found[0]["number"] if found else None
 
 
 def ledger_issue():
-    found = gh(f"repos/{REPO}/issues?labels={LEDGER_LABEL}&state=open&per_page=10")
+    found = find_ledger()
     if found:
-        return found[0]["number"]
+        return found
     existing = {label["name"] for label in gh(f"repos/{REPO}/labels?per_page=100")}
     if LEDGER_LABEL not in existing:
         gh(f"repos/{REPO}/labels", "POST", {"name": LEDGER_LABEL, "color": "0e8a16", "description": "The D-number ledger (docs/agents/process.md)"})
@@ -536,6 +552,74 @@ def cmd_reserve_d(args):
             return
         print(f"work: D{n} went to an earlier reservation; trying the next", file=sys.stderr)
     sys.exit("work: couldn't reserve a D-number after 5 tries; tell the orchestrator")
+
+
+def added_d_numbers(before, after):
+    """The D-numbers a change adds: those with more headings after it than before. An edited heading
+    keeps its count, and a number on both sides of a merge (main's entry and the change's) counts as added."""
+    was = d_counts(before)
+    return {n for n, count in d_counts(after).items() if count > was[n]}
+
+
+def d_numbers_a_pr_adds(files):
+    """The D-numbers an open PR adds, from its files' patches: a heading it adds and doesn't remove."""
+    patch = next((f.get("patch") for f in files if f["filename"] == DECISIONS), None)
+    removed = d_counts(patch, prefix="-")
+    return {n for n, count in d_counts(patch, prefix="+").items() if count > removed[n]}
+
+
+def d_entry_problems(added, on_main, others, reserved, ledger):
+    """Why each added D-number can't merge: already on main, added by another open PR (`others` maps
+    each PR to the numbers it adds), or not reserved in the ledger. Gaps in the numbering are fine."""
+    problems = []
+    for n in sorted(added):
+        if n in on_main:
+            problems.append(f"D{n} is already on main")
+        problems += [f"D{n} is also added by open PR #{pr}" for pr, numbers in sorted(others.items()) if n in numbers]
+        if n not in reserved:
+            problems.append(f"D{n} has no reservation in the D-number ledger" + (f" (#{ledger})" if ledger else ""))
+    return problems
+
+
+def git_show(ref, path):
+    """A file at a ref, or "" where it doesn't exist."""
+    out = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True)
+    return out.stdout if out.returncode == 0 else ""
+
+
+def cmd_check_d(args):
+    opts = {"--base": "origin/main", "--head": "HEAD", "--pr": None, "--summary": None}
+    if len(args) % 2 or any(flag not in opts for flag in args[::2]):
+        sys.exit("usage: scripts/work check-d [--base <ref>] [--head <ref>] [--pr <n>] [--summary <file>]")
+    opts.update(zip(args[::2], args[1::2]))
+    base, head = opts["--base"], opts["--head"]
+    merge_base = subprocess.run(["git", "merge-base", base, head], capture_output=True, text=True).stdout.strip()
+    if not merge_base:
+        sys.exit(f"work: no merge base for {base} and {head}")
+    added = added_d_numbers(git_show(merge_base, DECISIONS), git_show(head, DECISIONS))
+    problems = []
+    if added:
+        prs = gh_all(f"repos/{REPO}/pulls?state=open")
+        mine = int(opts["--pr"]) if opts["--pr"] else next(
+            (pr["number"] for pr in prs if pr["head"]["ref"] == current_branch()), None)
+        others = {pr["number"]: d_numbers_a_pr_adds(gh_all(f"repos/{REPO}/pulls/{pr['number']}/files"))
+                  for pr in prs if pr["number"] != mine}
+        ledger = find_ledger()
+        reserved = set(ledger_holders(ledger)) if ledger else set()
+        problems = d_entry_problems(added, d_numbers_in(git_show(base, DECISIONS)), others, reserved, ledger)
+    if not added:
+        result = ["This change adds no D-entry."]
+    elif problems:
+        result = [f"- {p}" for p in problems]
+    else:
+        result = ["Each D-entry this change adds is reserved, and on neither main nor another open PR: "
+                  + ", ".join(f"D{n}" for n in sorted(added)) + "."]
+    text = "\n".join(["## D-numbers", "", *result]) + "\n"
+    print(text, end="")
+    if opts["--summary"]:
+        with open(opts["--summary"], "a") as f:
+            f.write(text)
+    sys.exit(1 if problems else 0)
 
 
 # Files nearly every change appends to; an overlap here is expected and only needs main merged in.
@@ -607,6 +691,7 @@ COMMANDS = {
     "merge": cmd_merge,
     "labels": cmd_labels,
     "reserve-d": cmd_reserve_d,
+    "check-d": cmd_check_d,
     "overlaps": cmd_overlaps,
 }
 
