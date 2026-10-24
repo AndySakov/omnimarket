@@ -350,6 +350,11 @@ fn a_trade_counts_once_however_often_it_arrives() {
         rows(&series(&live_first, LOW, CandleInterval::CandleInterval1m)),
         once
     );
+    let candle = &series(&live_first, LOW, CandleInterval::CandleInterval1m).candles[0];
+    assert_eq!(
+        (candle.volume_quote.as_str(), candle.quote_trades),
+        ("50", 1)
+    );
     // Another log in the same block is another trade.
     let mut next = swap.clone();
     next.log_index = 2;
@@ -358,6 +363,73 @@ fn a_trade_counts_once_however_often_it_arrives() {
         series(&live_first, LOW, CandleInterval::CandleInterval1m).candles[0].trades,
         2
     );
+}
+
+/// (quote asset, symbol, open, high, low, close, volume, trades), in the quote view.
+fn quote_view(candle: &Candle) -> (&str, &str, [&str; 4], &str, u64) {
+    (
+        &candle.quote_asset,
+        &candle.quote_symbol,
+        [
+            &candle.open_quote,
+            &candle.high_quote,
+            &candle.low_quote,
+            &candle.close_quote,
+        ],
+        &candle.volume_quote,
+        candle.quote_trades,
+    )
+}
+
+#[test]
+fn a_token_whose_main_pool_is_quoted_in_weth_has_candles_in_weth_exact_to_its_trades() {
+    let mut feed = Feed::default();
+    feed.apply_price(&price(WETH, 18, &[(W, true)], W)).unwrap();
+    // B (LOW/WETH) is the main pool; A (LOW/USDC) counts toward the USD price only.
+    feed.apply_price(&price(LOW, 18, &[(A, true), (B, true)], B))
+        .unwrap();
+    for t in [
+        trade(W, (WETH, USDC), (10, 0), 0, e(18), 2_048 * e(6)),
+        trade(B, (LOW, WETH), (10, 1), 0, 200 * e(18), 625 * e(14)),
+        trade(A, (LOW, USDC), (11, 0), 2, 100 * e(18), 50 * e(6)),
+        // A third of a WETH-cent: no f64 holds it exactly.
+        trade(B, (LOW, WETH), (12, 0), 4, 3 * e(18), e(17)),
+        trade(B, (LOW, WETH), (13, 0), 6, 100 * e(18), 125 * e(14)),
+    ] {
+        feed.apply_trade(&t);
+    }
+    let series = series(&feed, LOW, CandleInterval::CandleInterval1m);
+    assert_eq!(
+        quote_view(&series.candles[0]),
+        (
+            "0x4200000000000000000000000000000000000006",
+            "WETH",
+            [
+                "0.0003125",
+                "0.033333333333333333333333333333333333",
+                "0.000125",
+                "0.000125"
+            ],
+            "0.175",
+            3
+        )
+    );
+    // The USD view still merges A's trade too.
+    assert_eq!(series.candles[0].trades, 4);
+}
+
+#[test]
+fn a_main_pool_that_hasnt_traded_leaves_the_quote_view_empty() {
+    let mut feed = Feed::default();
+    feed.apply_price(&price(LOW, 18, &[(A, true), (B, true)], B))
+        .unwrap();
+    feed.apply_trade(&trade(A, (LOW, USDC), (10, 0), 0, 100 * e(18), 50 * e(6)));
+    let series = series(&feed, LOW, CandleInterval::CandleInterval1m);
+    assert_eq!(
+        quote_view(&series.candles[0]),
+        ("", "", ["", "", "", ""], "", 0)
+    );
+    assert_eq!(series.candles[0].close_usd, "0.5");
 }
 
 /// Every series of every token and interval, as JSON.

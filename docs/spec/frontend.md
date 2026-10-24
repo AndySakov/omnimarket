@@ -70,7 +70,7 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=` | `DiscoveryFeed` | #81 |
 | `GET /v1/tokens/{chain_id}/{address}` | `TokenSnapshot` | #76 |
 | `GET /v1/trades?chain_id=&token=&limit=` | `TradeList` | #77 |
-| `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` (`interval`: `1s`, `1m`, `5m`, `15m`, `1h`, `4h` or `1d`; `from_ms` and `to_ms` optional, bounding the open time) | `CandleSeries`: the newest 1,440 in range, oldest first; empty for a token without candles | #80 |
+| `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` (`interval`: `1s`, `1m`, `5m`, `15m`, `1h`, `4h` or `1d`; `from_ms` and `to_ms` optional, bounding the open time) | `CandleSeries`: the newest 1,440 in range, oldest first; empty for a token without candles. Each candle is in USD and in its main pool's quote asset (`quote_asset`, `quote_symbol`, `open_quote` to `volume_quote`, `quote_trades`; data.md) | #80, #149 |
 | `POST /v1/session` | `Session` (guest, or linked to a Privy login) | #85 |
 | `GET /v1/account` | `Account` | #85 |
 | `GET /v1/positions` | `PositionList` | #85 |
