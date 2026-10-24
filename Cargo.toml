@@ -12,6 +12,7 @@ members = [
   "crates/criteria",
   "crates/pricing",
   "crates/api",
+  "crates/routing",
 ]
 exclude = ["scripts/fixtures/determinism"]
 
@@ -29,6 +30,7 @@ chain-io = { path = "crates/chain-io" }
 engine = { path = "crates/engine" }
 venues = { path = "crates/venues" }
 pricing = { path = "crates/pricing" }
+routing = { path = "crates/routing" }
 alloy = { version = "2.5", default-features = false }
 alloy-primitives = "1.7"
 alloy-sol-types = "1.7"

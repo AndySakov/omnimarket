@@ -149,6 +149,11 @@ Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 an
 - **Replay and rebuild.** `engine replay --kafka` of run 3's 8,123 inputs, 2,381 of them log reads, printed the same summary as the live run, history line and digest included. A second API rebuilt from the topics served the same candles, byte for byte, as the API that had consumed the runs live: 33 tokens at every interval, 231 series, 18,508 candles.
 - Earlier attempts stopped on D88's guard: a PublicNode call (and once a dRPC one) went unanswered for 60s. A run with history off stopped the same way, so it wasn't the backfill.
 
+## Measured: quotes (#83)
+
+- **Exact against Uniswap.** On pricing's reference-pools fixture (block 52,036,164), `routing` matches QuoterV2's `quoteExactInputSingle` to the unit for 11 swaps across the WETH/USDC 0.05% and 0.3% pools and WETH/USDT 0.05%, 0.01 to 20 WETH and 100 to 50,000 USDC, some crossing up to 4 initialized ticks. It also matches UniswapV2Router02's `getAmountsOut` on the WETH/USDC pair both ways (`crates/routing/tests/quoter.rs`).
+- **Latency.** Routing math over those four pools (direct and through WETH or USDC), 20,000 quotes in release on an Apple M1 Pro: p50 1.2µs, p99 3.4µs (`quote_latency`). The API adds a lock and building the `Quote` message. Each route search scans every mirrored pool, so the cost grows with the pool count. That's still far inside the 10ms budget at the hundreds of pools a session tracks **(verify)** at thousands.
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

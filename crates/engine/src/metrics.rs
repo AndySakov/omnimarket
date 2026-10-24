@@ -207,6 +207,7 @@ mod tests {
                 reserve0: 1,
                 reserve1: 1,
             }),
+            key: None,
         }
     }
 

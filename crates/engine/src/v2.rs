@@ -8,7 +8,7 @@ use types::chain::{Address, B256, Block, Bytes, CallResult, EthCall, Log};
 use venues::multicall;
 use venues::v2::{self, Deployment, Pair, Reserves};
 
-use crate::outbox::{PoolState, PoolUpdate};
+use crate::outbox::{PoolKey, PoolState, PoolUpdate};
 use crate::state::{Effects, Pending, Stats};
 use crate::trades::{SwapSeen, Trade, Venue};
 
@@ -239,13 +239,23 @@ impl V2Pools {
             for seen in seen {
                 match seen {
                     Seen::Sync { event, reserves } => {
-                        effects.updates.push(PoolUpdate::new(
+                        let update = PoolUpdate::new(
                             chain_id,
                             address,
                             event,
                             before.map(PoolState::V2),
                             PoolState::V2(reserves),
-                        ));
+                        );
+                        effects.updates.push(match before {
+                            Some(_) => update,
+                            None => update.discovering(PoolKey {
+                                venue: Venue::UniswapV2,
+                                token0,
+                                token1,
+                                fee_pips: 3_000,
+                                tick_spacing: 0,
+                            }),
+                        });
                         before = Some(reserves);
                     }
                     Seen::Swap(swap) => effects.trades.push(Trade::new(

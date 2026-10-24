@@ -13,6 +13,7 @@ use types::chain::Address;
 use crate::candles::{Candles, INTERVALS, candles_topic};
 use crate::discovery::{Discovery, DiscoveryConfig};
 use crate::model::{ModelError, ReadModel, hex};
+use crate::quotes::Quotes;
 use crate::status::engine_status;
 use crate::throttle::Throttle;
 
@@ -48,6 +49,9 @@ pub struct Feed {
     /// The latest `status.base` record's.
     status: Option<EngineStatus>,
     candles: Candles,
+    /// Quotes read pool state as it arrives: unlike discovery, they don't wait for a whole
+    /// block across the topics.
+    quotes: Quotes,
     /// Tokens whose candles took history since the last live trade. Their candle topics get a
     /// fresh snapshot with the next live trade, rather than a delta per trade of history.
     history_changed: BTreeSet<Address>,
@@ -87,6 +91,7 @@ impl Feed {
         let now_ms = update.block_timestamp.saturating_mul(1000);
         let tick = self.model.apply_price(update)?;
         self.candles.apply_price(update)?;
+        self.quotes.apply_price(update);
         let ticks = self
             .throttle
             .offer(tick, now_ms)
@@ -190,6 +195,7 @@ impl Feed {
 
     /// Takes one `pool-updates.base` record for the discovery read model.
     pub fn apply_pool_update(&mut self, update: &PoolUpdate) -> Vec<Published> {
+        self.quotes.apply_pool_update(update);
         self.pending.seen[0] = self.pending.seen[0].max(update.block_number);
         let at = self.pending.seen[0];
         self.pending.pools.push_back((at, update.clone()));
@@ -236,6 +242,10 @@ impl Feed {
 
     pub fn discovery(&self) -> &Discovery {
         &self.discovery
+    }
+
+    pub fn quotes(&mut self) -> &mut Quotes {
+        &mut self.quotes
     }
 
     pub fn candles(&self) -> &Candles {

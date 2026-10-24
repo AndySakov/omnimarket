@@ -13,7 +13,7 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use det::{Clock, SystemClock};
 use prost::Message as _;
 use proto::api::v1::{DiscoveryList, ServerMessage};
@@ -231,6 +231,7 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
         .route("/v1/tokens/{chain_id}/{address}", get(token))
         .route("/v1/discovery", get(discovery))
         .route("/v1/candles", get(candles))
+        .route("/v1/quotes", post(quote))
         .route("/v1/stream", get(stream))
         .layer(middleware::from_fn_with_state(
             shared.clone(),
@@ -424,6 +425,26 @@ pub fn parse_candles_query(params: &BTreeMap<String, String>) -> Option<CandlesQ
         from_ms: optional("from_ms", 0)?,
         to_ms: optional("to_ms", u64::MAX)?,
     })
+}
+
+/// `POST /v1/quotes` with a `QuoteRequest`: a `Quote` on the latest pool state. A body or
+/// field that doesn't parse is a 400; a pair that can't be quoted is a 422 with the reason.
+async fn quote(State(shared): State<Arc<Shared>>, body: String) -> Response {
+    let Ok(request) = serde_json::from_str::<proto::api::v1::QuoteRequest>(&body) else {
+        return (StatusCode::BAD_REQUEST, "the body isn't a QuoteRequest").into_response();
+    };
+    let quoted = shared.feed().quotes().quote(&request);
+    match quoted {
+        Ok(quote) => (
+            [(header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(&quote).expect("generated messages always serialize"),
+        )
+            .into_response(),
+        Err(error @ crate::QuoteError::Bad(_)) => {
+            (StatusCode::BAD_REQUEST, error.to_string()).into_response()
+        }
+        Err(error) => (StatusCode::UNPROCESSABLE_ENTITY, error.to_string()).into_response(),
+    }
 }
 
 async fn stream(ws: WebSocketUpgrade, State(shared): State<Arc<Shared>>) -> Response {
