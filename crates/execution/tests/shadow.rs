@@ -96,6 +96,12 @@ fn quoter(out: U256) -> SimRpc<EthCall, CallResult> {
     SimRpc::new(move |call: EthCall| {
         assert_eq!(call.to, QUOTER);
         assert_eq!(call.block, 100);
+        // quoteExactInputSingle((tokenIn, tokenOut, amountIn, fee, limit)): the fourth word
+        // after the selector is the pool's fee in pips, 5 bps being 500.
+        assert_eq!(
+            U256::from_be_slice(&call.data[4 + 3 * 32..4 + 4 * 32]),
+            U256::from(500u64)
+        );
         let answer = (out, U256::ZERO, 0u32, U256::ZERO).abi_encode_params();
         (
             Duration::from_millis(40),
@@ -387,5 +393,16 @@ fn an_in_memory_sell_takes_no_second_fee() {
 #[test]
 fn a_simulation_exactly_at_the_minimum_fills() {
     let finished = trade(buy(), buy(), U256::from(388_000_000_000_000_000u64));
+    assert_eq!(finished.status.state(), State::Simulated);
+}
+
+#[test]
+fn a_fresh_quote_exactly_at_the_signed_minimum_goes_on() {
+    let fresh = Quote {
+        amount_out: "0.388".into(),
+        ..buy()
+    };
+    let finished = trade(buy(), fresh, U256::from(390_000_000_000_000_000u64));
+    assert_eq!(finished.status.steps[0].detail, "");
     assert_eq!(finished.status.state(), State::Simulated);
 }
