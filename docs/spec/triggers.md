@@ -4,6 +4,17 @@
 
 The order engine lives inside each Chain Engine (D6): orders are durable in Postgres, and the engine holds an in-memory index rebuilt from it (D35).
 
+## Built for the demo (#86)
+
+A thin M6 in shadow mode: `crates/triggers`, run by the API rather than the engine for now, since the API holds the accounts, quotes and trades a firing needs.
+
+- **Orders.** A limit buy fires at or below its level, a take-profit at or above, and a stop-loss at or below. The level is a USD display price, or a percent from the position's average entry, resolved when it's set. A take-profit or stop-loss sells a share of the position into USDC; a limit buy spends a WETH or USDC amount. At most 50 open orders per account. REST places, edits and cancels them (frontend.md).
+- **Evaluation.** A sorted index per token holds the levels that fire above and those that fire below. Each `prices.base` record checks the token's index, and the engine publishes those per canonical block only (D77), so nothing fires on provisional state. Pool and trade records never fire an order. The orders crossed fire in level order, the one nearest the price first.
+- **Exactly once (D35).** A firing's ID is keccak-256 of the order ID and its per-order firing count. The order goes to `firing` with its count raised, and is kept in Postgres before its trade runs. A restart rebuilds the index from the store. An order a restart caught mid-firing fails rather than risk a second trade, and its user sees why.
+- **A firing's trade.** It's quoted (#83), then run in shadow (#84) signed by the server's local signer (D57's user-absent path). The fill goes to the account (#85), and the order ends `filled` or `failed` with the reason. The trade carries the firing ID.
+- **Exit guarantee (D60).** On by default for stops. If the trade fails, it's quoted again at the current price, within twice its slippage (at most 50%), and run once more. Off makes it a stop-limit.
+- **Not yet:** auto exits attached to a buy, statuses on the `account` topic (REST serves them), and the rest of D37's catalogue.
+
 ## Order catalogue (D37)
 
 | Type | Fires when | Index |

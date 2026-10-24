@@ -1,0 +1,362 @@
+//! Trigger orders over the API (#86): a stop placed on a position fires once when a recorded
+//! price path crosses it, sells through a shadow trade and books the fill. Only canonical
+//! prices (`prices.base`) fire it, and a restart mid-path neither fires it again nor skips it.
+
+use std::sync::Arc;
+
+use alloy_primitives::U256;
+use api::server::{Shared, router};
+use api::{Demo, Sessions, Store, hex};
+use prost::Message as _;
+use proto::api::v1::order_level::Level;
+use proto::api::v1::order_status::State as OrderState;
+use proto::api::v1::{
+    Order, OrderKind, OrderLevel, OrderList, PlaceOrderRequest, PositionList, Quote, QuoteRequest,
+    Session, TradeHistory, TradeRequest,
+};
+use proto::pool::v1::{PoolKey, PoolState, PoolUpdate, V2Reserves, pool_key, pool_state};
+use proto::price::v1::{PriceUpdate, TokenMetadata};
+
+const MEME: [u8; 20] = [0x30; 20];
+const WETH: [u8; 20] = [
+    0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x06,
+];
+const USDC: [u8; 20] = [
+    0x83, 0x35, 0x89, 0xfc, 0xd6, 0xed, 0xb6, 0xe0, 0x8f, 0x4c, 0x7c, 0x32, 0xd4, 0xf7, 0x1b, 0x54,
+    0xbd, 0xa0, 0x29, 0x13,
+];
+const MEME_WETH: [u8; 20] = [0xb1; 20];
+
+fn be(n: u128) -> Vec<u8> {
+    U256::from(n).to_be_bytes_trimmed_vec()
+}
+
+fn e(n: u32) -> u128 {
+    10u128.pow(n)
+}
+
+fn pair(pool: [u8; 20], a: ([u8; 20], u128), b: ([u8; 20], u128), discovered: bool) -> PoolUpdate {
+    let (first, second) = if a.0 < b.0 { (a, b) } else { (b, a) };
+    PoolUpdate {
+        chain_id: 8453,
+        pool: pool.to_vec(),
+        block_number: 100,
+        after: Some(PoolState {
+            state: Some(pool_state::State::V2(V2Reserves {
+                reserve0: be(first.1),
+                reserve1: be(second.1),
+            })),
+        }),
+        key: discovered.then(|| PoolKey {
+            venue: pool_key::Venue::UniswapV2.into(),
+            token0: first.0.to_vec(),
+            token1: second.0.to_vec(),
+            fee_pips: 3_000,
+            tick_spacing: 0,
+        }),
+        ..PoolUpdate::default()
+    }
+}
+
+#[allow(clippy::disallowed_methods)] // the test's own wall clock, as the server's
+fn now_s() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// A canonical block's price record for `token`, as the engine publishes it.
+fn price(token: [u8; 20], symbol: &str, usd: f64, block: u64) -> PriceUpdate {
+    PriceUpdate {
+        chain_id: 8453,
+        token: token.to_vec(),
+        block_number: block,
+        block_timestamp: now_s(),
+        price_usd: usd,
+        metadata: Some(TokenMetadata {
+            symbol: Some(symbol.into()),
+            decimals: Some(18),
+            ..TokenMetadata::default()
+        }),
+        ..PriceUpdate::default()
+    }
+}
+
+async fn server(demo: Demo) -> (Arc<Shared>, String) {
+    let shared = Shared::with_demo(api::DiscoveryConfig::default(), None, demo);
+    let app = router(shared.clone(), "http://localhost:5173").unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    #[allow(clippy::disallowed_methods)] // the test's own server task
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    for update in [
+        pair(
+            MEME_WETH,
+            (MEME, 100_000_000 * e(18)),
+            (WETH, 400 * e(18)),
+            true,
+        ),
+        pair(
+            [0xc1; 20],
+            (WETH, 40_000 * e(18)),
+            (USDC, 100_000_000 * e(6)),
+            true,
+        ),
+    ] {
+        shared.apply(engine::POOL_UPDATES_TOPIC, &update.encode_to_vec());
+    }
+    feed_price(&shared, WETH, "WETH", 2_500.0, 100).await;
+    feed_price(&shared, MEME, "MEME", 0.01, 100).await;
+    (shared, address)
+}
+
+/// One `prices.base` record, then the firings it caused, as the consumer runs them.
+async fn feed_price(shared: &Arc<Shared>, token: [u8; 20], symbol: &str, usd: f64, block: u64) {
+    shared.apply(
+        engine::PRICES_TOPIC,
+        &price(token, symbol, usd, block).encode_to_vec(),
+    );
+    shared.run_firings().await;
+}
+
+async fn http(
+    address: &str,
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: &str,
+) -> (u16, String) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let auth = token.map_or(String::new(), |t| format!("Authorization: Bearer {t}\r\n"));
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {address}\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await.unwrap();
+    let code = response[9..12].parse().unwrap();
+    (
+        code,
+        response
+            .split("\r\n\r\n")
+            .nth(1)
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+/// A guest who bought MEME with 500 USDC, and a stop on all of it 20% below their entry.
+async fn guest_with_a_stop(address: &str, id: &str) -> (String, Order) {
+    let (_, body) = http(address, "POST", "/v1/session", None, "").await;
+    let token = serde_json::from_str::<Session>(&body)
+        .unwrap()
+        .session_token;
+    let quote = QuoteRequest {
+        client_request_id: format!("{id}-buy"),
+        chain_id: 8453,
+        token_in: hex(&USDC),
+        token_out: hex(&MEME),
+        amount_in: "500".into(),
+        slippage_bps: None,
+    };
+    let (_, body) = http(
+        address,
+        "POST",
+        "/v1/quotes",
+        Some(&token),
+        &serde_json::to_string(&quote).unwrap(),
+    )
+    .await;
+    let quote: Quote = serde_json::from_str(&body).unwrap();
+    let trade = TradeRequest {
+        client_request_id: format!("{id}-buy"),
+        quote_id: quote.quote_id,
+        intent_signature: String::new(),
+    };
+    let (code, body) = http(
+        address,
+        "POST",
+        "/v1/trades",
+        Some(&token),
+        &serde_json::to_string(&trade).unwrap(),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    let place = PlaceOrderRequest {
+        client_request_id: format!("{id}-stop"),
+        chain_id: 8453,
+        token: hex(&MEME),
+        kind: OrderKind::StopLoss.into(),
+        level: Some(OrderLevel {
+            level: Some(Level::PctFromEntry("-20".into())),
+        }),
+        sell_pct: "100".into(),
+        ..PlaceOrderRequest::default()
+    };
+    let (code, body) = http(
+        address,
+        "POST",
+        "/v1/orders",
+        Some(&token),
+        &serde_json::to_string(&place).unwrap(),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    (token, serde_json::from_str(&body).unwrap())
+}
+
+async fn order(address: &str, token: &str) -> Order {
+    let (_, body) = http(address, "GET", "/v1/orders", Some(token), "").await;
+    serde_json::from_str::<OrderList>(&body)
+        .unwrap()
+        .orders
+        .remove(0)
+}
+
+/// MEME's price per canonical block from 101: down through the stop at about $0.0081, on
+/// down, and back up.
+const PATH: [f64; 6] = [0.0095, 0.0088, 0.0080, 0.0070, 0.0060, 0.0090];
+
+#[tokio::test]
+async fn a_stop_fires_once_on_a_recorded_price_path_and_sells_the_position() {
+    let (shared, address) = server(Demo::new(Sessions::new(b"s"), None)).await;
+    let (token, placed) = guest_with_a_stop(&address, "g").await;
+    // $500 for 49,179.005 MEME: entry $0.0101669; 20% below is $0.00813.
+    let level: f64 = placed.level_price_usd.parse().unwrap();
+    assert!((0.00813..0.00814).contains(&level), "{level}");
+    assert!(placed.exit_guarantee, "stops get out by default (D60)");
+
+    for (i, usd) in PATH.iter().enumerate() {
+        feed_price(&shared, MEME, "MEME", *usd, 101 + i as u64).await;
+        let state = order(&address, &token).await.status.unwrap();
+        let expected = if i < 2 {
+            OrderState::Open
+        } else {
+            OrderState::Filled
+        };
+        assert_eq!(state.state(), expected, "after {usd}: {}", state.detail);
+    }
+    let fired = order(&address, &token).await.status.unwrap();
+    assert_eq!(fired.firing_count, 1);
+    assert!(fired.detail.starts_with("trade "), "{}", fired.detail);
+
+    // The position is gone, sold through a shadow trade carrying the firing.
+    let (_, body) = http(&address, "GET", "/v1/positions", Some(&token), "").await;
+    let positions: PositionList = serde_json::from_str(&body).unwrap();
+    assert!(positions.positions[0].closed);
+    let (_, body) = http(&address, "GET", "/v1/history", Some(&token), "").await;
+    let history: TradeHistory = serde_json::from_str(&body).unwrap();
+    assert_eq!(history.receipts.len(), 2);
+    assert_eq!(history.receipts[0].firing_id, fired.last_firing_id);
+}
+
+#[tokio::test]
+async fn only_a_canonical_price_fires_an_order() {
+    let (shared, address) = server(Demo::new(Sessions::new(b"s"), None)).await;
+    let (token, _) = guest_with_a_stop(&address, "p").await;
+    // A pool update that halves MEME's price in its pool, and a swap at that price, but no
+    // price record for the block: nothing fires. Triggers read `prices.base` alone, which
+    // the engine publishes per canonical block (D77).
+    shared.apply(
+        engine::POOL_UPDATES_TOPIC,
+        &pair(
+            MEME_WETH,
+            (MEME, 200_000_000 * e(18)),
+            (WETH, 400 * e(18)),
+            false,
+        )
+        .encode_to_vec(),
+    );
+    shared.run_firings().await;
+    assert_eq!(
+        order(&address, &token).await.status.unwrap().state(),
+        OrderState::Open
+    );
+    // The block's price record does.
+    feed_price(&shared, MEME, "MEME", 0.005, 102).await;
+    assert_eq!(
+        order(&address, &token).await.status.unwrap().state(),
+        OrderState::Filled
+    );
+}
+
+#[tokio::test]
+async fn a_cancelled_order_never_fires_and_another_account_cant_touch_it() {
+    let (shared, address) = server(Demo::new(Sessions::new(b"s"), None)).await;
+    let (token, placed) = guest_with_a_stop(&address, "c").await;
+    let (_, other) = http(&address, "POST", "/v1/session", None, "").await;
+    let other = serde_json::from_str::<Session>(&other)
+        .unwrap()
+        .session_token;
+    let path = format!("/v1/orders/{}", placed.order_id);
+    assert_eq!(
+        http(&address, "DELETE", &path, Some(&other), "").await.0,
+        404
+    );
+    let (code, body) = http(&address, "DELETE", &path, Some(&token), "").await;
+    assert_eq!(code, 200, "{body}");
+    feed_price(&shared, MEME, "MEME", 0.001, 101).await;
+    let state = order(&address, &token).await.status.unwrap();
+    assert_eq!(
+        (state.state(), state.firing_count),
+        (OrderState::Cancelled, 0)
+    );
+    assert_eq!(
+        http(&address, "DELETE", &path, Some(&token), "").await.0,
+        409
+    );
+}
+
+/// Needs Postgres: OMNIMARKET_TEST_POSTGRES=postgres://… (CI's service container).
+#[tokio::test]
+#[ignore = "needs Postgres: set OMNIMARKET_TEST_POSTGRES, then --ignored"]
+async fn a_restart_mid_path_neither_fires_the_stop_again_nor_skips_it() {
+    let url = std::env::var("OMNIMARKET_TEST_POSTGRES").expect("OMNIMARKET_TEST_POSTGRES");
+    let restart = || async {
+        let store = Store::connect(&url).await.unwrap();
+        server(
+            Demo::new(Sessions::new(b"s"), None)
+                .with_store(store)
+                .await
+                .unwrap(),
+        )
+        .await
+    };
+    let (shared, address) = restart().await;
+    let (token, _) = guest_with_a_stop(&address, &format!("r{}", now_s())).await;
+    // Down to just above the stop, then a restart.
+    for (i, usd) in PATH[..2].iter().enumerate() {
+        feed_price(&shared, MEME, "MEME", *usd, 101 + i as u64).await;
+    }
+    drop(shared);
+    let (shared, address) = restart().await;
+    assert_eq!(
+        order(&address, &token).await.status.unwrap().state(),
+        OrderState::Open
+    );
+    // The rest of the path: it fires once, at the crossing.
+    for (i, usd) in PATH[2..].iter().enumerate() {
+        feed_price(&shared, MEME, "MEME", *usd, 103 + i as u64).await;
+    }
+    let fired = order(&address, &token).await.status.unwrap();
+    assert_eq!((fired.state(), fired.firing_count), (OrderState::Filled, 1));
+    // And after another restart, the same path again fires nothing more.
+    drop(shared);
+    let (shared, address) = restart().await;
+    for (i, usd) in PATH.iter().enumerate() {
+        feed_price(&shared, MEME, "MEME", *usd, 110 + i as u64).await;
+    }
+    let after = order(&address, &token).await.status.unwrap();
+    assert_eq!((after.state(), after.firing_count), (OrderState::Filled, 1));
+    let (_, body) = http(&address, "GET", "/v1/history", Some(&token), "").await;
+    assert_eq!(
+        serde_json::from_str::<TradeHistory>(&body)
+            .unwrap()
+            .receipts
+            .len(),
+        2
+    );
+}

@@ -157,6 +157,12 @@ impl AccountState {
         self.balances.get(&token).copied().unwrap_or_default()
     }
 
+    /// The average entry price of the account's open position in `token`, in USD.
+    pub fn entry_usd(&self, token: Address) -> Option<f64> {
+        let h = self.holdings.get(&token).filter(|h| !h.amount.is_zero())?;
+        Some(h.cost_basis_usd / whole(h.amount, h.token.decimals))
+    }
+
     /// Whether the account can spend `amount` of `token`.
     pub fn check(&self, token: &TokenRef, amount: U256) -> Result<(), FillError> {
         let have = self.balance(address_of(token)?);

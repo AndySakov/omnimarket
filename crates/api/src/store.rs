@@ -54,7 +54,38 @@ CREATE TABLE IF NOT EXISTS demo_fills (
     at_ms bigint NOT NULL,
     receipt jsonb
 );
+CREATE TABLE IF NOT EXISTS demo_orders (
+    order_id text PRIMARY KEY,
+    account_id text NOT NULL REFERENCES demo_accounts,
+    kind text NOT NULL,
+    token_address text NOT NULL,
+    level_usd double precision NOT NULL,
+    expires_at_ms bigint NOT NULL,
+    state text NOT NULL,
+    firing_count bigint NOT NULL,
+    terms jsonb NOT NULL
+);
 ";
+
+fn kind_name(kind: triggers::Kind) -> &'static str {
+    match kind {
+        triggers::Kind::LimitBuy => "limit_buy",
+        triggers::Kind::TakeProfit => "take_profit",
+        triggers::Kind::StopLoss => "stop_loss",
+    }
+}
+
+fn state_name(state: triggers::State) -> &'static str {
+    use triggers::State::*;
+    match state {
+        Open => "open",
+        Firing => "firing",
+        Filled => "filled",
+        Failed => "failed",
+        Cancelled => "cancelled",
+        Expired => "expired",
+    }
+}
 
 /// An account as stored: its state, and the Privy user it belongs to.
 pub struct Stored {
@@ -128,6 +159,117 @@ impl Store {
             )
             .await?;
         Ok(())
+    }
+
+    /// Keeps an order as it is now: its state and firing count included, so a restart never
+    /// fires it twice (D35).
+    pub async fn upsert_order(
+        &self,
+        order: &triggers::Order,
+        terms: &crate::Terms,
+    ) -> Result<(), StoreError> {
+        let terms = serde_json::json!({
+            "token": terms.token,
+            "level": terms.level,
+            "spend_amount": terms.spend_amount,
+            "spend_token": terms.spend_token,
+            "sell_pct": terms.sell_pct,
+            "exit_guarantee": terms.exit_guarantee,
+            "slippage_bps": terms.slippage_bps,
+            "created_at_ms": terms.created_at_ms,
+            "last_firing_id": terms.last_firing_id,
+            "detail": terms.detail,
+            "updated_at_ms": terms.updated_at_ms,
+        });
+        self.client
+            .execute(
+                "INSERT INTO demo_orders
+                   (order_id, account_id, kind, token_address, level_usd, expires_at_ms, state, firing_count, terms)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 ON CONFLICT (order_id) DO UPDATE SET
+                   level_usd = $5, state = $7, firing_count = $8, terms = $9",
+                &[
+                    &order.order_id,
+                    &order.account_id,
+                    &kind_name(order.kind),
+                    &crate::model::hex(order.token.as_slice()),
+                    &order.level_usd,
+                    &(order.expires_at_ms as i64),
+                    &state_name(order.state),
+                    &(order.firing_count as i64),
+                    &terms,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Every order, with its terms.
+    pub async fn load_orders(&self) -> Result<Vec<(triggers::Order, crate::Terms)>, StoreError> {
+        let corrupt = |what: &str| StoreError::Corrupt(format!("order's {what}"));
+        let mut orders = Vec::new();
+        for row in self
+            .client
+            .query(
+                "SELECT order_id, account_id, kind, token_address, level_usd, expires_at_ms, state, firing_count, terms
+                 FROM demo_orders",
+                &[],
+            )
+            .await?
+        {
+            let kind = match row.get::<_, &str>(2) {
+                "limit_buy" => triggers::Kind::LimitBuy,
+                "take_profit" => triggers::Kind::TakeProfit,
+                "stop_loss" => triggers::Kind::StopLoss,
+                _ => return Err(corrupt("kind")),
+            };
+            use triggers::State::*;
+            let state = match row.get::<_, &str>(6) {
+                "open" => Open,
+                "firing" => Firing,
+                "filled" => Filled,
+                "failed" => Failed,
+                "cancelled" => Cancelled,
+                "expired" => Expired,
+                _ => return Err(corrupt("state")),
+            };
+            let token = row
+                .get::<_, &str>(3)
+                .strip_prefix("0x")
+                .and_then(|h| h.parse().ok())
+                .ok_or_else(|| corrupt("token"))?;
+            let t: serde_json::Value = row.get(8);
+            let field = |name: &str| t[name].clone();
+            let terms = crate::Terms {
+                token: serde_json::from_value(field("token")).map_err(|_| corrupt("token"))?,
+                level: serde_json::from_value(field("level")).map_err(|_| corrupt("level"))?,
+                spend_amount: field("spend_amount").as_str().unwrap_or_default().to_string(),
+                spend_token: serde_json::from_value(field("spend_token")).map_err(|_| corrupt("spend token"))?,
+                sell_pct: field("sell_pct").as_str().unwrap_or_default().to_string(),
+                exit_guarantee: field("exit_guarantee").as_bool().unwrap_or_default(),
+                slippage_bps: field("slippage_bps").as_u64().map(|b| b as u32),
+                created_at_ms: field("created_at_ms").as_u64().unwrap_or_default(),
+                last_firing_id: field("last_firing_id").as_str().unwrap_or_default().to_string(),
+                detail: field("detail").as_str().unwrap_or_default().to_string(),
+                updated_at_ms: field("updated_at_ms").as_u64().unwrap_or_default(),
+            };
+            let expires: i64 = row.get(5);
+            let count: i64 = row.get(7);
+            orders.push((
+                triggers::Order {
+                    order_id: row.get(0),
+                    account_id: row.get(1),
+                    token,
+                    kind,
+                    level_usd: row.get(4),
+                    expires_at_ms: expires as u64,
+                    state,
+                    firing_count: count as u64,
+                },
+                terms,
+            ));
+        }
+        Ok(orders)
     }
 
     /// Every account, its fills replayed in the order they were kept.

@@ -395,7 +395,7 @@ impl Quotes {
             .or_else(|| self.tokens.get(&token)?.decimals)
     }
 
-    fn token_ref(&self, chain_id: u64, token: Address) -> TokenRef {
+    pub fn token_ref(&self, chain_id: u64, token: Address) -> TokenRef {
         let known = self.tokens.get(&token).cloned().unwrap_or_default();
         let symbol = QUOTE_ASSETS
             .iter()

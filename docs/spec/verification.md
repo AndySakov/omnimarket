@@ -158,6 +158,16 @@ Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 an
 
 - **A live buy and sell.** On 2026-10-24, `live_trade.rs` read the WETH/USDC 0.05% pool's state at block 53,010,690 from mainnet.base.org (slot0, liquidity, and TickLens's ticks within 2 bitmap words of the price). It quoted 100 USDC to WETH and 0.05 WETH to USDC from that state and ran both as shadow trades simulated through QuoterV2 at the same block. Both simulated to exactly the quoted output: 0.041564943890880311 WETH, against a minimum of 0.041357119171425909, and 117.781413 USDC, against 117.192505. The simulation step took 230ms each and every other step under 3ms.
 
+## Measured: a trigger on live Base (#86)
+
+- **Price record to receipt.** On 2026-10-24, `live_trigger.rs` read the USDC/cbBTC 0.01% pool's state at block 53,012,799 from mainnet.base.org. A guest bought cbBTC with 100 USDC, then set a stop-loss 1% above the price. The block's price record, applied to the API, crossed the stop:
+  - the record was applied and the index checked in 0.4ms;
+  - the receipt came 266ms later;
+  - the trade's steps took 0, 1, 5, 256 and 0 ms.
+
+  The simulation's `eth_call` to QuoterV2 over the public endpoint is nearly all of it. slas.md's budget, ≤ 75ms from price move to broadcast, assumes our own node. Without the simulation's round trip, the path takes about 7ms.
+- **The pool was thin:** the buy got 0.000549 cbBTC for 100 USDC, and the stop sold it for 40.47 USDC. That's the pool's own depth at that moment, which the quoter's simulation confirmed. A measurement of fill quality wants a deeper pool. This one measured the path.
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).
