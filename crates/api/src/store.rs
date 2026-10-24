@@ -67,24 +67,41 @@ CREATE TABLE IF NOT EXISTS demo_orders (
 );
 ";
 
+/// Each order kind and state as the store names it.
+const KINDS: [(triggers::Kind, &str); 3] = [
+    (triggers::Kind::LimitBuy, "limit_buy"),
+    (triggers::Kind::TakeProfit, "take_profit"),
+    (triggers::Kind::StopLoss, "stop_loss"),
+];
+const STATES: [(triggers::State, &str); 6] = [
+    (triggers::State::Open, "open"),
+    (triggers::State::Firing, "firing"),
+    (triggers::State::Filled, "filled"),
+    (triggers::State::Failed, "failed"),
+    (triggers::State::Cancelled, "cancelled"),
+    (triggers::State::Expired, "expired"),
+];
+
 fn kind_name(kind: triggers::Kind) -> &'static str {
-    match kind {
-        triggers::Kind::LimitBuy => "limit_buy",
-        triggers::Kind::TakeProfit => "take_profit",
-        triggers::Kind::StopLoss => "stop_loss",
-    }
+    KINDS
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map_or("", |(_, n)| n)
+}
+
+fn kind_from_name(name: &str) -> Option<triggers::Kind> {
+    KINDS.iter().find(|(_, n)| *n == name).map(|(k, _)| *k)
 }
 
 fn state_name(state: triggers::State) -> &'static str {
-    use triggers::State::*;
-    match state {
-        Open => "open",
-        Firing => "firing",
-        Filled => "filled",
-        Failed => "failed",
-        Cancelled => "cancelled",
-        Expired => "expired",
-    }
+    STATES
+        .iter()
+        .find(|(s, _)| *s == state)
+        .map_or("", |(_, n)| n)
+}
+
+fn state_from_name(name: &str) -> Option<triggers::State> {
+    STATES.iter().find(|(_, n)| *n == name).map(|(s, _)| *s)
 }
 
 /// An account as stored: its state, and the Privy user it belongs to.
@@ -217,22 +234,8 @@ impl Store {
             )
             .await?
         {
-            let kind = match row.get::<_, &str>(2) {
-                "limit_buy" => triggers::Kind::LimitBuy,
-                "take_profit" => triggers::Kind::TakeProfit,
-                "stop_loss" => triggers::Kind::StopLoss,
-                _ => return Err(corrupt("kind")),
-            };
-            use triggers::State::*;
-            let state = match row.get::<_, &str>(6) {
-                "open" => Open,
-                "firing" => Firing,
-                "filled" => Filled,
-                "failed" => Failed,
-                "cancelled" => Cancelled,
-                "expired" => Expired,
-                _ => return Err(corrupt("state")),
-            };
+            let kind = kind_from_name(row.get(2)).ok_or_else(|| corrupt("kind"))?;
+            let state = state_from_name(row.get(6)).ok_or_else(|| corrupt("state"))?;
             let token = row
                 .get::<_, &str>(3)
                 .strip_prefix("0x")
@@ -352,5 +355,28 @@ impl Store {
                 .map_err(|e| StoreError::Corrupt(format!("fill that no longer applies: {e}")))?;
         }
         Ok(accounts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_order_kind_and_state_reads_back_as_it_was_stored() {
+        use triggers::Kind::*;
+        use triggers::State::*;
+        for kind in [LimitBuy, TakeProfit, StopLoss] {
+            assert_eq!(kind_from_name(kind_name(kind)), Some(kind), "{kind:?}");
+        }
+        for state in [Open, Firing, Filled, Failed, Cancelled, Expired] {
+            assert_eq!(state_from_name(state_name(state)), Some(state), "{state:?}");
+        }
+        // The names are what the table holds: a rename would orphan every stored order.
+        assert_eq!(
+            (kind_name(StopLoss), state_name(Cancelled)),
+            ("stop_loss", "cancelled")
+        );
+        assert_eq!((kind_from_name("xyzzy"), state_from_name("")), (None, None));
     }
 }
