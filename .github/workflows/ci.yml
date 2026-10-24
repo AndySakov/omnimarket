@@ -8,7 +8,8 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    # The input-log integration test records a seed to Kafka and replays it (D72).
+    # The input-log integration tests record to Kafka and replay (D72); the engine's end-to-end
+    # test also archives its recording to RustFS (D75) and replays it from there.
     services:
       kafka:
         image: apache/kafka:4.3.1
@@ -16,6 +17,19 @@ jobs:
         options: >-
           --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
           --health-interval 5s
+          --health-retries 30
+      rustfs:
+        image: rustfs/rustfs:1.0.0
+        ports: ["9000:9000"]
+        env:
+          RUSTFS_VOLUMES: /data
+          RUSTFS_ADDRESS: 0.0.0.0:9000
+          RUSTFS_ACCESS_KEY: omnimarket
+          RUSTFS_SECRET_KEY: omnimarket-dev
+        options: >-
+          --tmpfs /data
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 2s
           --health-retries 30
     steps:
       - uses: actions/checkout@v7
@@ -37,6 +51,13 @@ jobs:
         run: mkdir -p test-reports && scripts/verify.sh | tee test-reports/verify.log
       - shell: bash
         run: cargo test -p sim --test kafka -- --ignored | tee test-reports/kafka.log
+      # The archive's bucket, as `scripts/stack up` creates it. 409: it already exists.
+      - shell: bash
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" \
+            --user omnimarket:omnimarket-dev http://localhost:9000/omnimarket-inputs)
+          [[ $code == 200 || $code == 409 ]] || { echo "creating the archive bucket failed ($code)" >&2; exit 1; }
+          cargo test -p engine --test end_to_end -- --ignored | tee test-reports/engine-end-to-end.log
       - uses: actions/upload-artifact@v4
         with:
           name: rust-test-results
