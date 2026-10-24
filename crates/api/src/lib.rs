@@ -31,4 +31,4 @@ pub use crate::status::engine_status;
 pub use crate::store::{Store, StoreError, Stored};
 pub use crate::stream::{Session, Topic, heartbeat, parse_topic, to_json};
 pub use crate::throttle::{MIN_GAP_MS, Throttle};
-pub use crate::trades::{TradeError, Trades};
+pub use crate::trades::{Prepared, Run, TradeError, Trades};

@@ -171,6 +171,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_comparison_finds_every_difference() {
+        assert!(same("abc", "abc"));
+        // 'a' ^ 'b' twice: an XOR of the differences would cancel out.
+        assert!(!same("ab", "ba"));
+        assert!(!same("abc", "abd"));
+        assert!(!same("abc", "ab"));
+    }
+
+    #[test]
     fn a_token_verifies_until_it_expires_and_not_once_altered() {
         let sessions = Sessions::new(b"secret");
         let token = sessions.issue("guest-1", 2_000);

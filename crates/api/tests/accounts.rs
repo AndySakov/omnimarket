@@ -156,3 +156,32 @@ fn a_trade_past_the_shadow_balance_is_refused_and_changes_nothing() {
     );
     assert_eq!(account, before);
 }
+
+#[test]
+fn an_account_values_its_balances_and_dates_its_positions() {
+    let mut account = AccountState::new("guest-3".into(), Kind::Guest, None, 1_000);
+    // 1 WETH at $2,500 and 1,000 USDC at $1.
+    let weth = alloy_primitives::address!("4200000000000000000000000000000000000006");
+    let values: Vec<String> = account
+        .account(|t| Some(if t == weth { 2_500.0 } else { 1.0 }))
+        .balances
+        .into_iter()
+        .map(|b| b.value_usd)
+        .collect();
+    assert_eq!(values, vec!["2500".to_string(), "1000".to_string()]);
+    let lineage = account.account(|_| None).lineage.unwrap();
+    assert_eq!(
+        lineage.id,
+        types::LineageId::from_natural_key("account", b"guest-3")
+            .as_bytes()
+            .to_vec()
+    );
+    // A position opens at its first buy, and again at the first buy after it closed.
+    account.apply(fill("b1", true, 1_000, 10, 2_000)).unwrap();
+    account.apply(fill("b2", true, 1_000, 10, 3_000)).unwrap();
+    let opened = |a: &AccountState| a.positions(|_| None)[0].opened_at_ms;
+    assert_eq!(opened(&account), 2_000);
+    account.apply(fill("s", false, 2_000, 20, 4_000)).unwrap();
+    account.apply(fill("b3", true, 1_000, 10, 5_000)).unwrap();
+    assert_eq!(opened(&account), 5_000);
+}
