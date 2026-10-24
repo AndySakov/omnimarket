@@ -66,6 +66,8 @@ In-memory math per pool type, exact to the contract's rounding; simulation only 
 
 **Pool state (built, `venues`, M1):** v2 reserves from `Sync`; v3 price, tick, active liquidity and the initialized ticks' gross and net liquidity from `Initialize`, `Swap`, `Mint` and `Burn`, applied as the pool contract does (active liquidity changes only when `tickLower <= tick < tickUpper`). Quoting math on top of this state lands with routing (M4). `venues` also decodes each venue's `Swap` into the amounts the pool took in and paid out (v2 nets `amountIn − amountOut` per token), for trade records (D102).
 
+**How pool state is checked.** Against the chain: `crates/venues/tests/base_blocks.rs` replays real Base blocks that `tests/fixtures/capture.py` committed to `base-blocks.txt`. From a pool's state at block N-1 (v3 `slot0`, `liquidity` and each tick the block's mints and burns touch; v2 `getReserves`), it applies block N's logs and must reach the state the chain answered at N. The blocks cover tick spacings 1, 10 and 60, a burn that empties a tick, and a mint or burn whose range starts at the price; a recapture that loses one fails the test. By property (`tests/v3_properties.rs`, proptest): over random mint, burn and swap sequences, active liquidity is the net liquidity of the ticks at or below the price, a mint then an equal burn restores the pool, and no event panics at any tick or amount.
+
 ## Recompute cadence (D22)
 
 | Work | When |
