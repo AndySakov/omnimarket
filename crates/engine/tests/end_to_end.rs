@@ -261,3 +261,11 @@ fn a_followed_run_replays_to_the_same_summary_from_kafka_and_from_the_archive() 
     );
     assert_eq!(from_archive, replayed);
 }
+
+#[test]
+fn a_recording_that_doesnt_start_with_the_config_is_refused() {
+    assert_eq!(
+        commands::replay(Vec::new()).unwrap_err().to_string(),
+        "the recording doesn't start with an engine config"
+    );
+}
