@@ -33,8 +33,10 @@ const GAS_V2_HOP: u64 = 90_000;
 const GAS_V3_HOP: u64 = 130_000;
 /// Base's typical gas price, 0.01 gwei.
 const GAS_PRICE_WEI: u64 = 10_000_000;
-/// Quotes kept for repeats of their client request ID.
+/// Quotes kept for repeats of their client request ID, until they expire.
 const KEPT: usize = 10_000;
+/// The longest client request ID taken.
+const MAX_REQUEST_ID: usize = 64;
 
 /// What a token's latest price update says.
 #[derive(Clone, Debug, Default)]
@@ -54,7 +56,8 @@ pub struct Quotes {
     tokens: BTreeMap<Address, Token>,
     /// The latest price update's block time, ms.
     head_ms: u64,
-    issued: BTreeMap<String, Quote>,
+    /// By client request ID: the request, and the quote it got.
+    issued: BTreeMap<String, (QuoteRequest, Quote)>,
     issued_order: VecDeque<String>,
 }
 
@@ -185,23 +188,42 @@ impl Quotes {
         &self.pools
     }
 
-    /// Quotes `request` on the pools' latest state, or returns the quote a request with the
-    /// same client request ID already got.
+    /// Quotes `request` on the pools' latest state, or returns the quote the same request,
+    /// with the same client request ID, already got while it's unexpired. A different request
+    /// reusing the ID gets its own quote, never another's.
     pub fn quote(&mut self, request: &QuoteRequest) -> Result<Quote, QuoteError> {
-        if let Some(quote) = self.issued.get(&request.client_request_id) {
+        if request.client_request_id.len() > MAX_REQUEST_ID {
+            return Err(QuoteError::Bad("client_request_id"));
+        }
+        while let Some(oldest) = self.issued_order.front() {
+            let expired = self
+                .issued
+                .get(oldest)
+                .is_none_or(|(_, q)| q.expires_at_ms <= self.head_ms);
+            if !expired && self.issued_order.len() < KEPT {
+                break;
+            }
+            if let Some(oldest) = self.issued_order.pop_front() {
+                self.issued.remove(&oldest);
+            }
+        }
+        if let Some((asked, quote)) = self.issued.get(&request.client_request_id)
+            && asked == request
+        {
             return Ok(quote.clone());
         }
         let quote = self.price(request)?;
-        if !request.client_request_id.is_empty() {
-            if self.issued_order.len() >= KEPT
-                && let Some(oldest) = self.issued_order.pop_front()
-            {
-                self.issued.remove(&oldest);
-            }
+        if !request.client_request_id.is_empty()
+            && self
+                .issued
+                .insert(
+                    request.client_request_id.clone(),
+                    (request.clone(), quote.clone()),
+                )
+                .is_none()
+        {
             self.issued_order
                 .push_back(request.client_request_id.clone());
-            self.issued
-                .insert(request.client_request_id.clone(), quote.clone());
         }
         Ok(quote)
     }

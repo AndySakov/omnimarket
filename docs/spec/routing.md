@@ -12,7 +12,7 @@
 - **Fee (D28).** 1%, from the input when it's WETH, USDC or USDT (a buy), otherwise from the output (a sell). A pair with neither is refused.
 - **Slippage (D27).** Defaults when the request sets none: 0.5% between two quote assets, 3% for an established token, 15% for a thin one or one with no price yet. The reason goes in the quote.
 - **Price impact.** The route's own price before our fee, against the display prices of both sides. Stablecoins count at $1.
-- **Expiry and repeats.** A quote expires 4s (2 blocks) after the latest price update's block time. A repeat of a client request ID gets the same quote. The last 10,000 are kept.
+- **Expiry and repeats.** A quote expires 4s (2 blocks) after the latest price update's block time. Until then, the same request with the same client request ID gets the same quote. A different request reusing the ID gets its own, so one client can't read or pin another's. IDs are at most 64 bytes, and at most 10,000 unexpired quotes are kept. Scoping repeats to a session comes with accounts (#85).
 - **Not yet.** The on-chain shadow check of sampled quotes, counted in the engine status, and re-quotes on the `account` topic (#85) are left for later.
 
 ## Route shapes (D25)

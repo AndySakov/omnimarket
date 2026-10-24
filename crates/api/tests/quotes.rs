@@ -204,6 +204,23 @@ fn a_repeated_request_gets_the_same_quote_and_a_set_slippage_is_kept() {
         (75, "set by you: 0.75%", true)
     );
     assert_eq!(first.quote_id.len(), 34);
+    // Another request reusing the ID gets its own quote, not the first one.
+    let other = quotes.quote(&request("same", USDC, MEME, "10")).unwrap();
+    assert_eq!(other.amount_in, "10");
+    // Once the quote has expired, a repeat is quoted afresh, on the moved pools.
+    quotes.apply_price(&PriceUpdate {
+        block_timestamp: 1_790_000_010,
+        ..price(WETH, "WETH", 18, 2_500.0, false)
+    });
+    asked.client_request_id = "later".into();
+    let fresh = quotes.quote(&asked).unwrap();
+    assert_eq!(fresh.expires_at_ms, 1_790_000_014_000);
+    assert_eq!(
+        quotes
+            .quote(&request(&"x".repeat(65), USDC, MEME, "1"))
+            .unwrap_err(),
+        api::QuoteError::Bad("client_request_id")
+    );
 }
 
 #[test]
