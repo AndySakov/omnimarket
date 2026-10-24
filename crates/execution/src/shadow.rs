@@ -90,6 +90,8 @@ pub struct Request<'a> {
     pub trade_id: String,
     pub client_request_id: String,
     pub account_id: String,
+    /// The trigger firing that made the trade (D35); empty for a manual trade.
+    pub firing_id: String,
     /// The quote the trade was asked for: its terms are what's signed.
     pub quote: &'a Quote,
 }
@@ -236,7 +238,7 @@ pub async fn run(
         simulated_in_memory: in_memory,
         steps: steps.done.clone(),
         total_ms: total_ms(&steps.done),
-        firing_id: String::new(),
+        firing_id: request.firing_id.clone(),
     };
     finish(&request, steps, Some(hash), Some(receipt))
 }
@@ -427,7 +429,7 @@ fn finish(
             mode: ExecutionMode::Shadow.into(),
             state: state.into(),
             steps: steps.done,
-            firing_id: String::new(),
+            firing_id: request.firing_id.clone(),
         },
         receipt,
     }

@@ -69,6 +69,7 @@ pub struct Demo {
     sessions: Sessions,
     privy: Option<Privy>,
     registry: Mutex<Registry>,
+    orders: Mutex<crate::Orders>,
     store: Option<Store>,
 }
 
@@ -85,6 +86,7 @@ impl Demo {
             sessions,
             privy,
             registry: Mutex::default(),
+            orders: Mutex::default(),
             store: None,
         }
     }
@@ -103,8 +105,56 @@ impl Demo {
                     .insert(s.account.account_id.clone(), s.account);
             }
         }
+        let orders = store.load_orders().await?;
+        let restored = {
+            let mut book = self.orders();
+            for (order, terms) in orders {
+                book.restore(order, terms);
+            }
+            book.stored()
+        };
+        // Orders a restart caught mid-firing were just marked failed: keep that.
+        for (order, terms) in &restored {
+            if order.state == triggers::State::Failed {
+                store.upsert_order(order, terms).await?;
+            }
+        }
         self.store = Some(store);
         Ok(self)
+    }
+
+    pub fn orders(&self) -> MutexGuard<'_, crate::Orders> {
+        self.orders
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Keeps an order as it is now, if there's a store.
+    pub async fn keep_order(&self, order_id: &str) -> Result<(), DemoError> {
+        let Some(store) = &self.store else {
+            return Ok(());
+        };
+        let stored = self
+            .orders()
+            .stored()
+            .into_iter()
+            .find(|(o, _)| o.order_id == order_id);
+        if let Some((order, terms)) = stored {
+            store
+                .upsert_order(&order, &terms)
+                .await
+                .map_err(DemoError::Store)?;
+        }
+        Ok(())
+    }
+
+    /// Runs `f` on the account, if it exists.
+    pub fn with_account<R>(
+        &self,
+        account_id: &str,
+        f: impl FnOnce(&AccountState) -> R,
+    ) -> Option<R> {
+        self.registry().by_id.get(account_id).map(f)
     }
 
     fn registry(&self) -> MutexGuard<'_, Registry> {

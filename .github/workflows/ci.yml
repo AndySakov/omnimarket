@@ -75,7 +75,7 @@ jobs:
       - shell: bash
         env:
           OMNIMARKET_TEST_POSTGRES: postgres://omnimarket:omnimarket@localhost:5432/omnimarket
-        run: cargo test -p api --test demo_accounts -- --ignored | tee test-reports/demo-accounts.log
+        run: cargo test -p api --test demo_accounts --test orders -- --ignored | tee test-reports/demo-accounts.log
       - uses: actions/upload-artifact@v4
         with:
           name: rust-test-results

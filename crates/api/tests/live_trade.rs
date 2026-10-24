@@ -131,6 +131,7 @@ fn a_live_buy_and_sell_simulate_within_their_quotes_minimums() {
                 trade_id: id.into(),
                 client_request_id: id.into(),
                 account_id: "guest".into(),
+                firing_id: String::new(),
                 quote: &quote,
             },
             || Ok(quote.clone()),

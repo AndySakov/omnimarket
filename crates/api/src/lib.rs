@@ -8,6 +8,7 @@ mod demo;
 mod discovery;
 mod feed;
 mod model;
+mod orders;
 mod quotes;
 pub mod server;
 mod session;
@@ -23,6 +24,7 @@ pub use crate::demo::{Demo, DemoError, Opened, SESSIONS_PER_IP_HOUR, TRADES_PER_
 pub use crate::discovery::{BASE_BLOCK_MS, Discovery, DiscoveryConfig, Filters};
 pub use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topic};
 pub use crate::model::{ModelError, ReadModel, decimal, hex, scaled_decimal};
+pub use crate::orders::{MAX_OPEN_ORDERS, MAX_ORDERS, OrderError, Orders, Terms};
 pub use crate::quotes::{QuoteError, Quotes};
 pub use crate::session::{Privy, PrivyError, PrivyUser, SESSION_MS, Sessions};
 pub use crate::status::engine_status;

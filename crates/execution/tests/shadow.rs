@@ -119,6 +119,7 @@ fn request(quote: &Quote) -> Request<'_> {
         trade_id: "t-1".into(),
         client_request_id: "c-1".into(),
         account_id: "guest-1".into(),
+        firing_id: String::new(),
         quote,
     }
 }
