@@ -76,7 +76,7 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `GET /v1/positions` | `PositionList` | #85 |
 | `GET /v1/history` | `TradeHistory` | #85 |
 | `POST /v1/quotes` (`QuoteRequest`) | `Quote` (built, routing.md "Quoting"); 400 for a body or field that doesn't parse, 422 with the reason for a pair it can't quote | #83 |
-| `POST /v1/trades` (`TradeRequest`) | `TradeStatus`, after the trade has run (built, execution.md "Shadow execution"); the same intent again gets the same status. 404 for an unknown or expired quote, 409 while the same trade runs, 422 for a wallet's signature until #85. The `account` topic's trade updates come with #85 | #84 |
+| `POST /v1/trades` (`TradeRequest`) | `TradeStatus`, after the trade has run (built, execution.md "Shadow execution"); the same intent again gets the same status. 404 for an unknown or expired quote, 409 while the same trade runs, 422 for a wallet's signature until #85, 429 past 8 trades running at once, 504 for a trade still running after 20s. The `account` topic's trade updates come with #85 | #84 |
 | `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` (built), or 404 | #84 |
 | `GET /v1/orders` | `OrderList` | #86 |
 | `POST /v1/orders` (`PlaceOrderRequest`) | `Order` | #86 |

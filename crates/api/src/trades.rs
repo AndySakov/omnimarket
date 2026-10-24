@@ -1,7 +1,7 @@
 //! Shadow trades (#84): `POST /v1/trades` runs a quote's trade in shadow mode, once per intent
 //! (build rule 7), and keeps its status and receipt.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use alloy_primitives::B256;
 use execution::shadow::{self, Finished};
@@ -11,6 +11,9 @@ use types::chain::Address;
 
 use crate::model::hex;
 use crate::quotes::Quotes;
+
+/// Finished trades kept for repeats and receipts; the oldest go first.
+const KEPT: usize = 10_000;
 
 /// Guest accounts until #85: every trade is a guest's.
 pub const GUEST_ACCOUNT: &str = "guest";
@@ -58,6 +61,8 @@ pub struct Trades {
     /// By intent hash; `None` while it runs.
     finished: BTreeMap<B256, Option<Finished>>,
     by_trade_id: BTreeMap<String, B256>,
+    /// Finished trades, oldest first.
+    order: VecDeque<(B256, String)>,
 }
 
 impl Trades {
@@ -94,7 +99,23 @@ impl Trades {
     }
 
     pub fn finish(&mut self, hash: B256, finished: Finished) {
+        self.order
+            .push_back((hash, finished.status.trade_id.clone()));
         self.finished.insert(hash, Some(finished));
+        while self.order.len() > KEPT {
+            if let Some((hash, trade_id)) = self.order.pop_front() {
+                self.finished.remove(&hash);
+                self.by_trade_id.remove(&trade_id);
+            }
+        }
+    }
+
+    /// Forgets a trade that never finished, so the same intent can run again.
+    pub fn abandon(&mut self, hash: B256, trade_id: &str) {
+        if matches!(self.finished.get(&hash), Some(None)) {
+            self.finished.remove(&hash);
+            self.by_trade_id.remove(trade_id);
+        }
     }
 
     pub fn receipt(&self, trade_id: &str) -> Option<&TradeReceipt> {

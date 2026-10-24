@@ -78,9 +78,16 @@ pub struct Shared {
     trades: Mutex<crate::Trades>,
     /// Signs guests' intents (D5): shadow only, on the placeholder domain.
     signer: execution::LocalSigner,
-    /// The call worker a trade's simulation goes through, if there is one.
-    calls: Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>,
+    /// The call worker a trade's simulation goes through, until it gives up on its endpoint.
+    calls: Mutex<Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>>,
+    /// Trades running at once.
+    running: Arc<tokio::sync::Semaphore>,
 }
+
+/// The most trades running at once; another gets a 429.
+const MAX_RUNNING_TRADES: usize = 8;
+/// How long a trade may run. Past it the trade is abandoned, and the same intent can run again.
+const TRADE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// The guest signer's key: public, since a demo intent can't execute anywhere and the signer
 /// holds nothing.
@@ -118,8 +125,17 @@ impl Shared {
             trades: Mutex::new(crate::Trades::default()),
             signer: execution::LocalSigner::from_bytes(&guest_key())
                 .expect("the guest key is a valid secp256k1 key"),
-            calls,
+            calls: Mutex::new(calls),
+            running: Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING_TRADES)),
         })
+    }
+
+    /// Simulations go in memory from now on: the call worker gave up on its endpoint.
+    fn drop_calls(&self) {
+        *self
+            .calls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 
     fn trades(&self) -> MutexGuard<'_, crate::Trades> {
@@ -130,12 +146,18 @@ impl Shared {
 
     /// Runs a prepared trade to its end, on this thread: blocking, so call it off the server's
     /// runtime. The core of it is single-threaded (rule 6) on its own current-thread runtime.
-    fn run_trade(&self, run: Box<crate::trades::Run>) -> execution::Finished {
+    /// `None` if it didn't finish within `TRADE_TIMEOUT`: it's abandoned.
+    fn run_trade(&self, run: Box<crate::trades::Run>) -> Option<execution::Finished> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("a current-thread runtime builds");
-        let rpc = self.calls.clone().map(det::ChannelRpc::new);
+        let calls = self
+            .calls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let rpc = calls.map(det::ChannelRpc::new);
         let simulation = match &rpc {
             Some(rpc) => execution::Simulation::Node(rpc),
             None => execution::Simulation::InMemory,
@@ -147,7 +169,7 @@ impl Shared {
             quote: &run.quote,
         };
         let quote_request = run.quote_request.clone();
-        let finished = runtime.block_on(execution::shadow::run(
+        let trade = execution::shadow::run(
             request,
             || {
                 self.feed()
@@ -158,9 +180,21 @@ impl Shared {
             execution::Signer::Guest(&self.signer),
             simulation,
             &SystemClock,
-        ));
-        self.trades().finish(run.hash, finished.clone());
-        finished
+        );
+        // The I/O shell's bound on a trade, outside its core: a call endpoint that takes the
+        // calls and never answers must not hold a trade, or its intent, for ever.
+        #[allow(clippy::disallowed_methods)]
+        let finished = runtime.block_on(tokio::time::timeout(TRADE_TIMEOUT, trade));
+        match finished {
+            Ok(finished) => {
+                self.trades().finish(run.hash, finished.clone());
+                Some(finished)
+            }
+            Err(_) => {
+                self.trades().abandon(run.hash, &run.trade_id);
+                None
+            }
+        }
     }
 
     fn feed(&self) -> MutexGuard<'_, Feed> {
@@ -321,7 +355,11 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
                 .await
                 .expect("the call worker's spawn doesn't panic");
             match spawned {
-                Ok(worker) => Some(worker.requests),
+                Ok(worker) => {
+                    let requests = worker.requests;
+                    let gave_up = worker.gave_up;
+                    Some((requests, gave_up))
+                }
                 Err(error) => {
                     tracing::warn!(%error, "the call endpoint is unusable: trades simulate in memory");
                     None
@@ -330,7 +368,22 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         }
         None => None,
     };
+    let (calls, gave_up) = match calls {
+        Some((requests, gave_up)) => (Some(requests), Some(gave_up)),
+        None => (None, None),
+    };
     let shared = Shared::with_calls(config.discovery, calls);
+    if let Some(gave_up) = gave_up {
+        let watcher = shared.clone();
+        // The worker holds every call it can't answer once it gives up (D88): stop sending it any.
+        #[allow(clippy::disallowed_methods)]
+        tokio::spawn(async move {
+            if let Ok(error) = gave_up.await {
+                tracing::warn!(%error, "the call endpoint gave up: trades simulate in memory");
+                watcher.drop_calls();
+            }
+        });
+    }
     let app = router(shared.clone(), &config.cors_origin)?;
     // The engine may not have started yet: create the topics so the consumer waits on them.
     for topic in INPUT_TOPICS {
@@ -535,7 +588,8 @@ async fn quote(State(shared): State<Arc<Shared>>, body: String) -> Response {
 /// `POST /v1/trades` with a `TradeRequest`: runs the quote's trade in shadow mode and answers
 /// its last `TradeStatus`. The same intent again gets the same status, never a second fill.
 /// 400 for a body that doesn't parse, 404 for an unknown or expired quote, 409 while the same
-/// trade runs, 422 for a wallet's signature (guests only until #85).
+/// trade runs, 422 for a wallet's signature (guests only until #85), 429 past
+/// `MAX_RUNNING_TRADES` at once, 504 past `TRADE_TIMEOUT`.
 async fn trade(State(shared): State<Arc<Shared>>, body: String) -> Response {
     let Ok(request) = serde_json::from_str::<proto::api::v1::TradeRequest>(&body) else {
         return (StatusCode::BAD_REQUEST, "the body isn't a TradeRequest").into_response();
@@ -549,9 +603,29 @@ async fn trade(State(shared): State<Arc<Shared>>, body: String) -> Response {
     let status = match prepared {
         Ok(crate::trades::Prepared::Done(status)) => status,
         Ok(crate::trades::Prepared::Run(run)) => {
+            let Ok(permit) = shared.running.clone().try_acquire_owned() else {
+                shared.trades().abandon(run.hash, &run.trade_id);
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "too many trades running: try again",
+                )
+                    .into_response();
+            };
             let runner = shared.clone();
-            match tokio::task::spawn_blocking(move || runner.run_trade(run)).await {
-                Ok(finished) => finished.status,
+            let ran = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                runner.run_trade(run)
+            })
+            .await;
+            match ran {
+                Ok(Some(finished)) => finished.status,
+                Ok(None) => {
+                    return (
+                        StatusCode::GATEWAY_TIMEOUT,
+                        "the trade timed out: try again",
+                    )
+                        .into_response();
+                }
                 Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             }
         }
