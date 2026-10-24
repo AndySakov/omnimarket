@@ -441,3 +441,220 @@ fn a_wallet_accounts_order_waits_for_signed_arming() {
     );
     assert_eq!(refused, Err(api::OrderError::NeedsArming));
 }
+
+/// A guest holding 50,000 MEME bought for $500.
+fn holder() -> api::AccountState {
+    use proto::api::v1::account::Kind;
+    let mut account = api::AccountState::new("guest-h".into(), Kind::Guest, None, 0);
+    account
+        .apply(api::Fill {
+            trade_id: "buy".into(),
+            token_in: token_ref(USDC, "USDC", 6),
+            amount_in: U256::from(500_000_000u64),
+            token_out: token_ref(MEME, "MEME", 18),
+            amount_out: U256::from(50_000u64) * U256::from(10u64).pow(U256::from(18u64)),
+            value_usd: 500.0,
+            at_ms: 0,
+            receipt: None,
+        })
+        .unwrap();
+    account
+}
+
+fn exit(id: &str, kind: OrderKind, pct: &str) -> PlaceOrderRequest {
+    PlaceOrderRequest {
+        client_request_id: id.into(),
+        chain_id: 8453,
+        token: hex(&MEME),
+        kind: kind.into(),
+        level: Some(OrderLevel {
+            level: Some(Level::PriceUsd("0.008".into())),
+        }),
+        sell_pct: pct.into(),
+        ..PlaceOrderRequest::default()
+    }
+}
+
+fn place(
+    orders: &mut api::Orders,
+    account: &api::AccountState,
+    request: &PlaceOrderRequest,
+    spend: [u8; 20],
+) -> Result<Order, api::OrderError> {
+    orders.place(
+        account,
+        request,
+        request.client_request_id.clone(),
+        token_ref(MEME, "MEME", 18),
+        Some(token_ref(spend, "SPEND", 18)),
+        0,
+    )
+}
+
+#[test]
+fn an_order_is_refused_unless_its_terms_hold() {
+    use api::OrderError::Bad;
+    let account = holder();
+    let mut orders = api::Orders::default();
+    // A share of the position in (0, 100].
+    for pct in ["0", "100.01", "-5", "x"] {
+        assert_eq!(
+            place(
+                &mut orders,
+                &account,
+                &exit(pct, OrderKind::StopLoss, pct),
+                USDC
+            ),
+            Err(Bad("sell_pct")),
+            "{pct}"
+        );
+    }
+    assert!(
+        place(
+            &mut orders,
+            &account,
+            &exit("all", OrderKind::StopLoss, "100"),
+            USDC
+        )
+        .is_ok()
+    );
+    // A limit buy spends a positive amount of a quote asset.
+    for (amount, spend) in [("0", USDC), ("-1", USDC), ("10", MEME)] {
+        let request = PlaceOrderRequest {
+            spend_amount: amount.into(),
+            ..limit_buy(7)
+        };
+        assert_eq!(
+            place(&mut orders, &account, &request, spend),
+            Err(Bad("spend_amount"))
+        );
+    }
+    // A level is a positive price.
+    for level in ["0", "-1", "x"] {
+        let request = PlaceOrderRequest {
+            level: Some(OrderLevel {
+                level: Some(Level::PriceUsd(level.into())),
+            }),
+            ..exit("l", OrderKind::TakeProfit, "50")
+        };
+        assert_eq!(
+            place(&mut orders, &account, &request, USDC),
+            Err(Bad("level"))
+        );
+    }
+    // Selling from a position that isn't there.
+    let empty = api::AccountState::new(
+        "guest-e".into(),
+        proto::api::v1::account::Kind::Guest,
+        None,
+        0,
+    );
+    assert_eq!(
+        place(
+            &mut orders,
+            &empty,
+            &exit("n", OrderKind::StopLoss, "50"),
+            USDC
+        ),
+        Err(api::OrderError::NoPosition)
+    );
+}
+
+#[test]
+fn only_a_stop_gets_out_by_default() {
+    let account = holder();
+    let mut orders = api::Orders::default();
+    let stop = place(
+        &mut orders,
+        &account,
+        &exit("s", OrderKind::StopLoss, "50"),
+        USDC,
+    )
+    .unwrap();
+    let take = place(
+        &mut orders,
+        &account,
+        &exit("t", OrderKind::TakeProfit, "50"),
+        USDC,
+    )
+    .unwrap();
+    let buy = place(&mut orders, &account, &limit_buy(1), USDC).unwrap();
+    assert_eq!(
+        (stop.exit_guarantee, take.exit_guarantee, buy.exit_guarantee),
+        (true, false, false)
+    );
+    // The firing reads the same.
+    assert!(orders.exit_guarantee("s"));
+    assert!(!orders.exit_guarantee("t"));
+    assert!(!orders.exit_guarantee("nope"));
+    // Set either way, it's kept.
+    let off = PlaceOrderRequest {
+        exit_guarantee: Some(false),
+        ..exit("s2", OrderKind::StopLoss, "50")
+    };
+    assert!(
+        !place(&mut orders, &account, &off, USDC)
+            .unwrap()
+            .exit_guarantee
+    );
+}
+
+#[test]
+fn an_edit_moves_an_open_order_and_a_done_one_refuses() {
+    let account = holder();
+    let mut orders = api::Orders::default();
+    place(
+        &mut orders,
+        &account,
+        &exit("e", OrderKind::StopLoss, "50"),
+        USDC,
+    )
+    .unwrap();
+    let edited = orders
+        .update(
+            &account,
+            &proto::api::v1::UpdateOrderRequest {
+                order_id: "e".into(),
+                level: Some(OrderLevel {
+                    level: Some(Level::PriceUsd("0.007".into())),
+                }),
+                sell_pct: Some("25".into()),
+                exit_guarantee: Some(false),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    assert_eq!(
+        (
+            edited.level_price_usd.as_str(),
+            edited.sell_pct.as_str(),
+            edited.exit_guarantee
+        ),
+        ("0.007", "25", false)
+    );
+    assert_eq!(edited.status.unwrap().updated_at_ms, 5);
+    orders.finish("e", triggers::State::Filled, "trade t", 6);
+    assert_eq!(
+        orders.update(
+            &account,
+            &proto::api::v1::UpdateOrderRequest {
+                order_id: "e".into(),
+                ..Default::default()
+            },
+            7,
+        ),
+        Err(api::OrderError::NotOpen)
+    );
+    assert_eq!(
+        orders.update(
+            &account,
+            &proto::api::v1::UpdateOrderRequest {
+                order_id: "nope".into(),
+                ..Default::default()
+            },
+            7,
+        ),
+        Err(api::OrderError::UnknownOrder)
+    );
+}
