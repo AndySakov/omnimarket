@@ -54,6 +54,7 @@ omnimarket/
 5. **Decisions stay logged:** anything that changes a D-entry gets an amendment note and a new entry.
 6. **Boring Rust (D45):** well-known crates, plain structs and enums, no clever generics or custom macros in core logic, explicit error types, comments on non-obvious ownership or async. Readable by someone learning Rust on the job.
 7. **Single-threaded cores:** engine and execution cores are state machines driven by one task; I/O runs on tasks around them (D49).
+8. **Orderings and faults are tested, not reasoned out:** a new consumer of more than one topic gets an interleaving test, and a new I/O loop gets fault-script tests for hang, error and recovery. The interleaving helper (`crates/api/tests/interleave`) takes each topic's records and yields interleavings that keep each topic's order: every topic read whole in turn, first to last and last to first, plus seeded random ones. It asserts the consumer's output is byte-identical across all of them; the discovery, status and candle feeds use it. The fault scripts (`crates/chain-io/tests/scripted`) are a scripted JSON-RPC node on `det`'s simulated clock, which the follower and call worker tests use (indexer.md).
 
 ## Milestones
 

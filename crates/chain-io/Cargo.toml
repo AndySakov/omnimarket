@@ -13,7 +13,11 @@ tracing.workspace = true
 types.workspace = true
 
 [dev-dependencies]
+# The fault tests' scripted node is an alloy transport: JSON-RPC packets in, answers out.
+alloy = { workspace = true, features = ["json-rpc"] }
 det.workspace = true
+serde_json.workspace = true
+tower-service = "0.3"
 
 [lints]
 workspace = true

@@ -22,6 +22,7 @@ dependencies = [
  "alloy-eips",
  "alloy-ens",
  "alloy-genesis",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-provider",
  "alloy-rpc-client",
@@ -1389,7 +1390,9 @@ dependencies = [
  "alloy",
  "det",
  "futures",
+ "serde_json",
  "tokio",
+ "tower-service",
  "tracing",
  "types",
 ]
