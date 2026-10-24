@@ -59,6 +59,8 @@ pub struct Quotes {
     /// By client request ID: the request, and the quote it got.
     issued: BTreeMap<String, (QuoteRequest, Quote)>,
     issued_order: VecDeque<String>,
+    /// Each kept quote's client request ID, by quote ID.
+    by_quote_id: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -203,8 +205,10 @@ impl Quotes {
             if !expired && self.issued_order.len() < KEPT {
                 break;
             }
-            if let Some(oldest) = self.issued_order.pop_front() {
-                self.issued.remove(&oldest);
+            if let Some(oldest) = self.issued_order.pop_front()
+                && let Some((_, quote)) = self.issued.remove(&oldest)
+            {
+                self.by_quote_id.remove(&quote.quote_id);
             }
         }
         if let Some((asked, quote)) = self.issued.get(&request.client_request_id)
@@ -213,22 +217,35 @@ impl Quotes {
             return Ok(quote.clone());
         }
         let quote = self.price(request)?;
-        if !request.client_request_id.is_empty()
-            && self
-                .issued
-                .insert(
-                    request.client_request_id.clone(),
-                    (request.clone(), quote.clone()),
-                )
-                .is_none()
-        {
-            self.issued_order
-                .push_back(request.client_request_id.clone());
+        if !request.client_request_id.is_empty() {
+            self.by_quote_id
+                .insert(quote.quote_id.clone(), request.client_request_id.clone());
+            match self.issued.insert(
+                request.client_request_id.clone(),
+                (request.clone(), quote.clone()),
+            ) {
+                Some((_, replaced)) => {
+                    self.by_quote_id.remove(&replaced.quote_id);
+                    self.by_quote_id
+                        .insert(quote.quote_id.clone(), request.client_request_id.clone());
+                }
+                None => self
+                    .issued_order
+                    .push_back(request.client_request_id.clone()),
+            }
         }
         Ok(quote)
     }
 
-    fn price(&self, request: &QuoteRequest) -> Result<Quote, QuoteError> {
+    /// A kept quote by its ID, with the request it answered, while it's unexpired.
+    pub fn issued(&self, quote_id: &str) -> Option<(&QuoteRequest, &Quote)> {
+        let (request, quote) = self.issued.get(self.by_quote_id.get(quote_id)?)?;
+        (quote.expires_at_ms > self.head_ms).then_some((request, quote))
+    }
+
+    /// `request` priced again on the latest state, without keeping it: a trade's re-quote at
+    /// send time (D27).
+    pub fn price(&self, request: &QuoteRequest) -> Result<Quote, QuoteError> {
         let token_in = parse_address(&request.token_in).ok_or(QuoteError::Bad("token_in"))?;
         let token_out = parse_address(&request.token_out).ok_or(QuoteError::Bad("token_out"))?;
         if token_in == token_out {

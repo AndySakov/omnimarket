@@ -6,6 +6,18 @@ One Execution service per chain (D8): route → build → simulate → sign → 
 
 **Execution model (D42):** users sign **intents** (Permit2 witness transfers: exact amount in, minimum out, deadline, output to themselves). Our **executor wallets** submit the transactions and pay gas, recovered from the trade. The execution service owns the executor wallets and their nonces.
 
+## Shadow execution (built, #84)
+
+The demo's first cut, in shadow mode only (D5): `crates/execution`, run by the API for `POST /v1/trades`. A trade takes a quote ID and runs its steps in order, each timed by the `det` clock:
+
+1. **Quote.** The quote's request is re-quoted on the latest state (D27). An output now below the signed minimum stops the trade here.
+2. **Build.** D59's terms come from the quote the user saw: signer, input token and maximum (the amount in), output token and minimum, a deadline 60s past the quote's expiry, the submitters (D58: a placeholder executor), and the quote ID. They're EIP-712 typed data on a placeholder domain: "OmniMarket Router", version `0-demo`, verifying contract `0x…0d3e70`, where no contract lives. Every intent is a demo intent until the router is deployed (M3, #74).
+3. **Sign.** A guest's intent is signed by the server's local signer (RFC 6979, so the same intent always gets the same signature). A wallet's signature must recover to the account's wallet, or the trade fails here. Wallet accounts come with #85; until then the API takes guests only.
+4. **Simulate** against live state. Each leg is an `eth_call` to Uniswap's QuoterV2 (v3) or UniswapV2Router02's `getAmountsOut` (v2) at the fresh quote's block, each leg's output the next one's input. The output, after our fee on a sell, must reach the stricter of the signed minimum and the fresh quote's (D59). That runs the pools' own swap code on their live state. Token transfers aren't simulated, so a fee-on-transfer token isn't caught here: #89's round trip does that. An `eth_call` with a state override crediting the input could simulate them; whether PublicNode supports one is still **(verify)**. With no call endpoint (`api --call-rpc` unset or unusable at start), the fresh in-memory quote stands in, and the receipt says `simulated_in_memory`.
+5. **Stop before broadcast.** The receipt carries the intent hash, the route, the simulated output against both minimums, the fee, the gas estimate, the block, and every step's timing.
+
+A trade is keyed by its intent's hash (D71), and its ID derives from that hash. Since the intent comes from the quote, the same quote traded twice, under any request ID, is one trade: the second request gets the first's status (build rule 7). A request for the same intent while it runs gets a 409. The trade's clock reads and simulation answers come through `det`, so a recorded trade replays to the same status and receipt (`a_recorded_trade_replays_to_the_same_outcome`). The API doesn't keep the recordings yet.
+
 ## Submission (D30)
 
 | Chain | Path |

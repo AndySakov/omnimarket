@@ -16,6 +16,7 @@
 ## Controls (D57)
 
 - **Signing:** the user's own Privy session signs intents when they're present (manual trades, creating/editing orders). Server signing only for absent flows (copy trades, auto-armed TP/SL, background approve/wrap), under Privy policy: router EIP-712 domain only, per-intent cap, per-user daily cap, minimum-output floor vs quote.
+- **Demo signing (#84):** in shadow mode, the API signs guests' intents with a local key derived from a public string. That's safe because every demo intent is on a placeholder EIP-712 domain whose verifying contract has no code, so no signature it makes can move anything, and the key holds nothing. It goes away when the router is deployed and intents move to the real domain (M3).
 - **Intents name their submitter** (D58): our executor set or the user. Leaked intents are useless to anyone else; users can always self-submit.
 - **Router:** Foundry fuzz + invariant tests, Slither, Aderyn, verified source. No audit contest or bug bounty: there are no user funds (D85). No owner, no pause.
 - **Executors:** keys encrypted with Cloud KMS at rest, in memory at runtime; small gas float; capped auto top-up; rotation. Fees and refunds go straight to the treasury.
