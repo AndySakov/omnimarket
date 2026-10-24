@@ -26,8 +26,10 @@ jobs:
           RUSTFS_ADDRESS: 0.0.0.0:9000
           RUSTFS_ACCESS_KEY: omnimarket
           RUSTFS_SECRET_KEY: omnimarket-dev
+        # A named volume, as the local stack has: it takes the image's ownership of /data, and
+        # RustFS doesn't run as root.
+        volumes: ["rustfs-data:/data"]
         options: >-
-          --tmpfs /data
           --health-cmd "curl -fsS http://127.0.0.1:9000/health"
           --health-interval 2s
           --health-retries 30
