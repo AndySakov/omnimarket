@@ -366,7 +366,8 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
         serde_json::from_str(again.split("\r\n\r\n").nth(1).unwrap()).unwrap();
     assert_eq!(repeated, status);
 
-    let receipt = http_get(&address, &format!("/v1/trades/{}/receipt", status.trade_id)).await;
+    let receipt_path = format!("/v1/trades/{}/receipt", status.trade_id);
+    let receipt = http_get(&address, &receipt_path, &token).await;
     assert!(receipt.starts_with("HTTP/1.1 200"), "{receipt}");
     let receipt: TradeReceipt =
         serde_json::from_str(receipt.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -383,6 +384,29 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
         )
     );
     assert!(receipt.simulated_in_memory && receipt.demo_intent);
+
+    // Another guest trading the same quote makes its own trade, and can't read the first's
+    // receipt: both share the server's signer, so the intent alone doesn't tell them apart.
+    let other = http_post(&address, "/v1/session", "").await;
+    let other: proto::api::v1::Session =
+        serde_json::from_str(other.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let theirs = http_post_as(
+        &address,
+        "/v1/trades",
+        Some(&other.session_token),
+        &trade("o1"),
+    )
+    .await;
+    let theirs: TradeStatus =
+        serde_json::from_str(theirs.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(theirs.state(), State::Simulated);
+    assert_ne!(theirs.trade_id, status.trade_id);
+    assert_eq!(theirs.account_id, other.account.unwrap().account_id);
+    assert!(
+        http_get(&address, &receipt_path, &other.session_token)
+            .await
+            .starts_with("HTTP/1.1 404")
+    );
 
     let unknown = serde_json::to_string(&TradeRequest {
         quote_id: "0x00".into(),
@@ -412,16 +436,18 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
             .starts_with("HTTP/1.1 401")
     );
     assert!(
-        http_get(&address, "/v1/trades/0x00/receipt")
+        http_get(&address, "/v1/trades/0x00/receipt", &token)
             .await
             .starts_with("HTTP/1.1 404")
     );
 }
 
-async fn http_get(address: &str, path: &str) -> String {
+async fn http_get(address: &str, path: &str, token: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
-    let request = format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+    );
     stream.write_all(request.as_bytes()).await.unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).await.unwrap();

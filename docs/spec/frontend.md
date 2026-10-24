@@ -77,7 +77,7 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `GET /v1/history` | `TradeHistory` (built): receipts, newest first | #85 |
 | `POST /v1/quotes` (`QuoteRequest`) | `Quote` (built, routing.md "Quoting"); 400 for a body or field that doesn't parse, 422 with the reason for a pair it can't quote | #83 |
 | `POST /v1/trades` (`TradeRequest`) | `TradeStatus`, after the trade has run (built, execution.md "Shadow execution"); the same intent again gets the same status, and a filled trade is booked to the session's account. 401 without a session, 404 for an unknown or expired quote, 409 while the same trade runs, 422 past the shadow balance or for a guest's request carrying a signature, 429 past 120 an hour per account or 8 trades running at once, 504 for a trade still running after 20s. The `account` topic isn't served yet | #84 |
-| `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` (built), or 404 | #84 |
+| `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` (built), for the session's own trades; 404 for another account's or an unknown one, 401 without a session | #84 |
 | `GET /v1/orders` | `OrderList` | #86 |
 | `POST /v1/orders` (`PlaceOrderRequest`) | `Order` | #86 |
 | `PATCH /v1/orders/{order_id}` (`UpdateOrderRequest`) | `Order` | #86 |

@@ -261,11 +261,11 @@ impl Shared {
         let finished = runtime.block_on(tokio::time::timeout(TRADE_TIMEOUT, trade));
         match finished {
             Ok(finished) => {
-                self.trades().finish(run.hash, finished.clone());
+                self.trades().finish(&run, finished.clone());
                 Some(finished)
             }
             Err(_) => {
-                self.trades().abandon(run.hash, &run.trade_id);
+                self.trades().abandon(&run);
                 None
             }
         }
@@ -450,10 +450,18 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         Some((requests, gave_up)) => (Some(requests), Some(gave_up)),
         None => (None, None),
     };
-    let secret = config.session_secret.clone().unwrap_or_else(|| {
-        tracing::warn!("no session secret set: using the development one");
-        DEV_SESSION_SECRET.to_string()
-    });
+    let secret = match (&config.session_secret, config.listen.ip().is_loopback()) {
+        (Some(secret), _) => secret.clone(),
+        (None, true) => {
+            tracing::warn!("no session secret set: using the development one, on loopback only");
+            DEV_SESSION_SECRET.to_string()
+        }
+        (None, false) => {
+            return Err(ServerError::Config(
+                "a server listening beyond loopback needs --session-secret".into(),
+            ));
+        }
+    };
     let privy = match &config.privy {
         Some((app_id, key)) => Some(
             crate::Privy::new(app_id, key)
@@ -829,7 +837,9 @@ async fn trade(
     let signer = wallet.map_or_else(|| shared.signer.address(), |(address, _)| address);
     let prepared = {
         let mut feed = shared.feed();
-        shared.trades().prepare(feed.quotes(), &request, signer)
+        shared
+            .trades()
+            .prepare(feed.quotes(), &request, &account_id, signer)
     };
     let run = match prepared {
         Ok(crate::trades::Prepared::Done(status)) => return json(&status),
@@ -850,7 +860,7 @@ async fn trade(
         .demo
         .admit(&account_id, &token_in, amount_in, now_ms())
     {
-        shared.trades().abandon(run.hash, &run.trade_id);
+        shared.trades().abandon(&run);
         let code = match error {
             crate::DemoError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::UNPROCESSABLE_ENTITY,
@@ -858,7 +868,7 @@ async fn trade(
         return (code, error.to_string()).into_response();
     }
     let Ok(permit) = shared.running.clone().try_acquire_owned() else {
-        shared.trades().abandon(run.hash, &run.trade_id);
+        shared.trades().abandon(&run);
         return (
             StatusCode::TOO_MANY_REQUESTS,
             "too many trades running: try again",
@@ -893,9 +903,17 @@ async fn trade(
     json(&finished.status)
 }
 
-/// `GET /v1/trades/{trade_id}/receipt`: a trade that stopped before broadcast, or 404.
-async fn receipt(State(shared): State<Arc<Shared>>, Path(trade_id): Path<String>) -> Response {
-    let receipt = shared.trades().receipt(&trade_id).cloned();
+/// `GET /v1/trades/{trade_id}/receipt`: the session's trade that stopped before broadcast, or
+/// 404, also for another account's. 401 without a session.
+async fn receipt(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    Path(trade_id): Path<String>,
+) -> Response {
+    let Some(account_id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let receipt = shared.trades().receipt(&trade_id, &account_id).cloned();
     match receipt {
         Some(receipt) => (
             [(header::CONTENT_TYPE, "application/json")],
