@@ -1451,3 +1451,13 @@ async fn connection(mut socket: WebSocket, shared: Arc<Shared>) {
 fn heartbeat_every_second() -> tokio::time::Interval {
     tokio::time::interval(Duration::from_secs(1))
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn each_probe_runs_at_a_fresh_random_address() {
+        let (a, b) = (super::random_address(), super::random_address());
+        assert_ne!(a, b);
+        assert_ne!(a, types::chain::Address::ZERO);
+    }
+}

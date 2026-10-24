@@ -201,4 +201,34 @@ mod tests {
         assert_eq!(RoundTrip::decode(&[1, 2, 3], U256::ZERO), None);
         assert!(probe_code().len() > 1_000);
     }
+
+    #[test]
+    fn the_call_names_the_probe_its_pool_and_its_spend() {
+        let data = calldata(
+            Address::repeat_byte(1),
+            Address::repeat_byte(2),
+            Address::repeat_byte(3),
+            true,
+            U256::from(7u64),
+        );
+        let call = probeCall::abi_decode(&data).unwrap();
+        assert_eq!(
+            (call.weth, call.token, call.pool, call.v3, call.amountIn),
+            (
+                Address::repeat_byte(1),
+                Address::repeat_byte(2),
+                Address::repeat_byte(3),
+                true,
+                U256::from(7u64)
+            )
+        );
+        assert_eq!(probe_balance(), U256::from(1_000_000_000_000_000_000u64));
+    }
+
+    #[test]
+    fn more_arriving_than_expected_is_no_loss() {
+        assert_eq!(loss_ppm(U256::from(10u64), U256::from(5u64)), 0);
+        assert_eq!(loss_ppm(U256::from(5u64), U256::ZERO), 0);
+        assert_eq!(loss_ppm(U256::from(9u64), U256::from(10u64)), 100_000);
+    }
 }
