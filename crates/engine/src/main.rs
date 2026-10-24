@@ -22,16 +22,11 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use det::archive::{ArchiveError, InputArchive, S3Config};
-use det::kafka::KafkaPublisher;
-use det::kafka::{KafkaSink, read_input_log};
-use det::{
-    ChannelEventSource, ChannelRpc, InMemorySink, InputRecord, Recorder, RecordingClock,
-    RecordingEventSource, RecordingRpc, Replay, SeededRng, SystemClock,
-};
+use det::{InputRecord, SeededRng};
+use engine::commands::{self, Endpoints, FollowError};
 use engine::{
-    BASE_BLOCKS_PER_HOUR, Engine, EngineConfig, EngineMetrics, INPUT_TOPIC, InMemoryOutbox,
-    KafkaOutbox, KafkaTopics, M1_TOPICS, Mode, POOL_UPDATES_TOPIC, PRICES_TOPIC, Run, STATUS_TOPIC,
-    Summary, TRADE_HISTORY_TOPIC, TRADES_TOPIC,
+    BASE_BLOCKS_PER_HOUR, EngineConfig, EngineMetrics, INPUT_TOPIC, M1_TOPICS, POOL_UPDATES_TOPIC,
+    PRICES_TOPIC, STATUS_TOPIC, Summary, TRADE_HISTORY_TOPIC, TRADES_TOPIC,
 };
 
 #[derive(Parser)]
@@ -136,13 +131,6 @@ impl S3Args {
 /// Base's recordings in the archive: `inputs/base/<core instance>/<first seq>.pb`.
 const ARCHIVE_PREFIX: &str = "inputs/base";
 
-/// For the archive's async client; the core never runs here.
-fn io_runtime() -> std::io::Result<tokio::runtime::Runtime> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-}
-
 fn main() -> ExitCode {
     match run(Cli::parse().command) {
         Ok(()) => ExitCode::SUCCESS,
@@ -192,12 +180,9 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             core_instance,
             s3,
         } => {
-            let recording = read_input_log(&kafka, INPUT_TOPIC, &core_instance, TIMEOUT)?;
-            let archive = s3.archive()?;
-            let segments = io_runtime()?.block_on(archive.write(&core_instance, &recording))?;
+            let (inputs, segments) = commands::archive(&kafka, &core_instance, &s3.archive()?)?;
             println!(
-                "archived {} inputs of {core_instance} in {segments} segments under {}/{ARCHIVE_PREFIX}/{core_instance}/",
-                recording.len(),
+                "archived {inputs} inputs of {core_instance} in {segments} segments under {}/{ARCHIVE_PREFIX}/{core_instance}/",
                 s3.s3_bucket
             );
             Ok(())
@@ -209,33 +194,16 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             s3,
         } => {
             let recording = match (from_archive, kafka) {
-                (true, _) => io_runtime()?.block_on(s3.archive()?.read(&core_instance))?,
-                (false, Some(kafka)) => {
-                    read_input_log(&kafka, INPUT_TOPIC, &core_instance, TIMEOUT)?
-                }
+                (true, _) => commands::recording_from_archive(&s3.archive()?, &core_instance)?,
+                (false, Some(kafka)) => commands::recording_from_kafka(&kafka, &core_instance)?,
                 (false, None) => return Err("give --kafka or --from-archive".into()),
             };
             println!("replaying {} inputs of {core_instance}", recording.len());
-            let replay = Replay::new(recording);
-            let config = replay
-                .config()
-                .and_then(|bytes| EngineConfig::decode(&bytes))
-                .ok_or("the recording doesn't start with an engine config")?;
-            let engine = Engine::new(
-                config,
-                Box::new(replay.clock()),
-                Box::new(replay.events()),
-                Box::new(replay.rpc()),
-                Box::new(InMemoryOutbox::default()),
-            )
-            .with_logs(Box::new(replay.logs()));
-            print_summary(&replay.run(engine.run())?);
+            print_summary(&commands::replay(recording)?);
             Ok(())
         }
     }
 }
-
-const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Base's config with `follow`'s flags: `--history-hours 0` reads no history.
 fn follow_config(check_every: Option<u64>, history_hours: u64) -> EngineConfig {
@@ -275,15 +243,11 @@ fn follow(
         eprintln!("metrics on http://{bound}/metrics");
     }
 
-    // Both spawns check their endpoint before Kafka or the core start, so a dead one stops the
+    // Each spawn checks its endpoint before Kafka or the core start, so a dead one stops the
     // run in seconds instead of failing every read the core depends on (D88).
-    let chain_io::CallWorker {
-        requests: calls,
-        gave_up: calls_gave_up,
-        thread: call_worker,
-    } = chain_io::spawn_call_worker(&call_rpc, calls_per_second)
+    let calls = chain_io::spawn_call_worker(&call_rpc, calls_per_second)
         .map_err(|error| unusable_endpoint("call", "--call-rpc", &call_rpc, &error))?;
-    let (sender, receiver) = tokio::sync::mpsc::channel(1024);
+    let (sender, blocks) = tokio::sync::mpsc::channel(1024);
     let follower = chain_io::spawn_head_follower(
         &rpc,
         chain_io::FollowerConfig {
@@ -295,126 +259,43 @@ fn follow(
         sender,
     )
     .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?;
-    let logs_worker = match config.history_blocks {
+    let logs = match config.history_blocks {
         Some(_) => Some(
             chain_io::spawn_logs_worker(&rpc, HISTORY_READS_PER_SECOND)
                 .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?,
         ),
         None => None,
     };
+    let endpoints = Endpoints {
+        blocks,
+        follower,
+        calls,
+        logs,
+    };
 
     let core_instance = format!("base-{:016x}", SeededRng::from_os().seed());
-    let in_memory = InMemorySink::default();
-    let kafka_sink = match &kafka {
-        Some(brokers) => {
-            det::kafka::ensure_topic(brokers, INPUT_TOPIC)?;
-            det::kafka::ensure_topic(brokers, POOL_UPDATES_TOPIC)?;
-            det::kafka::ensure_topic(brokers, TRADES_TOPIC)?;
-            det::kafka::ensure_topic(brokers, PRICES_TOPIC)?;
-            det::kafka::ensure_topic(brokers, STATUS_TOPIC)?;
-            det::kafka::ensure_topic(brokers, TRADE_HISTORY_TOPIC)?;
-            Some((
-                KafkaSink::new(brokers, INPUT_TOPIC, &core_instance)?,
-                KafkaTopics {
-                    updates: KafkaPublisher::new(brokers, POOL_UPDATES_TOPIC)?,
-                    trades: KafkaPublisher::new(brokers, TRADES_TOPIC)?,
-                    prices: KafkaPublisher::new(brokers, PRICES_TOPIC)?,
-                    statuses: KafkaPublisher::new(brokers, STATUS_TOPIC)?,
-                    history: KafkaPublisher::new(brokers, TRADE_HISTORY_TOPIC)?,
-                },
-            ))
-        }
-        None => None,
-    };
-    let outbox: Box<dyn engine::Outbox> = match &kafka_sink {
-        Some((_, topics)) => Box::new(KafkaOutbox::new(
-            topics.clone(),
-            // With Kafka, the inputs always go to `inputs.base`.
-            Run {
-                mode: Mode::Live,
-                core_instance: core_instance.clone(),
-                recording: true,
-            },
-        )),
-        None => Box::new(InMemoryOutbox::default()),
-    };
-    let outbox = metrics.outbox(outbox);
-    let sink: Box<dyn det::RecordingSink> = match &kafka_sink {
-        Some((sink, _)) => Box::new(sink.clone()),
-        None => Box::new(in_memory.clone()),
-    };
-    let recorder = Recorder::new(sink, Box::new(SystemClock));
-    recorder.record_config(config.encode());
-    let engine = Engine::new(
+    let followed = commands::follow(
+        endpoints,
+        kafka.as_deref(),
+        &core_instance,
         config,
-        Box::new(RecordingClock::new(Box::new(SystemClock), recorder.clone())),
-        Box::new(RecordingEventSource::new(
-            Box::new(ChannelEventSource::new(receiver)),
-            recorder.clone(),
-        )),
-        Box::new(RecordingRpc::new(
-            Box::new(ChannelRpc::new(calls)),
-            recorder.clone(),
-        )),
-        outbox,
-    );
-    let (engine, logs_thread) = match logs_worker {
-        Some(worker) => (
-            engine.with_logs(Box::new(RecordingRpc::logs(
-                Box::new(ChannelRpc::new(worker.requests)),
-                recorder,
-            ))),
-            Some(worker.thread),
-        ),
-        None => (engine, None),
-    };
-
-    // The core is one task on a current-thread runtime (D74); the follower and the call worker
-    // have their own threads. If the call worker gives up on its endpoint mid-run, the core is
-    // dropped here, unfinished, and the run stops with the worker's error. If the follower gives
-    // up on its endpoint, the core's blocks end and it finishes what's in flight; the run then
-    // stops with the follower's error below (D88).
-    let runtime = tokio::runtime::Builder::new_current_thread().build()?;
-    let outcome: Result<Summary, Box<dyn std::error::Error>> = runtime.block_on(async {
-        tokio::select! {
-            biased;
-            Ok(error) = calls_gave_up => {
-                Err(unusable_endpoint("call", "--call-rpc", &call_rpc, &error).into())
-            }
-            summary = engine.run() => summary.map_err(Into::into),
-        }
-    });
-    let summary = outcome?;
-    follower
-        .join()
-        .expect("the follower thread doesn't panic")
-        .map_err(|error| unusable_endpoint("block", "--rpc", &rpc, &error))?;
-    // The engine is gone, so the call and logs workers' channels are closed and they stop.
-    call_worker
-        .join()
-        .expect("the call worker thread doesn't panic");
-    if let Some(thread) = logs_thread {
-        thread.join().expect("the logs worker thread doesn't panic");
-    }
+        &metrics,
+    )
+    .map_err(|error| match error {
+        FollowError::Calls(error) => unusable_endpoint("call", "--call-rpc", &call_rpc, &error),
+        FollowError::Blocks(error) => unusable_endpoint("block", "--rpc", &rpc, &error),
+        other => other.to_string(),
+    })?;
 
     println!("core instance {core_instance}");
-    match kafka_sink {
-        Some((sink, topics)) => {
-            sink.flush(TIMEOUT)?;
-            topics.updates.flush(TIMEOUT)?;
-            topics.trades.flush(TIMEOUT)?;
-            topics.prices.flush(TIMEOUT)?;
-            topics.statuses.flush(TIMEOUT)?;
-            topics.history.flush(TIMEOUT)?;
-            println!(
-                "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}, statuses on {STATUS_TOPIC}, trade history on {TRADE_HISTORY_TOPIC}"
-            );
-        }
-        None => println!("{} inputs recorded in memory", in_memory.records().len()),
+    match kafka {
+        Some(_) => println!(
+            "inputs recorded to {INPUT_TOPIC}, pool updates on {POOL_UPDATES_TOPIC}, trades on {TRADES_TOPIC}, prices on {PRICES_TOPIC}, statuses on {STATUS_TOPIC}, trade history on {TRADE_HISTORY_TOPIC}"
+        ),
+        None => println!("{} inputs recorded in memory", followed.recording.len()),
     }
-    print_summary(&summary);
-    // Empty when the inputs went to Kafka.
-    Ok((summary, in_memory.records()))
+    print_summary(&followed.summary);
+    Ok((followed.summary, followed.recording))
 }
 
 /// Writes a pinned replay fixture (D99): the recording as one file, and the summary its run

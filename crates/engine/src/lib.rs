@@ -2,6 +2,7 @@
 //! and keeps pool state from their logs, and prices the tokens in its pools (M2). It reaches the outside only through `det`, so every
 //! run can be recorded and replayed.
 
+pub mod commands;
 mod core;
 mod history;
 mod metrics;
