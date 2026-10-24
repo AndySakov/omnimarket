@@ -162,6 +162,15 @@ Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 an
 
 - **State overrides on Base's free endpoints.** On 2026-10-24, an `eth_call` to an address holding injected code and a 1 ETH balance came back with that balance on mainnet.base.org, PublicNode, dRPC and 1RPC. All four apply `code` and `balance` overrides, which resolves D29's **(verify)** for Base.
 - **Live round trips.** At block 53,018,418, the probe round-tripped 0.01 WETH through DEGEN's and TOSHI's Uniswap v3 (0.3%) and v2 WETH pools with no tax either way: back 0.99401 and 0.99401 through v3, 0.99594 and 0.99663 through v2. The DEGEN v2 pair holds only 0.0209 WETH, so 0.01 WETH is half of it. A round trip that large keeps part of its own fee on the way back, and the 0.99594 matches constant-product math to the wei. The API's worker path, run against DEGEN's v2 pair, put that report on its token snapshot (`live_safety.rs`).
+## Measured: a trigger on live Base (#86)
+
+- **Price record to receipt.** On 2026-10-24, `live_trigger.rs` read the USDC/cbBTC 0.01% pool's state at block 53,012,799 from mainnet.base.org. A guest bought cbBTC with 100 USDC, then set a stop-loss 1% above the price. The block's price record, applied to the API, crossed the stop:
+  - the record was applied and the index checked in 0.4ms;
+  - the receipt came 266ms later;
+  - the trade's steps took 0, 1, 5, 256 and 0 ms.
+
+  The simulation's `eth_call` to QuoterV2 over the public endpoint is nearly all of it. slas.md's budget, ≤ 75ms from price move to broadcast, assumes our own node. Without the simulation's round trip, the path takes about 7ms.
+- **The pool was thin:** the buy got 0.000549 cbBTC for 100 USDC, and the stop sold it for 40.47 USDC. That's the pool's own depth at that moment, which the quoter's simulation confirmed. A measurement of fill quality wants a deeper pool. This one measured the path.
 
 ## Still to measure (needs live network access)
 

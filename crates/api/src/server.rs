@@ -91,6 +91,10 @@ pub struct Shared {
     /// Trades running at once.
     running: Arc<tokio::sync::Semaphore>,
     demo: crate::Demo,
+    /// Firings waiting to trade, in the order they fired.
+    firings: Mutex<std::collections::VecDeque<triggers::Firing>>,
+    /// Wakes the firing worker.
+    fired: tokio::sync::Notify,
 }
 
 /// Why a safety check didn't record a round trip.
@@ -171,7 +175,187 @@ impl Shared {
             calls: Mutex::new(calls),
             running: Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING_TRADES)),
             demo,
+            firings: Mutex::default(),
+            fired: tokio::sync::Notify::new(),
         })
+    }
+
+    /// Trades firings as they come, apart from the consumer, so a slow trade never holds up
+    /// the records behind it.
+    async fn fire_forever(self: Arc<Self>) {
+        loop {
+            self.fired.notified().await;
+            self.run_firings().await;
+        }
+    }
+
+    /// Trades every firing waiting, in order: each order's state and count are kept before
+    /// its trade runs, so a restart never fires it twice (D35). The consumer calls this after
+    /// each record; tests call it directly.
+    pub async fn run_firings(self: &Arc<Self>) {
+        loop {
+            let next = self
+                .firings
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .pop_front();
+            let Some(firing) = next else {
+                return;
+            };
+            self.fire(firing).await;
+        }
+    }
+
+    async fn fire(self: &Arc<Self>, firing: triggers::Firing) {
+        let order_id = firing.order_id.clone();
+        let settle = |state: triggers::State, detail: String| {
+            let shared = self.clone();
+            let order_id = order_id.clone();
+            async move {
+                shared
+                    .demo
+                    .orders()
+                    .finish(&order_id, state, &detail, now_ms());
+                if let Err(error) = shared.demo.keep_order(&order_id).await {
+                    tracing::warn!(%error, order = %order_id, "an order's state wasn't kept");
+                }
+            }
+        };
+        if let Err(error) = self.demo.keep_order(&order_id).await {
+            // Not kept as firing: don't trade, or a restart could fire it again.
+            tracing::warn!(%error, order = %order_id, "a firing wasn't kept; its order fails");
+            settle(triggers::State::Failed, error.to_string()).await;
+            return;
+        }
+        let Some(account_id) = self.demo.orders().account_of(&order_id) else {
+            return;
+        };
+        let request = self
+            .demo
+            .with_account(&account_id, |account| {
+                self.demo.orders().trade_for(&firing, account)
+            })
+            .flatten();
+        let Some(mut request) = request else {
+            settle(triggers::State::Failed, "nothing left to sell".into()).await;
+            return;
+        };
+        let exit_guarantee = self.demo.orders().exit_guarantee(&order_id);
+        let mut outcome = self.trade_once(&account_id, &request, &firing).await;
+        // D60: a stop that would miss its minimum gets out anyway, at the current price,
+        // within twice its slippage.
+        if exit_guarantee && outcome.is_err() {
+            let bps = request
+                .slippage_bps
+                .unwrap_or(1_500)
+                .saturating_mul(2)
+                .min(5_000);
+            request.slippage_bps = Some(bps);
+            request.client_request_id = format!("{}-guaranteed", request.client_request_id);
+            outcome = self.trade_once(&account_id, &request, &firing).await;
+        }
+        match outcome {
+            Ok(trade_id) => settle(triggers::State::Filled, format!("trade {trade_id}")).await,
+            Err(reason) => settle(triggers::State::Failed, reason).await,
+        }
+    }
+
+    /// One attempt at a firing's trade: quote, run in shadow signed by the server (the
+    /// user-absent path, D57), book. The trade's ID, or why it didn't fill.
+    async fn trade_once(
+        self: &Arc<Self>,
+        account_id: &str,
+        request: &proto::api::v1::QuoteRequest,
+        firing: &triggers::Firing,
+    ) -> Result<String, String> {
+        let prepared = {
+            let mut feed = self.feed();
+            let quote = feed.quotes().quote(request).map_err(|e| e.to_string())?;
+            let trade = proto::api::v1::TradeRequest {
+                client_request_id: request.client_request_id.clone(),
+                quote_id: quote.quote_id,
+                intent_signature: String::new(),
+            };
+            self.trades()
+                .prepare(feed.quotes(), &trade, account_id, self.signer.address())
+                .map_err(|e| e.to_string())?
+        };
+        let run = match prepared {
+            crate::trades::Prepared::Done(status) => return Ok(status.trade_id),
+            crate::trades::Prepared::Run(run) => run,
+        };
+        let finished = self
+            .execute(run, account_id, None, &hex_firing(firing))
+            .await
+            .map_err(|(_, reason)| reason)?;
+        match &finished.receipt {
+            Some(receipt) => Ok(receipt.trade_id.clone()),
+            None => Err(finished
+                .status
+                .steps
+                .last()
+                .map_or_else(|| "the trade failed".into(), |s| s.detail.clone())),
+        }
+    }
+
+    /// Admits a prepared trade against the account's balance and caps, runs it off the
+    /// server's runtime, and books its fill. A refusal comes back with its status code.
+    async fn execute(
+        self: &Arc<Self>,
+        run: Box<crate::trades::Run>,
+        account_id: &str,
+        wallet: Option<(types::chain::Address, Option<alloy_primitives::Signature>)>,
+        firing_id: &str,
+    ) -> Result<execution::Finished, (StatusCode, String)> {
+        let token_in = run.quote.token_in.clone().unwrap_or_default();
+        let amount_in = execution::intent::base_units(&run.quote.amount_in, token_in.decimals)
+            .unwrap_or_default();
+        if let Err(error) = self.demo.admit(account_id, &token_in, amount_in, now_ms()) {
+            self.trades().abandon(&run);
+            let code = match error {
+                crate::DemoError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
+                _ => StatusCode::UNPROCESSABLE_ENTITY,
+            };
+            return Err((code, error.to_string()));
+        }
+        let Ok(permit) = self.running.clone().try_acquire_owned() else {
+            self.trades().abandon(&run);
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many trades running: try again".into(),
+            ));
+        };
+        let runner = self.clone();
+        let id = account_id.to_string();
+        let firing_id = firing_id.to_string();
+        let ran = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            runner.run_trade(run, &id, wallet, &firing_id)
+        })
+        .await;
+        let finished = match ran {
+            Ok(Some(finished)) => finished,
+            Ok(None) => {
+                return Err((
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "the trade timed out: try again".into(),
+                ));
+            }
+            Err(_) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "the trade panicked".into(),
+                ));
+            }
+        };
+        if let Some(receipt) = &finished.receipt {
+            let fill = self.fill_of(receipt);
+            if let Err(error) = self.demo.fill(account_id, fill).await {
+                tracing::warn!(%error, trade = %receipt.trade_id, "a simulated trade wasn't booked");
+                return Err((StatusCode::UNPROCESSABLE_ENTITY, error.to_string()));
+            }
+        }
+        Ok(finished)
     }
 
     /// The account a request's bearer token is a session of.
@@ -324,6 +508,7 @@ impl Shared {
         run: Box<crate::trades::Run>,
         account_id: &str,
         wallet: Option<(types::chain::Address, Option<alloy_primitives::Signature>)>,
+        firing_id: &str,
     ) -> Option<execution::Finished> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -343,6 +528,7 @@ impl Shared {
             trade_id: run.trade_id.clone(),
             client_request_id: run.client_request_id.clone(),
             account_id: account_id.into(),
+            firing_id: firing_id.into(),
             quote: &run.quote,
         };
         let quote_request = run.quote_request.clone();
@@ -396,7 +582,29 @@ impl Shared {
         let mut feed = self.feed();
         let published = match topic {
             engine::PRICES_TOPIC => match proto::price::v1::PriceUpdate::decode(payload) {
-                Ok(update) => feed.apply_price(&update).map_err(|e| format!("{e:?}")),
+                Ok(update) => {
+                    let applied = feed.apply_price(&update).map_err(|e| format!("{e:?}"));
+                    // Triggers check each canonical block's price (D77): `prices.base` carries
+                    // nothing else.
+                    if applied.is_ok()
+                        && let Ok(token) = types::chain::Address::try_from(update.token.as_slice())
+                    {
+                        let firings = self.demo.orders().on_price(
+                            token,
+                            update.price_usd,
+                            update.block_number,
+                            update.block_timestamp.saturating_mul(1000),
+                        );
+                        if !firings.is_empty() {
+                            self.firings
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .extend(firings);
+                            self.fired.notify_one();
+                        }
+                    }
+                    applied
+                }
                 Err(e) => Err(e.to_string()),
             },
             engine::TRADES_TOPIC => proto::trade::v1::Trade::decode(payload)
@@ -518,6 +726,11 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
         .route("/v1/account", get(account))
         .route("/v1/positions", get(positions))
         .route("/v1/history", get(history))
+        .route("/v1/orders", get(list_orders).post(place_order))
+        .route(
+            "/v1/orders/{order_id}",
+            axum::routing::patch(update_order).delete(cancel_order),
+        )
         .route("/v1/trades/{trade_id}/receipt", get(receipt))
         .route("/v1/stream", get(stream))
         .layer(middleware::from_fn_with_state(
@@ -618,6 +831,8 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         .await
         .map_err(ServerError::Io)?;
     tracing::info!(listen = %config.listen, "serving");
+    #[allow(clippy::disallowed_methods)] // the firing worker: I/O around the trigger book
+    tokio::spawn(shared.clone().fire_forever());
     match config.call_rpc.clone() {
         Some(url) => {
             // Chain I/O on its own thread and runtime, as chain-io's workers run (rule 6).
@@ -642,13 +857,17 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
     }
 }
 
-async fn consume(consumer: &StreamConsumer, shared: &Shared) -> Result<(), ServerError> {
+async fn consume(consumer: &StreamConsumer, shared: &Arc<Shared>) -> Result<(), ServerError> {
     loop {
         let message = consumer.recv().await.map_err(ServerError::Kafka)?;
         if let Some(payload) = message.payload() {
             shared.apply(message.topic(), payload);
         }
     }
+}
+
+fn hex_firing(firing: &triggers::Firing) -> String {
+    crate::hex(&firing.firing_id)
 }
 
 /// Counts requests, as a trace attribute on each request's span.
@@ -907,6 +1126,150 @@ async fn positions(State(shared): State<Arc<Shared>>, headers: axum::http::Heade
     })
 }
 
+fn order_refusal(error: crate::OrderError) -> Response {
+    let code = match error {
+        crate::OrderError::UnknownOrder => StatusCode::NOT_FOUND,
+        crate::OrderError::NotOpen => StatusCode::CONFLICT,
+        crate::OrderError::TooMany => StatusCode::TOO_MANY_REQUESTS,
+        crate::OrderError::NeedsArming => StatusCode::UNPROCESSABLE_ENTITY,
+        _ => StatusCode::UNPROCESSABLE_ENTITY,
+    };
+    (code, error.to_string()).into_response()
+}
+
+/// `GET /v1/orders`: the session's trigger orders, newest first.
+async fn list_orders(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let Some(id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    json(&proto::api::v1::OrderList {
+        lineage: None,
+        orders: shared.demo.orders().list(&id),
+    })
+}
+
+/// `POST /v1/orders` with a `PlaceOrderRequest`: a limit buy, take-profit or stop-loss (#86),
+/// checked on each canonical block's display price. The same client request ID again gets the
+/// same order. 400 for a body that doesn't parse, 401 without a session, 422 for terms that
+/// don't hold (no position to sell, an unknown token), 429 past `MAX_OPEN_ORDERS`.
+async fn place_order(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Ok(request) = serde_json::from_str::<proto::api::v1::PlaceOrderRequest>(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "the body isn't a PlaceOrderRequest",
+        )
+            .into_response();
+    };
+    let Some(account_id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let mut key = account_id.as_bytes().to_vec();
+    key.extend(request.client_request_id.as_bytes());
+    let order_id = crate::hex(types::LineageId::from_natural_key("order", &key).as_bytes());
+    if let Some(order) = shared.demo.orders().order(&order_id) {
+        return json(&order);
+    }
+    let token_ref = |text: &str| {
+        let address = crate::orders::parse_address(text)?;
+        let token = shared.feed().quotes().token_ref(request.chain_id, address);
+        (token.decimals > 0).then_some(token)
+    };
+    let Some(token) = token_ref(&request.token) else {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "the token isn't priced yet",
+        )
+            .into_response();
+    };
+    let spend_token = token_ref(&request.spend_token);
+    let placed = shared.demo.with_account(&account_id, |account| {
+        shared.demo.orders().place(
+            account,
+            &request,
+            order_id.clone(),
+            token,
+            spend_token,
+            now_ms(),
+        )
+    });
+    match placed {
+        Some(Ok(order)) => {
+            if let Err(error) = shared.demo.keep_order(&order.order_id).await {
+                return (StatusCode::SERVICE_UNAVAILABLE, error.to_string()).into_response();
+            }
+            json(&order)
+        }
+        Some(Err(error)) => order_refusal(error),
+        None => StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+/// `PATCH /v1/orders/{order_id}` with an `UpdateOrderRequest`: an open order's new level,
+/// share or exit guarantee. 404 for another account's order, 409 for one no longer open.
+async fn update_order(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    Path(order_id): Path<String>,
+    body: String,
+) -> Response {
+    let Ok(mut request) = serde_json::from_str::<proto::api::v1::UpdateOrderRequest>(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "the body isn't an UpdateOrderRequest",
+        )
+            .into_response();
+    };
+    request.order_id = order_id;
+    let Some(account_id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let updated = shared.demo.with_account(&account_id, |account| {
+        shared.demo.orders().update(account, &request, now_ms())
+    });
+    match updated {
+        Some(Ok(order)) => {
+            if let Err(error) = shared.demo.keep_order(&order.order_id).await {
+                return (StatusCode::SERVICE_UNAVAILABLE, error.to_string()).into_response();
+            }
+            json(&order)
+        }
+        Some(Err(error)) => order_refusal(error),
+        None => StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+/// `DELETE /v1/orders/{order_id}`: cancels an open order. 404 for another account's, 409 for
+/// one no longer open.
+async fn cancel_order(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    Path(order_id): Path<String>,
+) -> Response {
+    let Some(account_id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let cancelled = shared
+        .demo
+        .orders()
+        .cancel(&account_id, &order_id, now_ms());
+    match cancelled {
+        Ok(order) => {
+            if let Err(error) = shared.demo.keep_order(&order.order_id).await {
+                return (StatusCode::SERVICE_UNAVAILABLE, error.to_string()).into_response();
+            }
+            json(&order)
+        }
+        Err(error) => order_refusal(error),
+    }
+}
+
 /// `GET /v1/history`: the session's finished trades' receipts, newest first.
 async fn history(State(shared): State<Arc<Shared>>, headers: axum::http::HeaderMap) -> Response {
     let Some(id) = shared.account_of(&headers) else {
@@ -1000,54 +1363,10 @@ async fn trade(
             return (code, error.to_string()).into_response();
         }
     };
-    let token_in = run.quote.token_in.clone().unwrap_or_default();
-    let amount_in =
-        execution::intent::base_units(&run.quote.amount_in, token_in.decimals).unwrap_or_default();
-    if let Err(error) = shared
-        .demo
-        .admit(&account_id, &token_in, amount_in, now_ms())
-    {
-        shared.trades().abandon(&run);
-        let code = match error {
-            crate::DemoError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
-            _ => StatusCode::UNPROCESSABLE_ENTITY,
-        };
-        return (code, error.to_string()).into_response();
+    match shared.execute(run, &account_id, wallet, "").await {
+        Ok(finished) => json(&finished.status),
+        Err((code, reason)) => (code, reason).into_response(),
     }
-    let Ok(permit) = shared.running.clone().try_acquire_owned() else {
-        shared.trades().abandon(&run);
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            "too many trades running: try again",
-        )
-            .into_response();
-    };
-    let runner = shared.clone();
-    let id = account_id.clone();
-    let ran = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        runner.run_trade(run, &id, wallet)
-    })
-    .await;
-    let finished = match ran {
-        Ok(Some(finished)) => finished,
-        Ok(None) => {
-            return (
-                StatusCode::GATEWAY_TIMEOUT,
-                "the trade timed out: try again",
-            )
-                .into_response();
-        }
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
-    if let Some(receipt) = &finished.receipt {
-        let fill = shared.fill_of(receipt);
-        if let Err(error) = shared.demo.fill(&account_id, fill).await {
-            tracing::warn!(%error, trade = %receipt.trade_id, "a simulated trade wasn't booked");
-            return (StatusCode::UNPROCESSABLE_ENTITY, error.to_string()).into_response();
-        }
-    }
-    json(&finished.status)
 }
 
 /// `GET /v1/trades/{trade_id}/receipt`: the session's trade that stopped before broadcast, or

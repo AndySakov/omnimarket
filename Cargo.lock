@@ -741,6 +741,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "triggers",
  "types",
  "venues",
 ]
@@ -5316,6 +5317,13 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "triggers"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
 ]
 
 [[package]]
