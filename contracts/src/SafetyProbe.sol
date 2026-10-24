@@ -55,10 +55,10 @@ contract SafetyProbe {
         returns (Result memory r)
     {
         IWETH(weth).deposit{value: amountIn}();
-        try this.buy(weth, pool, v3, amountIn) returns (uint256 expected) {
+        try this.buy(weth, token, pool, v3, amountIn) returns (uint256 expected, uint256 received) {
             r.bought = true;
             r.expectedTokens = expected;
-            r.receivedTokens = IERC20(token).balanceOf(address(this));
+            r.receivedTokens = received;
         } catch (bytes memory why) {
             r.reason = reasonOf(why);
             return r;
@@ -73,10 +73,12 @@ contract SafetyProbe {
         }
     }
 
-    /// The buy leg; external so `probe` can catch its revert. Returns the tokens the pool sent.
-    function buy(address weth, address pool, bool v3, uint256 amountIn) external returns (uint256) {
+    /// The buy leg; external so `probe` can catch its revert, the token's balance read included.
+    /// Returns the tokens the pool sent, and what arrived.
+    function buy(address weth, address token, address pool, bool v3, uint256 amountIn) external returns (uint256, uint256) {
         require(msg.sender == address(this), "only the probe");
-        return v3 ? buyV3(weth, pool, amountIn) : buyV2(weth, pool, amountIn);
+        uint256 sent = v3 ? buyV3(weth, pool, amountIn) : buyV2(weth, pool, amountIn);
+        return (sent, IERC20(token).balanceOf(address(this)));
     }
 
     function buyV3(address weth, address pool, uint256 amountIn) internal returns (uint256) {
@@ -144,13 +146,23 @@ contract SafetyProbe {
         return withFee * reserveOut / (reserveIn * 1000 + withFee);
     }
 
-    /// An `Error(string)` revert's message, or the raw data in hex.
+    /// An `Error(string)` revert's message, or the raw data in hex. Data that only looks like an
+    /// `Error(string)` is shown in hex, never decoded, so it can't revert the probe.
     function reasonOf(bytes memory why) internal pure returns (string memory) {
         if (why.length >= 68 && bytes4(why) == 0x08c379a0) {
+            uint256 offset;
+            uint256 length;
             assembly {
-                why := add(why, 4)
+                offset := mload(add(why, 36))
+                length := mload(add(why, 68))
             }
-            return abi.decode(why, (string));
+            if (offset == 32 && length <= why.length - 68) {
+                bytes memory text = new bytes(length);
+                for (uint256 i = 0; i < length; i++) {
+                    text[i] = why[68 + i];
+                }
+                return string(text);
+            }
         }
         bytes memory digits = "0123456789abcdef";
         bytes memory text = new bytes(2 + why.length * 2);

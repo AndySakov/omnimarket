@@ -6,7 +6,7 @@ import {SafetyProbe} from "../src/SafetyProbe.sol";
 /// A plain token; `cut` takes a share of every transfer, and `honeypot` refuses transfers to `pair` from
 /// anyone but the owner, so buys work and sells don't.
 contract Token {
-    mapping(address => uint256) public balanceOf;
+    mapping(address => uint256) internal balances;
     address public immutable owner = msg.sender;
     address public pair;
     uint256 public immutable cutPpm;
@@ -18,7 +18,18 @@ contract Token {
     }
 
     function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
+        balances[to] += amount;
+    }
+
+    bool internal broken;
+
+    function breakBalanceReads() external {
+        broken = true;
+    }
+
+    function balanceOf(address who) external view returns (uint256) {
+        require(!broken || who == pair, "no balance for you");
+        return balances[who];
     }
 
     function setPair(address pair_) external {
@@ -27,10 +38,10 @@ contract Token {
 
     function transfer(address to, uint256 amount) external returns (bool) {
         require(!(honeypot && to == pair && msg.sender != owner), "sells are disabled");
-        balanceOf[msg.sender] -= amount;
+        balances[msg.sender] -= amount;
         uint256 cut = amount * cutPpm / 1_000_000;
-        balanceOf[to] += amount - cut;
-        balanceOf[address(0xdead)] += cut;
+        balances[to] += amount - cut;
+        balances[address(0xdead)] += cut;
         return true;
     }
 }
@@ -143,8 +154,21 @@ contract SafetyProbeTest {
         require(keccak256(bytes(r.reason)) == keccak256("sells are disabled"), r.reason);
     }
 
+    /// A token whose balance read reverts once bought from: the probe reports it, never reverts.
+    function test_a_token_that_reverts_its_balance_read_fails_the_buy_not_the_probe() public {
+        Token token = new Token(0, false);
+        Pair pair = new Pair(address(weth), address(token));
+        token.setPair(address(pair));
+        weth.mint(address(pair), 1_000 ether);
+        token.mint(address(pair), 1_000_000 ether);
+        pair.sync();
+        token.breakBalanceReads();
+        SafetyProbe.Result memory r = probe.probe(address(weth), address(token), address(pair), false, 0.1 ether);
+        require(!r.bought && !r.sold, "neither leg");
+    }
+
     function test_only_the_probe_runs_a_leg() public {
-        try probe.buy(address(weth), address(0), false, 1) {
+        try probe.buy(address(weth), address(0), address(0), false, 1) {
             revert("an outside caller ran a leg");
         } catch Error(string memory reason) {
             require(keccak256(bytes(reason)) == keccak256("only the probe"), reason);

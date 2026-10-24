@@ -2,7 +2,7 @@
 //! safety probe (`contracts/src/SafetyProbe.sol`) is put at a throwaway address with some ETH by a
 //! state override, buys the token with WETH, sells it all back, and reports what each leg lost.
 
-use alloy_primitives::{Address, Bytes, U256, address};
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::{SolCall, sol};
 
 sol! {
@@ -22,9 +22,6 @@ sol! {
 /// The probe's runtime code, as `forge inspect SafetyProbe deployedBytecode` prints it;
 /// `scripts/verify.sh` checks it still matches the source.
 const CODE_HEX: &str = include_str!("safety_probe.hex");
-
-/// Where the probe is put for the call: no contract lives here on Base.
-pub const PROBE: Address = address!("00000000000000000000000000000000005afe00");
 
 /// The ETH the probe holds for the call: enough for any round trip it makes.
 pub fn probe_balance() -> U256 {

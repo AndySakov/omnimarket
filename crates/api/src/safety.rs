@@ -91,6 +91,30 @@ impl Safety {
     }
 }
 
+/// A check that couldn't finish (the probe reverted, its answer didn't decode, the endpoint
+/// failed): a warning that says so, replacing an earlier report, so a token never keeps
+/// showing a pass its latest check couldn't confirm.
+pub fn failed(token: Address, reason: &str, now_ms: u64) -> SafetyReport {
+    let mut key = token.to_vec();
+    key.extend(now_ms.to_le_bytes());
+    SafetyReport {
+        lineage: Some(Lineage {
+            id: LineageId::from_natural_key("safety_report", &key)
+                .as_bytes()
+                .to_vec(),
+            caused_by: vec![],
+        }),
+        verdict: SafetyVerdict::Warning.into(),
+        round_trip: None,
+        flags: vec![proto::api::v1::safety_report::Flag {
+            code: "check_failed".into(),
+            detail: reason.to_string(),
+        }],
+        checked_block: 0,
+        checked_at_ms: now_ms,
+    }
+}
+
 fn pct(ppm: u64) -> String {
     decimal(ppm as f64 / 10_000.0)
 }

@@ -93,6 +93,25 @@ pub struct Shared {
     demo: crate::Demo,
 }
 
+/// Why a safety check didn't record a round trip.
+#[derive(Debug)]
+pub enum CheckError {
+    /// No pool trades the token against WETH: nothing to check.
+    NoPool,
+    Failed(String),
+}
+
+/// A random address, from the OS's randomness: the I/O shell's, never a core's (rule 1).
+fn random_address() -> types::chain::Address {
+    use det::Rng as _;
+    let mut rng = det::SeededRng::from_os();
+    let mut bytes = [0u8; 20];
+    for chunk in bytes.chunks_mut(8) {
+        chunk.copy_from_slice(&rng.next_u64().to_le_bytes()[..chunk.len()]);
+    }
+    types::chain::Address::from(bytes)
+}
+
 /// What the safety probe spends on its round trip: 0.01 WETH.
 const SAFETY_SPEND_WEI: u64 = 10_000_000_000_000_000;
 
@@ -228,8 +247,14 @@ impl Shared {
             loop {
                 let next = self.feed().safety().next_due();
                 let Some(token) = next else { break };
-                if let Err(error) = self.check_safety(&chain, token).await {
-                    tracing::warn!(%error, token = %token, "a safety check failed");
+                match self.check_safety(&chain, token).await {
+                    Ok(()) => {}
+                    Err(CheckError::NoPool) => {}
+                    Err(CheckError::Failed(reason)) => {
+                        tracing::warn!(reason, token = %token, "a safety check failed");
+                        let report = crate::safety::failed(token, &reason, now_ms());
+                        self.feed().safety().record(token, report);
+                    }
                 }
             }
             #[allow(clippy::disallowed_methods)] // the worker's pacing, outside any core
@@ -238,41 +263,45 @@ impl Shared {
     }
 
     /// One round trip of `SAFETY_SPEND_WEI` of WETH through a pool trading `token` against WETH,
-    /// at the latest block, recorded as the token's report.
+    /// at the latest block, recorded as the token's report. The probe sits at a fresh random
+    /// address, called from another, so a token can't single the check out.
     pub async fn check_safety(
         &self,
         chain: &chain_io::HttpChain,
         token: types::chain::Address,
-    ) -> Result<(), String> {
+    ) -> Result<(), CheckError> {
         let (pool, v3, decimals) = {
             let mut feed = self.feed();
             let quotes = feed.quotes();
-            let (pool, v3) = quotes.weth_pool(token).ok_or("no WETH pool to probe")?;
+            let (pool, v3) = quotes.weth_pool(token).ok_or(CheckError::NoPool)?;
             (pool, v3, quotes.token_decimals(token).unwrap_or(18))
         };
+        let failed = |e: String| CheckError::Failed(e);
         let block = chain_io::ChainReader::latest_number(chain)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| failed(e.to_string()))?;
+        let (probe, from) = (random_address(), random_address());
         let spent = alloy_primitives::U256::from(SAFETY_SPEND_WEI);
         let call = types::chain::EthCall {
-            to: execution::safety::PROBE,
+            to: probe,
             data: execution::safety::calldata(crate::accounts::WETH, token, pool, v3, spent),
             block,
         };
         let answer = chain
             .call_with_code(
                 &call,
-                execution::safety::PROBE,
+                from,
+                probe,
                 execution::safety::probe_code(),
                 execution::safety::probe_balance(),
             )
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| failed(e.to_string()))?;
         let types::chain::CallResult::Returned(bytes) = answer else {
-            return Err(format!("the probe reverted: {answer:?}"));
+            return Err(failed(format!("the probe reverted: {answer:?}")));
         };
         let trip = execution::safety::RoundTrip::decode(&bytes, spent)
-            .ok_or("the probe's answer doesn't decode")?;
+            .ok_or_else(|| failed("the probe's answer doesn't decode".into()))?;
         let mut feed = self.feed();
         let weth = feed.quotes().token_ref(8453, crate::accounts::WETH);
         let report = crate::safety::report(token, &trip, pool, weth, decimals, block, now_ms());

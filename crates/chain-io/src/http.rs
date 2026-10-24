@@ -33,12 +33,14 @@ impl HttpChain {
         }
     }
 
-    /// `eth_call` with `code` and `balance` put at `at` for the call alone, as a state override:
-    /// for running a contract that's never deployed, such as the token safety probe (#89). An
-    /// answer the node gives (a revert) is the call's result; anything else is a failure.
+    /// `eth_call` from `from`, with `code` and `balance` put at `at` for the call alone, as a
+    /// state override: for running a contract that's never deployed, such as the token safety
+    /// probe (#89). An answer the node gives (a revert) is the call's result; anything else is a
+    /// failure.
     pub async fn call_with_code(
         &self,
         call: &EthCall,
+        from: Address,
         at: Address,
         code: Bytes,
         balance: U256,
@@ -48,6 +50,7 @@ impl HttpChain {
             .with_balance(at, balance)
             .build();
         let request = TransactionRequest::default()
+            .from(from)
             .to(call.to)
             .input(call.data.clone().into());
         match self

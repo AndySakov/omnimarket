@@ -162,3 +162,22 @@ fn taxed_report() -> proto::api::v1::SafetyReport {
         9,
     )
 }
+
+#[test]
+fn a_check_that_fails_replaces_an_earlier_pass_with_a_warning() {
+    let mut safety = Safety::default();
+    record(&mut safety, T, 10);
+    assert_eq!(safety.summary(T).unwrap().verdict(), SafetyVerdict::Passed);
+    safety.record(T, api::safety_check_failed(T, "the probe reverted", 20));
+    let report = safety.report(T).unwrap();
+    assert_eq!(report.verdict(), SafetyVerdict::Warning);
+    assert_eq!(
+        (
+            report.flags[0].code.as_str(),
+            report.flags[0].detail.as_str(),
+            report.checked_at_ms
+        ),
+        ("check_failed", "the probe reverted", 20)
+    );
+    assert!(report.round_trip.is_none());
+}

@@ -43,15 +43,17 @@ async fn live_tokens_round_trip_through_their_pools() {
             false,
         ),
     ] {
+        let probe = Address::repeat_byte(0x5a);
         let call = EthCall {
-            to: safety::PROBE,
+            to: probe,
             data: safety::calldata(WETH, token, pool, v3, amount),
             block,
         };
         let answer = chain
             .call_with_code(
                 &call,
-                safety::PROBE,
+                Address::repeat_byte(0x11),
+                probe,
                 safety::probe_code(),
                 safety::probe_balance(),
             )

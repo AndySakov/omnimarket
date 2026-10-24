@@ -25,7 +25,9 @@ pub use crate::discovery::{BASE_BLOCK_MS, Discovery, DiscoveryConfig, Filters};
 pub use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topic};
 pub use crate::model::{ModelError, ReadModel, decimal, hex, scaled_decimal};
 pub use crate::quotes::{QuoteError, Quotes};
-pub use crate::safety::{RECHECK_MS, Safety, WATCH_MS, report as safety_report};
+pub use crate::safety::{
+    RECHECK_MS, Safety, WATCH_MS, failed as safety_check_failed, report as safety_report,
+};
 pub use crate::session::{Privy, PrivyError, PrivyUser, SESSION_MS, Sessions};
 pub use crate::status::engine_status;
 pub use crate::store::{Store, StoreError, Stored};
