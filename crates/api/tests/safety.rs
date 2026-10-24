@@ -168,7 +168,7 @@ fn a_check_that_fails_replaces_an_earlier_pass_with_a_warning() {
     let mut safety = Safety::default();
     record(&mut safety, T, 10);
     assert_eq!(safety.summary(T).unwrap().verdict(), SafetyVerdict::Passed);
-    safety.record(T, api::safety_check_failed(T, "the probe reverted", 20));
+    safety.check_failed(T, "the probe reverted", 20);
     let report = safety.report(T).unwrap();
     assert_eq!(report.verdict(), SafetyVerdict::Warning);
     assert_eq!(
@@ -180,4 +180,37 @@ fn a_check_that_fails_replaces_an_earlier_pass_with_a_warning() {
         ("check_failed", "the probe reverted", 20)
     );
     assert!(report.round_trip.is_none());
+}
+
+#[test]
+fn a_failed_check_keeps_a_honeypot_a_honeypot() {
+    let mut safety = Safety::default();
+    let honeypot = api::safety_report(
+        T,
+        &trip(false, 1_000_000, 0, 0),
+        Address::ZERO,
+        weth(),
+        18,
+        1,
+        10,
+    );
+    safety.record(T, honeypot);
+    safety.check_failed(T, "the endpoint didn't answer", 20);
+    safety.check_failed(T, "the endpoint didn't answer", 30);
+    let report = safety.report(T).unwrap();
+    assert_eq!(report.verdict(), SafetyVerdict::Honeypot);
+    assert_eq!(report.flags.len(), 1);
+    assert_eq!(report.flags[0].code, "check_failed");
+    assert!(report.round_trip.is_some());
+}
+
+#[test]
+fn a_revert_reason_is_cut_to_a_panels_size() {
+    let mut long = trip(false, 1_000_000, 0, 0);
+    long.reason = "x".repeat(10_000);
+    let report = api::safety_report(T, &long, Address::ZERO, weth(), 18, 1, 10);
+    assert_eq!(
+        report.round_trip.unwrap().revert_reason.len(),
+        api::MAX_REASON
+    );
 }

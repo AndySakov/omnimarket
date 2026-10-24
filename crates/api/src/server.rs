@@ -98,7 +98,9 @@ pub struct Shared {
 pub enum CheckError {
     /// No pool trades the token against WETH: nothing to check.
     NoPool,
-    Failed(String),
+    /// The public reason, and the details for the server's log only: they can carry the
+    /// endpoint's URL and its key.
+    Failed(&'static str, String),
 }
 
 /// A random address, from the OS's randomness: the I/O shell's, never a core's (rule 1).
@@ -250,10 +252,9 @@ impl Shared {
                 match self.check_safety(&chain, token).await {
                     Ok(()) => {}
                     Err(CheckError::NoPool) => {}
-                    Err(CheckError::Failed(reason)) => {
-                        tracing::warn!(reason, token = %token, "a safety check failed");
-                        let report = crate::safety::failed(token, &reason, now_ms());
-                        self.feed().safety().record(token, report);
+                    Err(CheckError::Failed(reason, details)) => {
+                        tracing::warn!(reason, details, token = %token, "a safety check failed");
+                        self.feed().safety().check_failed(token, reason, now_ms());
                     }
                 }
             }
@@ -276,10 +277,12 @@ impl Shared {
             let (pool, v3) = quotes.weth_pool(token).ok_or(CheckError::NoPool)?;
             (pool, v3, quotes.token_decimals(token).unwrap_or(18))
         };
-        let failed = |e: String| CheckError::Failed(e);
+        let unanswered = |e: chain_io::ChainError| {
+            CheckError::Failed("the endpoint didn't answer", e.to_string())
+        };
         let block = chain_io::ChainReader::latest_number(chain)
             .await
-            .map_err(|e| failed(e.to_string()))?;
+            .map_err(unanswered)?;
         let (probe, from) = (random_address(), random_address());
         let spent = alloy_primitives::U256::from(SAFETY_SPEND_WEI);
         let call = types::chain::EthCall {
@@ -296,12 +299,16 @@ impl Shared {
                 execution::safety::probe_balance(),
             )
             .await
-            .map_err(|e| failed(e.to_string()))?;
+            .map_err(unanswered)?;
         let types::chain::CallResult::Returned(bytes) = answer else {
-            return Err(failed(format!("the probe reverted: {answer:?}")));
+            return Err(CheckError::Failed(
+                "the probe reverted",
+                format!("{answer:?}"),
+            ));
         };
-        let trip = execution::safety::RoundTrip::decode(&bytes, spent)
-            .ok_or_else(|| failed("the probe's answer doesn't decode".into()))?;
+        let trip = execution::safety::RoundTrip::decode(&bytes, spent).ok_or_else(|| {
+            CheckError::Failed("the probe's answer didn't decode", format!("{bytes}"))
+        })?;
         let mut feed = self.feed();
         let weth = feed.quotes().token_ref(8453, crate::accounts::WETH);
         let report = crate::safety::report(token, &trip, pool, weth, decimals, block, now_ms());

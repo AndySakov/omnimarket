@@ -13,6 +13,9 @@ use types::chain::Address;
 
 use crate::model::{decimal, hex, scaled_decimal};
 
+/// The most of a revert reason a report carries.
+pub const MAX_REASON: usize = 200;
+
 /// A report is good for this long; a watched token is checked again after it.
 pub const RECHECK_MS: u64 = 5 * 60_000;
 /// A token is watched for this long after its page was last read.
@@ -89,12 +92,28 @@ impl Safety {
     pub fn record(&mut self, token: Address, report: SafetyReport) {
         self.reports.insert(token, report);
     }
+
+    /// A check that couldn't finish. The report becomes a warning saying why, so a pass never
+    /// stands after a check that couldn't confirm it. A honeypot verdict stays, with the flag
+    /// added: a failed check is no evidence it got safer.
+    pub fn check_failed(&mut self, token: Address, reason: &'static str, now_ms: u64) {
+        let failed = failed(token, reason, now_ms);
+        match self.reports.get_mut(&token) {
+            Some(report) if report.verdict() == SafetyVerdict::Honeypot => {
+                report.flags.retain(|f| f.code != "check_failed");
+                report.flags.extend(failed.flags);
+            }
+            _ => {
+                self.reports.insert(token, failed);
+            }
+        }
+    }
 }
 
 /// A check that couldn't finish (the probe reverted, its answer didn't decode, the endpoint
 /// failed): a warning that says so, replacing an earlier report, so a token never keeps
 /// showing a pass its latest check couldn't confirm.
-pub fn failed(token: Address, reason: &str, now_ms: u64) -> SafetyReport {
+pub fn failed(token: Address, reason: &'static str, now_ms: u64) -> SafetyReport {
     let mut key = token.to_vec();
     key.extend(now_ms.to_le_bytes());
     SafetyReport {
@@ -158,7 +177,8 @@ pub fn report(
                 String::new()
             },
             sell_succeeded: trip.sold,
-            revert_reason: trip.reason.clone(),
+            // The token's own revert message: evidence to show, cut to a size a panel can.
+            revert_reason: trip.reason.chars().take(MAX_REASON).collect(),
             pool: hex(pool.as_slice()),
         }),
         flags: vec![],

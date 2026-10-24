@@ -90,7 +90,8 @@ Policy: block buys on confirmed honeypots; warn on everything else; never block 
   - otherwise *passed*.
 - **The pool:** the token's main pool when that's a WETH pool, else any WETH pool the API mirrors. Tokens quoted only in a stablecoin aren't checked yet.
 - **Unrecognisable.** Each check puts the probe at a fresh random address and calls it from another, so a token can't recognise the check and act differently for it.
-- **A failed check.** If the probe reverts, its answer doesn't decode, or the endpoint fails, the token's report becomes a warning with a `check_failed` flag. A pass is never left standing after a check that couldn't confirm it.
+- **A failed check.** If the probe reverts, its answer doesn't decode, or the endpoint fails, the token's report becomes a warning with a `check_failed` flag, so a pass is never left standing after a check that couldn't confirm it. A honeypot verdict stays and gains the flag: a failed check is no evidence the token got safer. The flag says only which of the three failed; the details, which can carry the endpoint's URL, go to the server log.
+- **Revert reasons** are the token's own words, shown as evidence and cut to 200 characters.
 - **Coverage gap:** a fee-on-transfer token can't be sold through a v3 pool at all, since the pool's balance check reverts. So a v3 check of such a token reads honeypot, which is true of that pool.
 
 The API's worker (`api --call-rpc URL`) checks a token once when a pool trading it against WETH is discovered, and on its page's first read. It checks again every 5 minutes while the page has been read in the last 30. The report is `TokenSnapshot.safety` and its summary is a discovery row's `safety`. The probe's committed runtime code (`crates/execution/src/safety_probe.hex`) is checked against its source in `scripts/verify.sh`.
