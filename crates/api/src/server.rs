@@ -45,6 +45,12 @@ pub const INPUT_TOPICS: [&str; 5] = [
 
 pub struct Config {
     pub listen: SocketAddr,
+    /// Signs session tokens. Unset: `DEV_SESSION_SECRET`, with a warning.
+    pub session_secret: Option<String>,
+    /// A Privy app's ID and PEM verification key, for Privy logins.
+    pub privy: Option<(String, String)>,
+    /// Where demo accounts are kept between restarts. Unset: in memory only.
+    pub postgres: Option<String>,
     /// Where a shadow trade's simulation `eth_call`s go. Unset, or unusable at start: trades
     /// simulate on the in-memory pool state.
     pub call_rpc: Option<String>,
@@ -64,6 +70,8 @@ pub enum ServerError {
     /// An input topic couldn't be created.
     Topic(det::kafka::InputLogError),
     BadCorsOrigin(String),
+    /// A setting that doesn't work: a bad key, an unreachable store.
+    Config(String),
 }
 
 /// What the consumer and the connections share.
@@ -82,6 +90,7 @@ pub struct Shared {
     calls: Mutex<Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>>,
     /// Trades running at once.
     running: Arc<tokio::sync::Semaphore>,
+    demo: crate::Demo,
 }
 
 /// The most trades running at once; another gets a 429.
@@ -116,6 +125,16 @@ impl Shared {
         discovery: DiscoveryConfig,
         calls: Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>,
     ) -> Arc<Self> {
+        let sessions = crate::Sessions::new(DEV_SESSION_SECRET.as_bytes());
+        Self::with_demo(discovery, calls, crate::Demo::new(sessions, None))
+    }
+
+    /// With demo accounts as `demo` keeps them.
+    pub fn with_demo(
+        discovery: DiscoveryConfig,
+        calls: Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>,
+        demo: crate::Demo,
+    ) -> Arc<Self> {
         Arc::new(Self {
             feed: Mutex::new(Feed::new(discovery)),
             ticks: broadcast::channel(CONNECTION_BACKLOG).0,
@@ -127,7 +146,54 @@ impl Shared {
                 .expect("the guest key is a valid secp256k1 key"),
             calls: Mutex::new(calls),
             running: Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING_TRADES)),
+            demo,
         })
+    }
+
+    /// The account a request's bearer token is a session of.
+    fn account_of(&self, headers: &axum::http::HeaderMap) -> Option<String> {
+        self.demo.account_id(bearer(headers)?, now_ms())
+    }
+
+    /// The fill a shadow trade's receipt books: what it moved, valued by its quote-asset side
+    /// at the display price.
+    fn fill_of(&self, receipt: &proto::api::v1::TradeReceipt) -> crate::Fill {
+        let token_in = receipt.token_in.clone().unwrap_or_default();
+        let token_out = receipt.token_out.clone().unwrap_or_default();
+        let amount_in = execution::intent::base_units(&receipt.amount_in, token_in.decimals)
+            .unwrap_or_default();
+        let amount_out = execution::intent::base_units(&receipt.amount_out, token_out.decimals)
+            .unwrap_or_default();
+        let address = |t: &proto::api::v1::TokenRef| {
+            t.address
+                .strip_prefix("0x")
+                .and_then(|h| h.parse::<types::chain::Address>().ok())
+        };
+        let whole = |amount: &str| amount.parse::<f64>().unwrap_or(0.0);
+        let quotes = crate::accounts::QUOTE_ASSETS;
+        let usd = self.usd();
+        let value_usd = match (address(&token_in), address(&token_out)) {
+            (Some(a), _) if quotes.contains(&a) => {
+                usd(a).map_or(0.0, |p| whole(&receipt.amount_in) * p)
+            }
+            (_, Some(b)) => usd(b).map_or(0.0, |p| whole(&receipt.amount_out) * p),
+            _ => 0.0,
+        };
+        crate::Fill {
+            trade_id: receipt.trade_id.clone(),
+            token_in,
+            amount_in,
+            token_out,
+            amount_out,
+            value_usd,
+            at_ms: receipt.steps.last().map_or(0, |s| s.finished_at_ms),
+            receipt: Some(receipt.clone()),
+        }
+    }
+
+    /// A token's display price in USD, for marking balances and positions.
+    fn usd(&self) -> impl Fn(types::chain::Address) -> Option<f64> + '_ {
+        move |token| self.feed().quotes().usd(token)
     }
 
     /// Simulations go in memory from now on: the call worker gave up on its endpoint.
@@ -147,7 +213,12 @@ impl Shared {
     /// Runs a prepared trade to its end, on this thread: blocking, so call it off the server's
     /// runtime. The core of it is single-threaded (rule 6) on its own current-thread runtime.
     /// `None` if it didn't finish within `TRADE_TIMEOUT`: it's abandoned.
-    fn run_trade(&self, run: Box<crate::trades::Run>) -> Option<execution::Finished> {
+    fn run_trade(
+        &self,
+        run: Box<crate::trades::Run>,
+        account_id: &str,
+        wallet: Option<(types::chain::Address, Option<alloy_primitives::Signature>)>,
+    ) -> Option<execution::Finished> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -165,7 +236,7 @@ impl Shared {
         let request = execution::Request {
             trade_id: run.trade_id.clone(),
             client_request_id: run.client_request_id.clone(),
-            account_id: crate::GUEST_ACCOUNT.into(),
+            account_id: account_id.into(),
             quote: &run.quote,
         };
         let quote_request = run.quote_request.clone();
@@ -177,7 +248,10 @@ impl Shared {
                     .price(&quote_request)
                     .map_err(|e| e.to_string())
             },
-            execution::Signer::Guest(&self.signer),
+            match wallet {
+                Some((address, signature)) => execution::Signer::Wallet { address, signature },
+                None => execution::Signer::Guest(&self.signer),
+            },
             simulation,
             &SystemClock,
         );
@@ -334,6 +408,10 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
         .route("/v1/candles", get(candles))
         .route("/v1/quotes", post(quote))
         .route("/v1/trades", post(trade))
+        .route("/v1/session", post(open_session))
+        .route("/v1/account", get(account))
+        .route("/v1/positions", get(positions))
+        .route("/v1/history", get(history))
         .route("/v1/trades/{trade_id}/receipt", get(receipt))
         .route("/v1/stream", get(stream))
         .layer(middleware::from_fn_with_state(
@@ -372,7 +450,30 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         Some((requests, gave_up)) => (Some(requests), Some(gave_up)),
         None => (None, None),
     };
-    let shared = Shared::with_calls(config.discovery, calls);
+    let secret = config.session_secret.clone().unwrap_or_else(|| {
+        tracing::warn!("no session secret set: using the development one");
+        DEV_SESSION_SECRET.to_string()
+    });
+    let privy = match &config.privy {
+        Some((app_id, key)) => Some(
+            crate::Privy::new(app_id, key)
+                .map_err(|e| ServerError::Config(format!("the Privy verification key: {e:?}")))?,
+        ),
+        None => None,
+    };
+    let demo = crate::Demo::new(crate::Sessions::new(secret.as_bytes()), privy);
+    let demo = match &config.postgres {
+        Some(url) => {
+            let store = crate::Store::connect(url)
+                .await
+                .map_err(|e| ServerError::Config(format!("postgres: {e}")))?;
+            demo.with_store(store)
+                .await
+                .map_err(|e| ServerError::Config(format!("loading the demo accounts: {e}")))?
+        }
+        None => demo,
+    };
+    let shared = Shared::with_demo(config.discovery, calls, demo);
     if let Some(gave_up) = gave_up {
         let watcher = shared.clone();
         // The worker holds every call it can't answer once it gives up (D88): stop sending it any.
@@ -406,7 +507,9 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
     tokio::select! {
         biased;
         result = consume(&consumer, &shared) => result,
-        result = axum::serve(listener, app) => result.map_err(ServerError::Io),
+        result = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => {
+            result.map_err(ServerError::Io)
+        }
     }
 }
 
@@ -565,19 +668,125 @@ pub fn parse_candles_query(params: &BTreeMap<String, String>) -> Option<CandlesQ
     })
 }
 
+/// The session secret when none is configured: fine on a laptop, never on a public server.
+pub const DEV_SESSION_SECRET: &str = "omnimarket-dev-session-secret";
+
+fn now_ms() -> u64 {
+    SystemClock.now().unix_nanos / 1_000_000
+}
+
+/// A request's `Authorization: Bearer` token.
+fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .strip_prefix("Bearer ")
+}
+
+fn json<T: serde::Serialize>(message: &T) -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(message).expect("generated messages always serialize"),
+    )
+        .into_response()
+}
+
+/// `POST /v1/session`: a new guest account and its session, or with
+/// `Authorization: Bearer <Privy identity token>`, the Privy user's account, created on their
+/// first login and found again on the next. 401 for a Privy token that doesn't verify, 422
+/// with no Privy app configured, 429 past `SESSIONS_PER_IP_HOUR` from one address.
+async fn open_session(State(shared): State<Arc<Shared>>, request: Request) -> Response {
+    let ip = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip());
+    let privy = bearer(request.headers()).map(str::to_string);
+    let guest_id = format!("guest-{:016x}", det::SeededRng::from_os().seed());
+    let opened = shared
+        .demo
+        .open(privy.as_deref(), guest_id, ip, now_ms())
+        .await;
+    match opened {
+        Ok(opened) => {
+            let account = shared.demo.account(&opened.account_id, shared.usd());
+            json(&proto::api::v1::Session {
+                lineage: account.as_ref().and_then(|a| a.lineage.clone()),
+                session_token: opened.token,
+                expires_at_ms: opened.expires_at_ms,
+                account,
+            })
+        }
+        Err(error) => {
+            let code = match error {
+                crate::DemoError::Privy(_) => StatusCode::UNAUTHORIZED,
+                crate::DemoError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
+                crate::DemoError::Store(_) => StatusCode::SERVICE_UNAVAILABLE,
+                _ => StatusCode::UNPROCESSABLE_ENTITY,
+            };
+            (code, error.to_string()).into_response()
+        }
+    }
+}
+
+/// `GET /v1/account`: the session's account and its shadow balances. 401 without a session.
+async fn account(State(shared): State<Arc<Shared>>, headers: axum::http::HeaderMap) -> Response {
+    let Some(id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    match shared.demo.account(&id, shared.usd()) {
+        Some(account) => json(&account),
+        None => StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+/// `GET /v1/positions`: the session's positions, open first, marked to the display price.
+async fn positions(State(shared): State<Arc<Shared>>, headers: axum::http::HeaderMap) -> Response {
+    let Some(id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let positions = shared.demo.positions(&id, shared.usd()).unwrap_or_default();
+    json(&proto::api::v1::PositionList {
+        lineage: None,
+        positions,
+    })
+}
+
+/// `GET /v1/history`: the session's finished trades' receipts, newest first.
+async fn history(State(shared): State<Arc<Shared>>, headers: axum::http::HeaderMap) -> Response {
+    let Some(id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    json(&proto::api::v1::TradeHistory {
+        lineage: None,
+        receipts: shared.demo.history(&id).unwrap_or_default(),
+    })
+}
+
 /// `POST /v1/quotes` with a `QuoteRequest`: a `Quote` on the latest pool state. A body or
 /// field that doesn't parse is a 400; a pair that can't be quoted is a 422 with the reason.
-async fn quote(State(shared): State<Arc<Shared>>, body: String) -> Response {
+/// With a Privy account's session, the quote carries the intent for its wallet to sign.
+async fn quote(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
     let Ok(request) = serde_json::from_str::<proto::api::v1::QuoteRequest>(&body) else {
         return (StatusCode::BAD_REQUEST, "the body isn't a QuoteRequest").into_response();
     };
+    let wallet = shared
+        .account_of(&headers)
+        .and_then(|id| shared.demo.wallet(&id));
     let quoted = shared.feed().quotes().quote(&request);
     match quoted {
-        Ok(quote) => (
-            [(header::CONTENT_TYPE, "application/json")],
-            serde_json::to_string(&quote).expect("generated messages always serialize"),
-        )
-            .into_response(),
+        Ok(mut quote) => {
+            if let Some(wallet) = wallet
+                && let Some(intent) = execution::shadow::intent_for(&quote, wallet)
+            {
+                quote.intent_typed_data = execution::intent::typed_data(&intent, quote.chain_id);
+            }
+            json(&quote)
+        }
         Err(error @ crate::QuoteError::Bad(_)) => {
             (StatusCode::BAD_REQUEST, error.to_string()).into_response()
         }
@@ -585,65 +794,103 @@ async fn quote(State(shared): State<Arc<Shared>>, body: String) -> Response {
     }
 }
 
-/// `POST /v1/trades` with a `TradeRequest`: runs the quote's trade in shadow mode and answers
-/// its last `TradeStatus`. The same intent again gets the same status, never a second fill.
-/// 400 for a body that doesn't parse, 404 for an unknown or expired quote, 409 while the same
-/// trade runs, 422 for a wallet's signature (guests only until #85), 429 past
-/// `MAX_RUNNING_TRADES` at once, 504 past `TRADE_TIMEOUT`.
-async fn trade(State(shared): State<Arc<Shared>>, body: String) -> Response {
+/// `POST /v1/trades` with a `TradeRequest` and a session: runs the quote's trade in shadow
+/// mode, books the fill to the account, and answers the trade's last `TradeStatus`. A guest's
+/// intent is signed by the server; a Privy account's must carry its wallet's signature. The
+/// same intent again gets the same status, never a second fill. 400 for a body that doesn't
+/// parse, 401 without a session, 404 for an unknown or expired quote, 409 while the same trade
+/// runs, 422 past the shadow balance or for a guest's request carrying a signature, 429 past
+/// `TRADES_PER_ACCOUNT_HOUR` or `MAX_RUNNING_TRADES` at once, 504 past `TRADE_TIMEOUT`.
+async fn trade(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
     let Ok(request) = serde_json::from_str::<proto::api::v1::TradeRequest>(&body) else {
         return (StatusCode::BAD_REQUEST, "the body isn't a TradeRequest").into_response();
     };
+    let Some(account_id) = shared.account_of(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "open a session first").into_response();
+    };
+    let wallet = match shared.demo.wallet(&account_id) {
+        Some(address) => Some((
+            address,
+            execution::intent::parse_signature(&request.intent_signature),
+        )),
+        None if !request.intent_signature.is_empty() => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "a guest's intent is signed by the server: send no signature",
+            )
+                .into_response();
+        }
+        None => None,
+    };
+    let signer = wallet.map_or_else(|| shared.signer.address(), |(address, _)| address);
     let prepared = {
         let mut feed = shared.feed();
-        shared
-            .trades()
-            .prepare(feed.quotes(), &request, shared.signer.address())
+        shared.trades().prepare(feed.quotes(), &request, signer)
     };
-    let status = match prepared {
-        Ok(crate::trades::Prepared::Done(status)) => status,
-        Ok(crate::trades::Prepared::Run(run)) => {
-            let Ok(permit) = shared.running.clone().try_acquire_owned() else {
-                shared.trades().abandon(run.hash, &run.trade_id);
-                return (
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "too many trades running: try again",
-                )
-                    .into_response();
-            };
-            let runner = shared.clone();
-            let ran = tokio::task::spawn_blocking(move || {
-                let _permit = permit;
-                runner.run_trade(run)
-            })
-            .await;
-            match ran {
-                Ok(Some(finished)) => finished.status,
-                Ok(None) => {
-                    return (
-                        StatusCode::GATEWAY_TIMEOUT,
-                        "the trade timed out: try again",
-                    )
-                        .into_response();
-                }
-                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            }
-        }
+    let run = match prepared {
+        Ok(crate::trades::Prepared::Done(status)) => return json(&status),
+        Ok(crate::trades::Prepared::Run(run)) => run,
         Err(error) => {
             let code = match error {
                 crate::TradeError::Bad(_) => StatusCode::BAD_REQUEST,
                 crate::TradeError::UnknownQuote => StatusCode::NOT_FOUND,
                 crate::TradeError::Running => StatusCode::CONFLICT,
-                crate::TradeError::NoWallets => StatusCode::UNPROCESSABLE_ENTITY,
             };
             return (code, error.to_string()).into_response();
         }
     };
-    (
-        [(header::CONTENT_TYPE, "application/json")],
-        serde_json::to_string(&status).expect("generated messages always serialize"),
-    )
-        .into_response()
+    let token_in = run.quote.token_in.clone().unwrap_or_default();
+    let amount_in =
+        execution::intent::base_units(&run.quote.amount_in, token_in.decimals).unwrap_or_default();
+    if let Err(error) = shared
+        .demo
+        .admit(&account_id, &token_in, amount_in, now_ms())
+    {
+        shared.trades().abandon(run.hash, &run.trade_id);
+        let code = match error {
+            crate::DemoError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
+            _ => StatusCode::UNPROCESSABLE_ENTITY,
+        };
+        return (code, error.to_string()).into_response();
+    }
+    let Ok(permit) = shared.running.clone().try_acquire_owned() else {
+        shared.trades().abandon(run.hash, &run.trade_id);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many trades running: try again",
+        )
+            .into_response();
+    };
+    let runner = shared.clone();
+    let id = account_id.clone();
+    let ran = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        runner.run_trade(run, &id, wallet)
+    })
+    .await;
+    let finished = match ran {
+        Ok(Some(finished)) => finished,
+        Ok(None) => {
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                "the trade timed out: try again",
+            )
+                .into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    if let Some(receipt) = &finished.receipt {
+        let fill = shared.fill_of(receipt);
+        if let Err(error) = shared.demo.fill(&account_id, fill).await {
+            tracing::warn!(%error, trade = %receipt.trade_id, "a simulated trade wasn't booked");
+            return (StatusCode::UNPROCESSABLE_ENTITY, error.to_string()).into_response();
+        }
+    }
+    json(&finished.status)
 }
 
 /// `GET /v1/trades/{trade_id}/receipt`: a trade that stopped before broadcast, or 404.

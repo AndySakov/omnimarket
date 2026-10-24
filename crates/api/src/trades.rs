@@ -15,17 +15,12 @@ use crate::quotes::Quotes;
 /// Finished trades kept for repeats and receipts; the oldest go first.
 const KEPT: usize = 10_000;
 
-/// Guest accounts until #85: every trade is a guest's.
-pub const GUEST_ACCOUNT: &str = "guest";
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TradeError {
     /// The body doesn't parse, or a field in it.
     Bad(&'static str),
     /// No unexpired quote has this ID.
     UnknownQuote,
-    /// A wallet's signature: Privy accounts come with #85.
-    NoWallets,
     /// The same intent is still running.
     Running,
 }
@@ -35,7 +30,6 @@ impl std::fmt::Display for TradeError {
         match self {
             Self::Bad(field) => write!(f, "{field} doesn't parse"),
             Self::UnknownQuote => write!(f, "no unexpired quote has this ID: quote again"),
-            Self::NoWallets => write!(f, "only guest accounts trade until Privy accounts land"),
             Self::Running => write!(f, "this trade is still running"),
         }
     }
@@ -74,17 +68,18 @@ impl Trades {
         request: &TradeRequest,
         signer: Address,
     ) -> Result<Prepared, TradeError> {
-        if !request.intent_signature.is_empty() {
-            return Err(TradeError::NoWallets);
-        }
         let (quote_request, quote) = quotes
             .issued(&request.quote_id)
             .ok_or(TradeError::UnknownQuote)?;
         let hash = shadow::intent_hash(quote, signer).ok_or(TradeError::Bad("quote_id"))?;
+        // A trade that filled is final; one that failed (a bad signature, the price moved) can
+        // run again.
         match self.finished.get(&hash) {
-            Some(Some(done)) => return Ok(Prepared::Done(done.status.clone())),
+            Some(Some(done)) if done.receipt.is_some() => {
+                return Ok(Prepared::Done(done.status.clone()));
+            }
             Some(None) => return Err(TradeError::Running),
-            None => {}
+            _ => {}
         }
         self.finished.insert(hash, None);
         let trade_id = hex(LineageId::from_natural_key("trade", hash.as_slice()).as_bytes());

@@ -377,7 +377,7 @@ impl Quotes {
 
     /// A token's display price in USD: its latest price update's, or $1 for a reference
     /// stablecoin, which is pinned and publishes none (D19).
-    fn usd(&self, token: Address) -> Option<f64> {
+    pub fn usd(&self, token: Address) -> Option<f64> {
         if token == USDC || token == USDT {
             return Some(1.0);
         }

@@ -249,10 +249,16 @@ fn a_pair_without_a_quote_asset_or_a_route_is_refused() {
 }
 
 async fn http_post(address: &str, path: &str, body: &str) -> String {
+    http_post_as(address, path, None, body).await
+}
+
+/// A POST with a session's bearer token.
+async fn http_post_as(address: &str, path: &str, token: Option<&str>, body: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let auth = token.map_or(String::new(), |t| format!("Authorization: Bearer {t}\r\n"));
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "POST {path} HTTP/1.1\r\nHost: {address}\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).await.unwrap();
@@ -322,7 +328,11 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
         engine::PRICES_TOPIC,
         &price(MEME, "MEME", 18, 0.01, false).encode_to_vec(),
     );
-    let body = serde_json::to_string(&request("trade", USDC, MEME, "5000")).unwrap();
+    let opened = http_post(&address, "/v1/session", "").await;
+    let session: proto::api::v1::Session =
+        serde_json::from_str(opened.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let token = session.session_token;
+    let body = serde_json::to_string(&request("trade", USDC, MEME, "500")).unwrap();
     let quoted = http_post(&address, "/v1/quotes", &body).await;
     let quote: Quote = serde_json::from_str(quoted.split("\r\n\r\n").nth(1).unwrap()).unwrap();
 
@@ -334,7 +344,7 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
         })
         .unwrap()
     };
-    let first = http_post(&address, "/v1/trades", &trade("t1")).await;
+    let first = http_post_as(&address, "/v1/trades", Some(&token), &trade("t1")).await;
     assert!(first.starts_with("HTTP/1.1 200"), "{first}");
     let status: TradeStatus =
         serde_json::from_str(first.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -351,7 +361,7 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
     );
     assert_eq!(status.steps[3].detail, "simulated in memory");
     // The same intent again, even under another request ID: the same trade, no second fill.
-    let again = http_post(&address, "/v1/trades", &trade("t2")).await;
+    let again = http_post_as(&address, "/v1/trades", Some(&token), &trade("t2")).await;
     let repeated: TradeStatus =
         serde_json::from_str(again.split("\r\n\r\n").nth(1).unwrap()).unwrap();
     assert_eq!(repeated, status);
@@ -367,8 +377,8 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
             receipt.quote_id.as_str()
         ),
         (
-            "489601.285425744753500141",
-            "474913.246862972410895136",
+            "49179.005029296297437105",
+            "47703.634878417408513991",
             quote.quote_id.as_str()
         )
     );
@@ -380,7 +390,7 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
     })
     .unwrap();
     assert!(
-        http_post(&address, "/v1/trades", &unknown)
+        http_post_as(&address, "/v1/trades", Some(&token), &unknown)
             .await
             .starts_with("HTTP/1.1 404")
     );
@@ -391,9 +401,15 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
     })
     .unwrap();
     assert!(
-        http_post(&address, "/v1/trades", &signed)
+        http_post_as(&address, "/v1/trades", Some(&token), &signed)
             .await
             .starts_with("HTTP/1.1 422")
+    );
+    // Without a session: 401.
+    assert!(
+        http_post(&address, "/v1/trades", &trade("t3"))
+            .await
+            .starts_with("HTTP/1.1 401")
     );
     assert!(
         http_get(&address, "/v1/trades/0x00/receipt")
