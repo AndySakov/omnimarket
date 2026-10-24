@@ -18,6 +18,18 @@ jobs:
           --health-cmd "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"
           --health-interval 5s
           --health-retries 30
+      # The demo accounts' store (#85), as the local stack runs it.
+      postgres:
+        image: postgres:18.6
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_USER: omnimarket
+          POSTGRES_PASSWORD: omnimarket
+          POSTGRES_DB: omnimarket
+        options: >-
+          --health-cmd "pg_isready -U omnimarket"
+          --health-interval 2s
+          --health-retries 30
       rustfs:
         image: rustfs/rustfs:1.0.0
         ports: ["9000:9000"]
@@ -60,6 +72,10 @@ jobs:
             --user omnimarket:omnimarket-dev http://localhost:9000/omnimarket-inputs)
           [[ $code == 200 || $code == 409 ]] || { echo "creating the archive bucket failed ($code)" >&2; exit 1; }
           cargo test -p engine --test end_to_end -- --ignored | tee test-reports/engine-end-to-end.log
+      - shell: bash
+        env:
+          OMNIMARKET_TEST_POSTGRES: postgres://omnimarket:omnimarket@localhost:5432/omnimarket
+        run: cargo test -p api --test demo_accounts -- --ignored | tee test-reports/demo-accounts.log
       - uses: actions/upload-artifact@v4
         with:
           name: rust-test-results

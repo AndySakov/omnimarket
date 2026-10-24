@@ -249,10 +249,16 @@ fn a_pair_without_a_quote_asset_or_a_route_is_refused() {
 }
 
 async fn http_post(address: &str, path: &str, body: &str) -> String {
+    http_post_as(address, path, None, body).await
+}
+
+/// A POST with a session's bearer token.
+async fn http_post_as(address: &str, path: &str, token: Option<&str>, body: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let auth = token.map_or(String::new(), |t| format!("Authorization: Bearer {t}\r\n"));
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "POST {path} HTTP/1.1\r\nHost: {address}\r\n{auth}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).await.unwrap();
@@ -322,7 +328,11 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
         engine::PRICES_TOPIC,
         &price(MEME, "MEME", 18, 0.01, false).encode_to_vec(),
     );
-    let body = serde_json::to_string(&request("trade", USDC, MEME, "5000")).unwrap();
+    let opened = http_post(&address, "/v1/session", "").await;
+    let session: proto::api::v1::Session =
+        serde_json::from_str(opened.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let token = session.session_token;
+    let body = serde_json::to_string(&request("trade", USDC, MEME, "500")).unwrap();
     let quoted = http_post(&address, "/v1/quotes", &body).await;
     let quote: Quote = serde_json::from_str(quoted.split("\r\n\r\n").nth(1).unwrap()).unwrap();
 
@@ -334,7 +344,7 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
         })
         .unwrap()
     };
-    let first = http_post(&address, "/v1/trades", &trade("t1")).await;
+    let first = http_post_as(&address, "/v1/trades", Some(&token), &trade("t1")).await;
     assert!(first.starts_with("HTTP/1.1 200"), "{first}");
     let status: TradeStatus =
         serde_json::from_str(first.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -351,12 +361,13 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
     );
     assert_eq!(status.steps[3].detail, "simulated in memory");
     // The same intent again, even under another request ID: the same trade, no second fill.
-    let again = http_post(&address, "/v1/trades", &trade("t2")).await;
+    let again = http_post_as(&address, "/v1/trades", Some(&token), &trade("t2")).await;
     let repeated: TradeStatus =
         serde_json::from_str(again.split("\r\n\r\n").nth(1).unwrap()).unwrap();
     assert_eq!(repeated, status);
 
-    let receipt = http_get(&address, &format!("/v1/trades/{}/receipt", status.trade_id)).await;
+    let receipt_path = format!("/v1/trades/{}/receipt", status.trade_id);
+    let receipt = http_get(&address, &receipt_path, &token).await;
     assert!(receipt.starts_with("HTTP/1.1 200"), "{receipt}");
     let receipt: TradeReceipt =
         serde_json::from_str(receipt.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -367,12 +378,35 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
             receipt.quote_id.as_str()
         ),
         (
-            "489601.285425744753500141",
-            "474913.246862972410895136",
+            "49179.005029296297437105",
+            "47703.634878417408513991",
             quote.quote_id.as_str()
         )
     );
     assert!(receipt.simulated_in_memory && receipt.demo_intent);
+
+    // Another guest trading the same quote makes its own trade, and can't read the first's
+    // receipt: both share the server's signer, so the intent alone doesn't tell them apart.
+    let other = http_post(&address, "/v1/session", "").await;
+    let other: proto::api::v1::Session =
+        serde_json::from_str(other.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    let theirs = http_post_as(
+        &address,
+        "/v1/trades",
+        Some(&other.session_token),
+        &trade("o1"),
+    )
+    .await;
+    let theirs: TradeStatus =
+        serde_json::from_str(theirs.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(theirs.state(), State::Simulated);
+    assert_ne!(theirs.trade_id, status.trade_id);
+    assert_eq!(theirs.account_id, other.account.unwrap().account_id);
+    assert!(
+        http_get(&address, &receipt_path, &other.session_token)
+            .await
+            .starts_with("HTTP/1.1 404")
+    );
 
     let unknown = serde_json::to_string(&TradeRequest {
         quote_id: "0x00".into(),
@@ -380,7 +414,7 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
     })
     .unwrap();
     assert!(
-        http_post(&address, "/v1/trades", &unknown)
+        http_post_as(&address, "/v1/trades", Some(&token), &unknown)
             .await
             .starts_with("HTTP/1.1 404")
     );
@@ -391,21 +425,29 @@ async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
     })
     .unwrap();
     assert!(
-        http_post(&address, "/v1/trades", &signed)
+        http_post_as(&address, "/v1/trades", Some(&token), &signed)
             .await
             .starts_with("HTTP/1.1 422")
     );
+    // Without a session: 401.
     assert!(
-        http_get(&address, "/v1/trades/0x00/receipt")
+        http_post(&address, "/v1/trades", &trade("t3"))
+            .await
+            .starts_with("HTTP/1.1 401")
+    );
+    assert!(
+        http_get(&address, "/v1/trades/0x00/receipt", &token)
             .await
             .starts_with("HTTP/1.1 404")
     );
 }
 
-async fn http_get(address: &str, path: &str) -> String {
+async fn http_get(address: &str, path: &str, token: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
-    let request = format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+    );
     stream.write_all(request.as_bytes()).await.unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).await.unwrap();

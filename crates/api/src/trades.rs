@@ -15,17 +15,12 @@ use crate::quotes::Quotes;
 /// Finished trades kept for repeats and receipts; the oldest go first.
 const KEPT: usize = 10_000;
 
-/// Guest accounts until #85: every trade is a guest's.
-pub const GUEST_ACCOUNT: &str = "guest";
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TradeError {
     /// The body doesn't parse, or a field in it.
     Bad(&'static str),
     /// No unexpired quote has this ID.
     UnknownQuote,
-    /// A wallet's signature: Privy accounts come with #85.
-    NoWallets,
     /// The same intent is still running.
     Running,
 }
@@ -35,7 +30,6 @@ impl std::fmt::Display for TradeError {
         match self {
             Self::Bad(field) => write!(f, "{field} doesn't parse"),
             Self::UnknownQuote => write!(f, "no unexpired quote has this ID: quote again"),
-            Self::NoWallets => write!(f, "only guest accounts trade until Privy accounts land"),
             Self::Running => write!(f, "this trade is still running"),
         }
     }
@@ -45,9 +39,16 @@ impl std::fmt::Display for TradeError {
 pub struct Run {
     pub trade_id: String,
     pub client_request_id: String,
+    pub account_id: String,
     pub hash: B256,
     pub quote: Quote,
     pub quote_request: QuoteRequest,
+}
+
+impl Run {
+    fn key(&self) -> (String, B256) {
+        (self.account_id.clone(), self.hash)
+    }
 }
 
 pub enum Prepared {
@@ -58,69 +59,79 @@ pub enum Prepared {
 
 #[derive(Default)]
 pub struct Trades {
-    /// By intent hash; `None` while it runs.
-    finished: BTreeMap<B256, Option<Finished>>,
-    by_trade_id: BTreeMap<String, B256>,
+    /// By account and intent hash; `None` while it runs. Guests' intents share the server's
+    /// signer, so the hash alone doesn't tell two accounts' trades apart.
+    finished: BTreeMap<(String, B256), Option<Finished>>,
+    by_trade_id: BTreeMap<String, (String, B256)>,
     /// Finished trades, oldest first.
-    order: VecDeque<(B256, String)>,
+    order: VecDeque<((String, B256), String)>,
 }
 
 impl Trades {
-    /// What `request` needs to run, signed by `signer`, or its status if the intent already
-    /// ran. Marks the intent as running.
+    /// What `account_id`'s `request` needs to run, signed by `signer`, or its status if that
+    /// account's intent already filled. Marks the intent as running.
     pub fn prepare(
         &mut self,
         quotes: &Quotes,
         request: &TradeRequest,
+        account_id: &str,
         signer: Address,
     ) -> Result<Prepared, TradeError> {
-        if !request.intent_signature.is_empty() {
-            return Err(TradeError::NoWallets);
-        }
         let (quote_request, quote) = quotes
             .issued(&request.quote_id)
             .ok_or(TradeError::UnknownQuote)?;
         let hash = shadow::intent_hash(quote, signer).ok_or(TradeError::Bad("quote_id"))?;
-        match self.finished.get(&hash) {
-            Some(Some(done)) => return Ok(Prepared::Done(done.status.clone())),
+        let key = (account_id.to_string(), hash);
+        // A trade that filled is final; one that failed (a bad signature, the price moved) can
+        // run again.
+        match self.finished.get(&key) {
+            Some(Some(done)) if done.receipt.is_some() => {
+                return Ok(Prepared::Done(done.status.clone()));
+            }
             Some(None) => return Err(TradeError::Running),
-            None => {}
+            _ => {}
         }
-        self.finished.insert(hash, None);
-        let trade_id = hex(LineageId::from_natural_key("trade", hash.as_slice()).as_bytes());
-        self.by_trade_id.insert(trade_id.clone(), hash);
+        self.finished.insert(key.clone(), None);
+        let mut natural = account_id.as_bytes().to_vec();
+        natural.extend(hash.as_slice());
+        let trade_id = hex(LineageId::from_natural_key("trade", &natural).as_bytes());
+        self.by_trade_id.insert(trade_id.clone(), key);
         Ok(Prepared::Run(Box::new(Run {
             trade_id,
             client_request_id: request.client_request_id.clone(),
+            account_id: account_id.to_string(),
             hash,
             quote: quote.clone(),
             quote_request: quote_request.clone(),
         })))
     }
 
-    pub fn finish(&mut self, hash: B256, finished: Finished) {
-        self.order
-            .push_back((hash, finished.status.trade_id.clone()));
-        self.finished.insert(hash, Some(finished));
+    pub fn finish(&mut self, run: &Run, finished: Finished) {
+        self.order.push_back((run.key(), run.trade_id.clone()));
+        self.finished.insert(run.key(), Some(finished));
         while self.order.len() > KEPT {
-            let Some((hash, trade_id)) = self.order.pop_front() else {
+            let Some((key, trade_id)) = self.order.pop_front() else {
                 break;
             };
-            self.finished.remove(&hash);
+            self.finished.remove(&key);
             self.by_trade_id.remove(&trade_id);
         }
     }
 
     /// Forgets a trade that never finished, so the same intent can run again.
-    pub fn abandon(&mut self, hash: B256, trade_id: &str) {
-        if matches!(self.finished.get(&hash), Some(None)) {
-            self.finished.remove(&hash);
-            self.by_trade_id.remove(trade_id);
+    pub fn abandon(&mut self, run: &Run) {
+        if matches!(self.finished.get(&run.key()), Some(None)) {
+            self.finished.remove(&run.key());
+            self.by_trade_id.remove(&run.trade_id);
         }
     }
 
-    pub fn receipt(&self, trade_id: &str) -> Option<&TradeReceipt> {
-        let hash = self.by_trade_id.get(trade_id)?;
-        self.finished.get(hash)?.as_ref()?.receipt.as_ref()
+    /// A trade's receipt, for its own account only.
+    pub fn receipt(&self, trade_id: &str, account_id: &str) -> Option<&TradeReceipt> {
+        let key = self.by_trade_id.get(trade_id)?;
+        if key.0 != account_id {
+            return None;
+        }
+        self.finished.get(key)?.as_ref()?.receipt.as_ref()
     }
 }

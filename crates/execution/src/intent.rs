@@ -78,6 +78,50 @@ impl LocalSigner {
     }
 }
 
+/// The intent as `eth_signTypedData_v4` takes it, for a wallet to sign in the browser (D57).
+pub fn typed_data(intent: &Intent, chain_id: u64) -> String {
+    let field = |name: &str, kind: &str| format!(r#"{{"name":"{name}","type":"{kind}"}}"#);
+    let address = |a: &Address| format!("\"{}\"", a.to_checksum(None));
+    let submitters: Vec<String> = intent.submitters.iter().map(address).collect();
+    format!(
+        concat!(
+            r#"{{"types":{{"EIP712Domain":[{},{},{},{}],"#,
+            r#""Intent":[{},{},{},{},{},{},{},{}]}},"#,
+            r#""primaryType":"Intent","#,
+            r#""domain":{{"name":"OmniMarket Router","version":"0-demo","chainId":{},"verifyingContract":{}}},"#,
+            r#""message":{{"signer":{},"tokenIn":{},"maxAmountIn":"{}","tokenOut":{},"minAmountOut":"{}","deadline":"{}","submitters":[{}],"quoteId":"{}"}}}}"#,
+        ),
+        field("name", "string"),
+        field("version", "string"),
+        field("chainId", "uint256"),
+        field("verifyingContract", "address"),
+        field("signer", "address"),
+        field("tokenIn", "address"),
+        field("maxAmountIn", "uint256"),
+        field("tokenOut", "address"),
+        field("minAmountOut", "uint256"),
+        field("deadline", "uint256"),
+        field("submitters", "address[]"),
+        field("quoteId", "bytes32"),
+        chain_id,
+        address(&PLACEHOLDER_ROUTER),
+        address(&intent.signer),
+        address(&intent.tokenIn),
+        intent.maxAmountIn,
+        address(&intent.tokenOut),
+        intent.minAmountOut,
+        intent.deadline,
+        submitters.join(","),
+        intent.quoteId,
+    )
+}
+
+/// A 65-byte signature as 0x hex (r, s, v), as wallets return it.
+pub fn parse_signature(text: &str) -> Option<Signature> {
+    let bytes = alloy_primitives::hex::decode(text.strip_prefix("0x")?).ok()?;
+    Signature::try_from(bytes.as_slice()).ok()
+}
+
 /// An amount in whole tokens (a decimal string) in base units. `None` for more fractional
 /// digits than `decimals`, or anything but digits and one point.
 pub fn base_units(text: &str, decimals: u32) -> Option<U256> {
@@ -134,6 +178,30 @@ mod tests {
         let mut later = base;
         later.deadline = U256::from(1_790_000_065u64);
         assert_ne!(hash(&later, 8453), h);
+    }
+
+    #[test]
+    fn the_typed_data_names_the_domain_and_every_term() {
+        let typed: serde_json::Value =
+            serde_json::from_str(&typed_data(&intent(Address::repeat_byte(5)), 8453)).unwrap();
+        assert_eq!(typed["primaryType"], "Intent");
+        assert_eq!(typed["domain"]["chainId"], 8453);
+        assert_eq!(
+            typed["domain"]["verifyingContract"],
+            "0x00000000000000000000000000000000000D3e70"
+        );
+        assert_eq!(typed["message"]["minAmountOut"], "4");
+        assert_eq!(typed["message"]["deadline"], "1790000064");
+        assert_eq!(typed["types"]["Intent"].as_array().unwrap().len(), 8);
+    }
+
+    #[test]
+    fn a_signature_round_trips_through_hex() {
+        let signer = LocalSigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
+        let signature = signer.sign(B256::repeat_byte(1));
+        let text = format!("0x{}", alloy_primitives::hex::encode(signature.as_bytes()));
+        assert_eq!(parse_signature(&text), Some(signature));
+        assert_eq!(parse_signature("0x12"), None);
     }
 
     #[test]

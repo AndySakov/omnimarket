@@ -58,6 +58,15 @@ impl Signer<'_> {
     }
 }
 
+/// The intent `signer` signs for `quote`.
+pub fn intent_for(quote: &Quote, signer: Address) -> Option<Intent> {
+    Some(Intent {
+        signer,
+        submitters: vec![DEMO_EXECUTOR],
+        ..terms(quote)?
+    })
+}
+
 /// The hash of the intent `signer` signs for `quote`: the trade's natural key, known before
 /// the trade runs, so a retry finds the trade it already made (build rule 7).
 pub fn intent_hash(quote: &Quote, signer: Address) -> Option<B256> {

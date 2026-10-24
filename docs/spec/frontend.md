@@ -71,13 +71,13 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `GET /v1/tokens/{chain_id}/{address}` | `TokenSnapshot` | #76 |
 | `GET /v1/trades?chain_id=&token=&limit=` | `TradeList` | #77 |
 | `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` (`interval`: `1s`, `1m`, `5m`, `15m`, `1h`, `4h` or `1d`; `from_ms` and `to_ms` optional, bounding the open time) | `CandleSeries`: the newest 1,440 in range, oldest first; empty for a token without candles. Each candle is in USD and in its main pool's quote asset (`quote_asset`, `quote_symbol`, `open_quote` to `volume_quote`, `quote_trades`; data.md) | #80, #149 |
-| `POST /v1/session` | `Session` (guest, or linked to a Privy login) | #85 |
-| `GET /v1/account` | `Account` | #85 |
-| `GET /v1/positions` | `PositionList` | #85 |
-| `GET /v1/history` | `TradeHistory` | #85 |
+| `POST /v1/session` | `Session` (built): a new guest account, or with `Authorization: Bearer <Privy identity token>` the Privy user's account, found again on return. 401 for a Privy token that doesn't verify, 422 with no Privy app configured, 429 past 20 an hour from one address | #85 |
+| `GET /v1/account` | `Account` (built); 401 without a session | #85 |
+| `GET /v1/positions` | `PositionList` (built): open positions first, marked to the display price | #85 |
+| `GET /v1/history` | `TradeHistory` (built): receipts, newest first | #85 |
 | `POST /v1/quotes` (`QuoteRequest`) | `Quote` (built, routing.md "Quoting"); 400 for a body or field that doesn't parse, 422 with the reason for a pair it can't quote | #83 |
-| `POST /v1/trades` (`TradeRequest`) | `TradeStatus`, after the trade has run (built, execution.md "Shadow execution"); the same intent again gets the same status. 404 for an unknown or expired quote, 409 while the same trade runs, 422 for a wallet's signature until #85, 429 past 8 trades running at once, 504 for a trade still running after 20s. The `account` topic's trade updates come with #85 | #84 |
-| `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` (built), or 404 | #84 |
+| `POST /v1/trades` (`TradeRequest`) | `TradeStatus`, after the trade has run (built, execution.md "Shadow execution"); the same intent again gets the same status, and a filled trade is booked to the session's account. 401 without a session, 404 for an unknown or expired quote, 409 while the same trade runs, 422 past the shadow balance or for a guest's request carrying a signature, 429 past 120 an hour per account or 8 trades running at once, 504 for a trade still running after 20s. The `account` topic isn't served yet | #84 |
+| `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` (built), for the session's own trades; 404 for another account's or an unknown one, 401 without a session | #84 |
 | `GET /v1/orders` | `OrderList` | #86 |
 | `POST /v1/orders` (`PlaceOrderRequest`) | `Order` | #86 |
 | `PATCH /v1/orders/{order_id}` (`UpdateOrderRequest`) | `Order` | #86 |

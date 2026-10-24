@@ -44,6 +44,16 @@ Model 1 makes the operator's servers a single target holding every user's keys. 
 
 Turnkey is the stronger pick if we wanted to showcase the policy engine itself or cared about per-signature cost at scale. The `Signer` boundary makes switching cheap either way.
 
+## Demo accounts (built, #85)
+
+The demo's accounts aren't wallets. They hold **shadow balances**, numbers the API keeps, and no real funds or keys (D5).
+
+- **Guest.** `POST /v1/session` with no credentials makes a new account with 1 WETH and 1,000 USDC, and answers its session token. The token is a bearer token for a week: `v1.<account>.<expiry>.<MAC>`, the MAC keccak-256 over the server's secret (`--session-secret`) and the rest. The server signs a guest's intents with its local signer, on the placeholder domain (execution.md).
+- **Privy.** The same call with `Authorization: Bearer <Privy identity token>` verifies the token: ES256 against the app's verification key, issuer `privy.io`, audience the app ID, not expired. It finds or creates the account keyed by the Privy user ID, so a return login gets the same account. The account holds the user's Privy embedded wallet from the token's linked accounts **(verify** the claim layout against a real Privy app). Its quotes carry the intent as EIP-712 typed data for the wallet to sign in the browser, and a trade needs that signature.
+- **How they differ from real wallets.** Nothing on chain: a trade is simulated and stopped before broadcast, and only the shadow balance moves. The balance is checked before a trade and debited by its fill (the input, with our fee when it was taken from the input), and the trade's output is credited. Positions in non-quote tokens track amount, cost basis (the USD value of what was spent), average entry, realised PnL on sells (proceeds less the sold share of the cost basis), and unrealised PnL at the display price (D18).
+- **Kept** in Postgres (`--postgres`): each account and its fills in order, receipts included. On start the API replays the fills, so balances and positions survive a restart. Without a store they live in memory.
+- **Public-demo guards.** At most 20 sessions an hour from one address, and 120 trades an hour per account.
+
 ## Engineering problems this creates (the interesting part)
 
 - **Signing latency is now a network hop.** *Resolved by D42:* users sign **intents**, not transactions, and our executor wallets submit them. Trigger intents are signed when the order is created, so a firing needs no vendor call at all.

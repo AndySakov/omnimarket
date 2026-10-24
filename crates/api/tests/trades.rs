@@ -70,11 +70,11 @@ fn request(id: &str, amount: &str) -> QuoteRequest {
     }
 }
 
-async fn http(address: &str, method: &str, path: &str, body: &str) -> String {
+async fn http(address: &str, method: &str, path: &str, token: &str, body: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).await.unwrap();
@@ -100,12 +100,16 @@ async fn two_quotes_make_two_trades_each_with_its_own_receipt() {
         engine::PRICES_TOPIC,
         &meme_price(1_790_000_000).encode_to_vec(),
     );
+    let session: proto::api::v1::Session =
+        serde_json::from_str(&http(&address, "POST", "/v1/session", "", "").await).unwrap();
+    let token = session.session_token;
 
     let mut receipts = Vec::new();
     for (id, amount) in [("one", "10"), ("two", "20")] {
         let body = serde_json::to_string(&request(id, amount)).unwrap();
         let quote: Quote =
-            serde_json::from_str(&http(&address, "POST", "/v1/quotes", &body).await).unwrap();
+            serde_json::from_str(&http(&address, "POST", "/v1/quotes", &token, &body).await)
+                .unwrap();
         let trade = TradeRequest {
             client_request_id: id.into(),
             quote_id: quote.quote_id,
@@ -113,12 +117,14 @@ async fn two_quotes_make_two_trades_each_with_its_own_receipt() {
         };
         let body = serde_json::to_string(&trade).unwrap();
         let status: TradeStatus =
-            serde_json::from_str(&http(&address, "POST", "/v1/trades", &body).await).unwrap();
+            serde_json::from_str(&http(&address, "POST", "/v1/trades", &token, &body).await)
+                .unwrap();
         let receipt: TradeReceipt = serde_json::from_str(
             &http(
                 &address,
                 "GET",
                 &format!("/v1/trades/{}/receipt", status.trade_id),
+                &token,
                 "",
             )
             .await,
@@ -147,17 +153,17 @@ fn a_quote_is_gone_at_its_expiry_and_an_abandoned_trade_can_run_again() {
     };
     let signer = types::chain::Address::repeat_byte(1);
     let mut trades = Trades::default();
-    let Ok(api::Prepared::Run(run)) = trades.prepare(&quotes, &trade, signer) else {
+    let Ok(api::Prepared::Run(run)) = trades.prepare(&quotes, &trade, "guest-1", signer) else {
         panic!("a fresh trade runs");
     };
     // While it runs, the same intent waits; once abandoned, it can run again.
     assert!(matches!(
-        trades.prepare(&quotes, &trade, signer),
+        trades.prepare(&quotes, &trade, "guest-1", signer),
         Err(TradeError::Running)
     ));
-    trades.abandon(run.hash, &run.trade_id);
+    trades.abandon(&run);
     assert!(matches!(
-        trades.prepare(&quotes, &trade, signer),
+        trades.prepare(&quotes, &trade, "guest-1", signer),
         Ok(api::Prepared::Run(_))
     ));
     // The quote is good until its block time reaches the expiry, and not at it.
