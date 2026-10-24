@@ -217,8 +217,9 @@ enum CandleInterval {
   CANDLE_INTERVAL_1D = 7;
 }
 
-// One OHLCV candle built from trades, in USD (#80). Keyed by (chain_id, token, interval,
-// open_time_ms); a delta replaces the candle with the same key.
+// One OHLCV candle built from trades, in USD (#80) and in the quote asset of the token's main
+// pool (#149). Keyed by (chain_id, token, interval, open_time_ms); a delta replaces the candle
+// with the same key.
 message Candle {
   omnimarket.lineage.v1.Lineage lineage = 1;
   uint64 chain_id = 2;
@@ -233,6 +234,17 @@ message Candle {
   uint64 trades = 11;
   // False while the interval is still open.
   bool closed = 12;
+  // The quote view: the main pool's quote asset (address and symbol), and the candle merged from
+  // the pools quoted in it, exact from the trades' raw prices and amounts. Empty until the main
+  // pool has traded.
+  string quote_asset = 13;
+  string quote_symbol = 14;
+  string open_quote = 15;
+  string high_quote = 16;
+  string low_quote = 17;
+  string close_quote = 18;
+  string volume_quote = 19;
+  uint64 quote_trades = 20;
 }
 
 // `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=`, and the
