@@ -92,7 +92,14 @@ async fn server(demo: Demo) -> (Arc<Shared>, String) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
     #[allow(clippy::disallowed_methods)] // the test's own server task
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap()
+    });
     for update in [
         pair([0xb1; 20], (MEME, 100_000_000 * e(18)), (WETH, 400 * e(18))),
         pair(
@@ -506,4 +513,273 @@ async fn accounts_and_their_positions_survive_a_restart() {
     );
     assert_eq!(after.positions[0].amount, before.positions[0].amount);
     assert_eq!(after.positions[0].cost_basis_usd, "100");
+}
+
+/// A signed Privy-style token with `claims`, by `key`.
+fn signed(key: &p256::ecdsa::SigningKey, claims: serde_json::Value) -> String {
+    let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"ES256","typ":"JWT"}"#);
+    let signing = format!("{header}.{}", URL_SAFE_NO_PAD.encode(claims.to_string()));
+    let signature: p256::ecdsa::Signature = key.sign(signing.as_bytes());
+    format!("{signing}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes()))
+}
+
+#[test]
+fn a_privy_token_must_name_privy_this_app_and_a_time_still_to_come() {
+    use api::PrivyError;
+    let key = p256::ecdsa::SigningKey::from_slice(&[0x42; 32]).unwrap();
+    let pem = key
+        .verifying_key()
+        .to_public_key_pem(Default::default())
+        .unwrap();
+    let privy = Privy::new(APP, &pem).unwrap();
+    let now = 1_790_000_000u64;
+    let claims = |iss: &str, aud: serde_json::Value, exp: u64| serde_json::json!({ "iss": iss, "aud": aud, "sub": "did:privy:abc", "exp": exp });
+    let verify = |c| privy.verify(&signed(&key, c), now);
+    assert!(verify(claims("privy.io", APP.into(), now + 1)).is_ok());
+    assert!(
+        verify(claims(
+            "privy.io",
+            serde_json::json!(["other", APP]),
+            now + 1
+        ))
+        .is_ok()
+    );
+    // Signed by the app's key, but from another issuer, for another app, or expired.
+    assert_eq!(
+        verify(claims("evil.io", APP.into(), now + 1)),
+        Err(PrivyError::Rejected)
+    );
+    assert_eq!(
+        verify(claims("privy.io", "other-app".into(), now + 1)),
+        Err(PrivyError::Rejected)
+    );
+    assert_eq!(
+        verify(claims(
+            "privy.io",
+            serde_json::json!(["other-app"]),
+            now + 1
+        )),
+        Err(PrivyError::Rejected)
+    );
+    assert_eq!(
+        verify(claims("privy.io", APP.into(), now)),
+        Err(PrivyError::Rejected)
+    );
+    assert_eq!(
+        verify(claims("privy.io", APP.into(), now - 1)),
+        Err(PrivyError::Rejected)
+    );
+}
+
+#[test]
+fn only_a_privy_embedded_wallet_becomes_the_accounts_wallet() {
+    let key = p256::ecdsa::SigningKey::from_slice(&[0x42; 32]).unwrap();
+    let pem = key
+        .verifying_key()
+        .to_public_key_pem(Default::default())
+        .unwrap();
+    let privy = Privy::new(APP, &pem).unwrap();
+    let with = |linked: &str| {
+        let claims = serde_json::json!({
+            "iss": "privy.io", "aud": APP, "sub": "did:privy:abc", "exp": 2_000_000_000u64,
+            "linked_accounts": linked,
+        });
+        privy
+            .verify(&signed(&key, claims), 1_790_000_000)
+            .unwrap()
+            .wallet
+    };
+    let external = r#"[{"type":"wallet","address":"0x7777777777777777777777777777777777777777","wallet_client_type":"metamask"}]"#;
+    assert_eq!(with(external), None);
+    let email = r#"[{"type":"email","address":"a@b.c"}]"#;
+    assert_eq!(with(email), None);
+    let embedded = r#"[{"type":"wallet","address":"0x7777777777777777777777777777777777777777","wallet_client_type":"privy"}]"#;
+    assert_eq!(
+        with(embedded),
+        Some(types::chain::Address::repeat_byte(0x77))
+    );
+}
+
+#[tokio::test]
+async fn an_account_makes_a_limited_number_of_trades_an_hour() {
+    let demo = demo();
+    let opened = demo
+        .open(None, "guest-cap".into(), None, 1_000)
+        .await
+        .unwrap();
+    let usdc = proto::api::v1::TokenRef {
+        chain_id: 8453,
+        address: hex(&USDC),
+        symbol: "USDC".into(),
+        decimals: 6,
+        ..Default::default()
+    };
+    for _ in 0..api::TRADES_PER_ACCOUNT_HOUR {
+        demo.admit(&opened.account_id, &usdc, U256::from(1u64), 2_000)
+            .unwrap();
+    }
+    assert!(matches!(
+        demo.admit(&opened.account_id, &usdc, U256::from(1u64), 3_000),
+        Err(DemoError::Limited(_))
+    ));
+    // An hour on, there's room again.
+    demo.admit(
+        &opened.account_id,
+        &usdc,
+        U256::from(1u64),
+        2_000 + 3_600_000,
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_session_lasts_a_week_from_now_and_one_address_is_limited() {
+    let (_shared, address) = server(demo()).await;
+    let (_, body) = http(&address, "POST", "/v1/session", None, "").await;
+    let session: Session = serde_json::from_str(&body).unwrap();
+    let week_ms = 7 * 24 * 3_600_000;
+    let now_ms = now_s() * 1000;
+    assert!(
+        (now_ms + week_ms - 60_000..=now_ms + week_ms + 60_000).contains(&session.expires_at_ms),
+        "{}",
+        session.expires_at_ms
+    );
+    // The test client is one address: past the hourly limit, a 429.
+    for _ in 1..SESSIONS_PER_IP_HOUR {
+        assert_eq!(http(&address, "POST", "/v1/session", None, "").await.0, 200);
+    }
+    assert_eq!(http(&address, "POST", "/v1/session", None, "").await.0, 429);
+}
+
+#[tokio::test]
+async fn trades_past_the_hourly_cap_get_a_429() {
+    let (_shared, address) = server(demo()).await;
+    let (_, body) = http(&address, "POST", "/v1/session", None, "").await;
+    let token = serde_json::from_str::<Session>(&body)
+        .unwrap()
+        .session_token;
+    // Each a different amount, so a different intent, not a repeat.
+    let trade_of = |i: usize| async move {
+        let request = QuoteRequest {
+            client_request_id: format!("c{i}"),
+            chain_id: 8453,
+            token_in: hex(&USDC),
+            token_out: hex(&MEME),
+            amount_in: format!("1.{i:04}"),
+            slippage_bps: None,
+        };
+        (i, request)
+    };
+    for i in 0..api::TRADES_PER_ACCOUNT_HOUR {
+        let (_, request) = trade_of(i).await;
+        let (_, body) = http(
+            &address,
+            "POST",
+            "/v1/quotes",
+            Some(&token),
+            &serde_json::to_string(&request).unwrap(),
+        )
+        .await;
+        let quote: Quote = serde_json::from_str(&body).unwrap();
+        let trade = TradeRequest {
+            client_request_id: format!("c{i}"),
+            quote_id: quote.quote_id,
+            intent_signature: String::new(),
+        };
+        let (code, body) = http(
+            &address,
+            "POST",
+            "/v1/trades",
+            Some(&token),
+            &serde_json::to_string(&trade).unwrap(),
+        )
+        .await;
+        assert_eq!(code, 200, "{body}");
+    }
+    let (_, request) = trade_of(9_999).await;
+    let (_, body) = http(
+        &address,
+        "POST",
+        "/v1/quotes",
+        Some(&token),
+        &serde_json::to_string(&request).unwrap(),
+    )
+    .await;
+    let quote: Quote = serde_json::from_str(&body).unwrap();
+    let trade = TradeRequest {
+        client_request_id: "over".into(),
+        quote_id: quote.quote_id,
+        intent_signature: String::new(),
+    };
+    let (code, _) = http(
+        &address,
+        "POST",
+        "/v1/trades",
+        Some(&token),
+        &serde_json::to_string(&trade).unwrap(),
+    )
+    .await;
+    assert_eq!(code, 429);
+}
+
+#[tokio::test]
+async fn a_fill_paid_or_paid_out_in_weth_is_valued_at_weths_price() {
+    let (_shared, address) = server(demo()).await;
+    let (_, body) = http(&address, "POST", "/v1/session", None, "").await;
+    let token = serde_json::from_str::<Session>(&body)
+        .unwrap()
+        .session_token;
+    // 0.1 WETH into MEME: a cost basis of $250 at WETH's $2,500.
+    let bought = trade(&address, &token, "w", WETH, MEME, "0.1").await;
+    assert_eq!(bought.state(), State::Simulated);
+    let (_, body) = http(&address, "GET", "/v1/positions", Some(&token), "").await;
+    let position = serde_json::from_str::<PositionList>(&body)
+        .unwrap()
+        .positions
+        .remove(0);
+    assert_eq!(position.cost_basis_usd, "250");
+    // All of it back into WETH: what it realised is the WETH it fetched at $2,500, less $250.
+    let sold = trade(&address, &token, "s", MEME, WETH, &position.amount).await;
+    assert_eq!(sold.state(), State::Simulated);
+    let (_, body) = http(&address, "GET", "/v1/history", Some(&token), "").await;
+    let proceeds: f64 = serde_json::from_str::<TradeHistory>(&body)
+        .unwrap()
+        .receipts[0]
+        .amount_out
+        .parse()
+        .unwrap();
+    let (_, body) = http(&address, "GET", "/v1/positions", Some(&token), "").await;
+    let realized: f64 = serde_json::from_str::<PositionList>(&body)
+        .unwrap()
+        .positions[0]
+        .realized_pnl_usd
+        .parse()
+        .unwrap();
+    assert!(
+        (realized - (proceeds * 2_500.0 - 250.0)).abs() < 1e-6,
+        "{realized} from {proceeds}"
+    );
+}
+
+#[tokio::test]
+async fn an_expired_privy_token_is_refused_at_the_time_of_the_login() {
+    let key = p256::ecdsa::SigningKey::from_slice(&[0x42; 32]).unwrap();
+    let pem = key
+        .verifying_key()
+        .to_public_key_pem(Default::default())
+        .unwrap();
+    let demo = Demo::new(Sessions::new(b"s"), Some(Privy::new(APP, &pem).unwrap()));
+    let wallet = hex(&[0x77; 20]);
+    let token = identity_token(&key, "did:privy:x", &wallet, 1_790_000_000);
+    // Logging in a second after it expired: refused, as Unix seconds of the login's time.
+    assert!(matches!(
+        demo.open(Some(&token), "g".into(), None, 1_790_000_001_000)
+            .await,
+        Err(DemoError::Privy(_))
+    ));
+    assert!(
+        demo.open(Some(&token), "g".into(), None, 1_789_999_999_000)
+            .await
+            .is_ok()
+    );
 }

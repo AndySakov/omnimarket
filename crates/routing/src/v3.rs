@@ -247,3 +247,161 @@ fn mul_div_up(a: U256, b: U256, d: U256) -> Option<U256> {
     let q = product / d + U512::from(!(product % d).is_zero() as u8);
     U256::checked_from_limbs_slice(q.as_limbs())
 }
+
+#[cfg(test)]
+mod tests {
+    //! The helpers against values from a separate Python port of Uniswap's `SqrtPriceMath` and
+    //! `FullMath`, in uint256 semantics, one for each branch and rounding direction.
+
+    use std::collections::BTreeMap;
+
+    use venues::v3::{Price, TickLiquidity};
+
+    use super::*;
+
+    const L: u128 = 1_000_000_000_000_000_000;
+
+    fn n(text: &str) -> U256 {
+        text.parse().unwrap()
+    }
+
+    /// sqrt(1.21) · 2^96, floored: a price of 1.21.
+    fn p121() -> U256 {
+        n("87150978765690771352898345369")
+    }
+
+    #[test]
+    fn amount_deltas_round_as_asked_whichever_way_round_the_prices_come() {
+        // 0.1 · 10^18 / 1.1 of token0 and 0.1 · 10^18 of token1, between prices 1 and 1.21.
+        assert_eq!(
+            amount0_delta(p121(), Q96, L, false),
+            Some(n("90909090909090909"))
+        );
+        assert_eq!(
+            amount0_delta(Q96, p121(), L, true),
+            Some(n("90909090909090910"))
+        );
+        assert_eq!(
+            amount1_delta(p121(), Q96, L, false),
+            Some(n("99999999999999999"))
+        );
+        assert_eq!(
+            amount1_delta(Q96, p121(), L, true),
+            Some(n("100000000000000000"))
+        );
+        assert_eq!(amount0_delta(U256::ZERO, Q96, L, true), None);
+    }
+
+    #[test]
+    fn the_next_price_from_an_input_takes_each_of_the_contracts_paths() {
+        // 0.1 · 10^18 in at price 1 with 10^18 liquidity: 1/1.1 and 1.1, as Uniswap's tests have.
+        assert_eq!(
+            next_sqrt_price_from_input(Q96, L, U256::from(100_000_000_000_000_000u64), true),
+            Some(n("72025602285694852357767227579"))
+        );
+        assert_eq!(
+            next_sqrt_price_from_input(Q96, L, U256::from(100_000_000_000_000_000u64), false),
+            Some(n("87150978765690771352898345369"))
+        );
+        // At 1.21 the product path and the overflow path round differently: this is the product's.
+        assert_eq!(
+            next_sqrt_price_from_input(p121(), L, U256::from(100_000_000_000_000_000u64), true),
+            Some(n("78514395284406100317926437270"))
+        );
+        assert_eq!(
+            next_sqrt_price_from_input(p121(), L, U256::from(100_000_000_000_000_000u64), false),
+            Some(n("95073795017117205112252740402"))
+        );
+        // amount · price past 2^256: the contract's fallback.
+        assert_eq!(
+            next_sqrt_price_from_input(Q96, L, U256::from(1u64) << 200, true),
+            Some(U256::from(1u64))
+        );
+        // The product fits but liquidity · 2^96 plus it doesn't: the fallback too.
+        assert_eq!(
+            next_sqrt_price_from_input(
+                Q96,
+                u128::MAX,
+                (U256::from(1u64) << 160) - U256::from(1u64),
+                true
+            ),
+            Some(n("18446744069414584321"))
+        );
+        // Past uint160 an input of token1 goes through mulDiv, not a shift.
+        assert_eq!(
+            next_sqrt_price_from_input(Q96, 1 << 127, U256::from(1u64) << 160, false),
+            Some(n("680564733921105089441013552457080373248"))
+        );
+        assert_eq!(
+            next_sqrt_price_from_input(Q96, 0, U256::from(1u64), false),
+            None
+        );
+        assert_eq!(
+            next_sqrt_price_from_input(U256::ZERO, L, U256::from(1u64), true),
+            None
+        );
+    }
+
+    #[test]
+    fn mul_div_up_rounds_up_only_with_a_remainder() {
+        let u = |x: u64| U256::from(x);
+        assert_eq!(mul_div_up(u(7), u(3), u(2)), Some(u(11)));
+        assert_eq!(mul_div_up(u(6), u(3), u(2)), Some(u(9)));
+        assert_eq!(mul_div(u(7), u(3), u(2)), Some(u(10)));
+        assert_eq!(mul_div(u(1), u(1), U256::ZERO), None);
+    }
+
+    fn pool(ticks: &[(i32, i128)], tick: i32, liquidity: u128) -> Pool {
+        let mut pool = Pool::new(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            500,
+            10,
+        );
+        pool.price = Some(Price {
+            sqrt_price_x96: sqrt_ratio_at_tick(tick).unwrap(),
+            tick,
+        });
+        pool.liquidity = liquidity;
+        pool.ticks = ticks
+            .iter()
+            .map(|(t, net)| {
+                (
+                    *t,
+                    TickLiquidity {
+                        gross: net.unsigned_abs(),
+                        net: *net,
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        pool
+    }
+
+    #[test]
+    fn the_next_tick_stays_within_one_bitmap_word() {
+        // Spacing 10: a word is 256 spacings, 2,560 ticks; word 0 starts at tick 0, word -1 at
+        // -2,560.
+        let p = pool(&[(-200, 1), (-10, 1), (0, 1), (2_570, 1)], 0, 0);
+        assert_eq!(next_tick_within_word(&p, 5, true), (0, true));
+        assert_eq!(next_tick_within_word(&p, -5, true), (-10, true));
+        assert_eq!(next_tick_within_word(&p, -15, true), (-200, true));
+        // Nothing initialized in word -2 at or below -2,575: its first tick, uninitialized.
+        assert_eq!(next_tick_within_word(&p, -2_575, true), (-5_120, false));
+        // Upward: the next initialized tick in the word, or the word's last.
+        assert_eq!(next_tick_within_word(&p, 0, false), (2_550, false));
+        assert_eq!(next_tick_within_word(&p, 2_560, false), (2_570, true));
+        assert_eq!(next_tick_within_word(&p, -205, false), (-200, true));
+    }
+
+    #[test]
+    fn a_swap_past_the_pools_last_liquidity_leaves_input_unspent() {
+        // Liquidity only between ticks -10 and 10: selling far more than it holds reaches the
+        // price limit with input left over, so a route can't use the pool for it.
+        let p = pool(&[(-10, 1_000_000), (10, -1_000_000)], 0, 1_000_000);
+        let swapped = amount_out(&p, true, U256::from(10u64).pow(U256::from(30u64))).unwrap();
+        assert!(!swapped.unspent.is_zero());
+        assert_eq!(swapped.amount_out, U256::from(499u64));
+    }
+}
