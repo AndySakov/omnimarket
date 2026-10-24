@@ -47,6 +47,8 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@v7
+      # `forge test` for contracts/, and the safety probe's committed runtime code check (#89).
+      - uses: foundry-rs/foundry-toolchain@v1
       # buf breaking compares proto/ against main's.
       - run: git fetch --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       # Installs the toolchain pinned in rust-toolchain.toml.

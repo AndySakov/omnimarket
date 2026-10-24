@@ -1,9 +1,13 @@
 use alloy::eips::{BlockId, BlockNumberOrTag};
+use alloy::primitives::U256;
 use alloy::providers::{Provider, ProviderBuilder, RootProvider};
 use alloy::rpc::client::RpcClient;
+use alloy::rpc::types::state::StateOverridesBuilder;
 use alloy::rpc::types::{Filter, TransactionRequest};
 use futures::future::LocalBoxFuture;
-use types::chain::{B256, BlockLog, CallResult, EthCall, Log, LogsQuery, LogsResult};
+use types::chain::{
+    Address, B256, BlockLog, Bytes, CallResult, EthCall, Log, LogsQuery, LogsResult,
+};
 
 use crate::{CallEndpoint, ChainError, ChainReader, Header, LogsEndpoint};
 
@@ -26,6 +30,40 @@ impl HttpChain {
     pub fn with_client(client: RpcClient) -> Self {
         Self {
             provider: ProviderBuilder::default().connect_client(client),
+        }
+    }
+
+    /// `eth_call` with `code` and `balance` put at `at` for the call alone, as a state override:
+    /// for running a contract that's never deployed, such as the token safety probe (#89). An
+    /// answer the node gives (a revert) is the call's result; anything else is a failure.
+    pub async fn call_with_code(
+        &self,
+        call: &EthCall,
+        at: Address,
+        code: Bytes,
+        balance: U256,
+    ) -> Result<CallResult, ChainError> {
+        let overrides = StateOverridesBuilder::default()
+            .with_code(at, code)
+            .with_balance(at, balance)
+            .build();
+        let request = TransactionRequest::default()
+            .to(call.to)
+            .input(call.data.clone().into());
+        match self
+            .provider
+            .call(request)
+            .block(BlockId::number(call.block))
+            .overrides(overrides)
+            .await
+        {
+            Ok(returned) => Ok(CallResult::Returned(returned)),
+            Err(error) => match error.as_error_resp() {
+                Some(payload) if !is_retryable(payload.code, &payload.message) => {
+                    Ok(CallResult::Failed(payload.message.to_string()))
+                }
+                _ => Err(rpc_error(error)),
+            },
         }
     }
 }

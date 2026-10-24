@@ -58,6 +58,8 @@ CI's `frontend` job runs the terminal UI's full checks, `npm run verify:pr` in `
 
 Protobuf checks (`scripts/proto-check.sh`) run `buf lint` and `buf breaking` against `main`; CI fetches `main` for the comparison. `scripts/buf` pins buf's version and checksum and downloads it once into `.tools/`, retrying when GitHub's release CDN answers with an error, so local runs and CI use the same binary with nothing installed globally. CI's `verify` and `frontend` jobs (the latter runs `buf generate` to check the generated API types) cache `.tools/` keyed on `scripts/buf`, so CI downloads buf only when the pinned version changes.
 
+CI's `verify` job installs Foundry (`foundry-rs/foundry-toolchain`), so `scripts/verify.sh` runs `forge test` for `contracts/` and checks the safety probe's committed runtime code against its source.
+
 CI also runs Kafka and RustFS service containers (the local stack's `apache/kafka` and `rustfs/rustfs` images) for the integration tests that need them: the input-log test, `cargo test -p sim --test kafka -- --ignored`, and the engine's end-to-end test, `cargo test -p engine --test end_to_end -- --ignored`, after creating the archive's bucket as `scripts/stack up` does. A Postgres service container (the local stack's image and credentials) runs the demo accounts' restart test, `cargo test -p api --test demo_accounts -- --ignored`, with `OMNIMARKET_TEST_POSTGRES` pointing at it. Locally they run against `scripts/stack up`.
 
 **Mutation testing (D89).** `scripts/mutants.sh` runs cargo-mutants, which changes the code one small mutation at a time (a condition flipped, a return value replaced) and checks that some workspace test fails. A mutant no test catches is code the tests run but don't check.

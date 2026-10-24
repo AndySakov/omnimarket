@@ -93,6 +93,9 @@ pub struct Shared {
     demo: crate::Demo,
 }
 
+/// What the safety probe spends on its round trip: 0.01 WETH.
+const SAFETY_SPEND_WEI: u64 = 10_000_000_000_000_000;
+
 /// The most trades running at once; another gets a 429.
 const MAX_RUNNING_TRADES: usize = 8;
 /// How long a trade may run. Past it the trade is abandoned, and the same intent can run again.
@@ -208,6 +211,73 @@ impl Shared {
         self.trades
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Runs safety checks as they're queued, and every watched token's again once its report is
+    /// `RECHECK_MS` old, against `url` (#89).
+    async fn check_safety_forever(self: Arc<Self>, url: String) {
+        let Ok(chain) = chain_io::HttpChain::new(&url) else {
+            tracing::warn!(
+                url,
+                "the safety endpoint's URL doesn't parse: no safety checks"
+            );
+            return;
+        };
+        loop {
+            self.feed().safety().sweep(now_ms());
+            loop {
+                let next = self.feed().safety().next_due();
+                let Some(token) = next else { break };
+                if let Err(error) = self.check_safety(&chain, token).await {
+                    tracing::warn!(%error, token = %token, "a safety check failed");
+                }
+            }
+            #[allow(clippy::disallowed_methods)] // the worker's pacing, outside any core
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    /// One round trip of `SAFETY_SPEND_WEI` of WETH through a pool trading `token` against WETH,
+    /// at the latest block, recorded as the token's report.
+    pub async fn check_safety(
+        &self,
+        chain: &chain_io::HttpChain,
+        token: types::chain::Address,
+    ) -> Result<(), String> {
+        let (pool, v3, decimals) = {
+            let mut feed = self.feed();
+            let quotes = feed.quotes();
+            let (pool, v3) = quotes.weth_pool(token).ok_or("no WETH pool to probe")?;
+            (pool, v3, quotes.token_decimals(token).unwrap_or(18))
+        };
+        let block = chain_io::ChainReader::latest_number(chain)
+            .await
+            .map_err(|e| e.to_string())?;
+        let spent = alloy_primitives::U256::from(SAFETY_SPEND_WEI);
+        let call = types::chain::EthCall {
+            to: execution::safety::PROBE,
+            data: execution::safety::calldata(crate::accounts::WETH, token, pool, v3, spent),
+            block,
+        };
+        let answer = chain
+            .call_with_code(
+                &call,
+                execution::safety::PROBE,
+                execution::safety::probe_code(),
+                execution::safety::probe_balance(),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        let types::chain::CallResult::Returned(bytes) = answer else {
+            return Err(format!("the probe reverted: {answer:?}"));
+        };
+        let trip = execution::safety::RoundTrip::decode(&bytes, spent)
+            .ok_or("the probe's answer doesn't decode")?;
+        let mut feed = self.feed();
+        let weth = feed.quotes().token_ref(8453, crate::accounts::WETH);
+        let report = crate::safety::report(token, &trip, pool, weth, decimals, block, now_ms());
+        feed.safety().record(token, report);
+        Ok(())
     }
 
     /// Runs a prepared trade to its end, on this thread: blocking, so call it off the server's
@@ -512,6 +582,21 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         .await
         .map_err(ServerError::Io)?;
     tracing::info!(listen = %config.listen, "serving");
+    match config.call_rpc.clone() {
+        Some(url) => {
+            // Chain I/O on its own thread and runtime, as chain-io's workers run (rule 6).
+            let checker = shared.clone();
+            #[allow(clippy::disallowed_methods)] // the safety worker: I/O around the read models
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("a current-thread runtime builds");
+                runtime.block_on(checker.check_safety_forever(url));
+            });
+        }
+        None => tracing::warn!("no --call-rpc: no token safety checks"),
+    }
     tokio::select! {
         biased;
         result = consume(&consumer, &shared) => result,
@@ -570,15 +655,27 @@ async fn token(
     State(shared): State<Arc<Shared>>,
     Path((chain_id, address)): Path<(u64, String)>,
 ) -> Response {
-    let feed = shared.feed();
-    let snapshot = feed
+    let mut feed = shared.feed();
+    let mut snapshot = feed
         .model()
         .token(&address.to_ascii_lowercase())
-        .filter(|s| s.token.as_ref().is_some_and(|t| t.chain_id == chain_id));
+        .filter(|s| s.token.as_ref().is_some_and(|t| t.chain_id == chain_id))
+        .cloned();
+    // An open token page keeps its safety check fresh (#89).
+    if let (Some(snapshot), Some(token)) = (
+        snapshot.as_mut(),
+        address
+            .to_ascii_lowercase()
+            .strip_prefix("0x")
+            .and_then(|h| h.parse::<types::chain::Address>().ok()),
+    ) {
+        feed.safety().watch(token, now_ms());
+        snapshot.safety = feed.safety().report(token).cloned();
+    }
     match snapshot {
         Some(snapshot) => (
             [(header::CONTENT_TYPE, "application/json")],
-            serde_json::to_string(snapshot).expect("generated messages always serialize"),
+            serde_json::to_string(&snapshot).expect("generated messages always serialize"),
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -594,7 +691,21 @@ async fn discovery(
     let Some(filters) = parse_filters(&params) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let feed = shared.feed().discovery().feed(&filters);
+    let feed = {
+        let mut model = shared.feed();
+        let mut feed = model.discovery().feed(&filters);
+        for row in &mut feed.rows {
+            if let Some(token) = row.token.as_ref().and_then(|t| {
+                t.address
+                    .strip_prefix("0x")?
+                    .parse::<types::chain::Address>()
+                    .ok()
+            }) {
+                row.safety = model.safety().summary(token);
+            }
+        }
+        feed
+    };
     (
         [(header::CONTENT_TYPE, "application/json")],
         serde_json::to_string(&feed).expect("generated messages always serialize"),

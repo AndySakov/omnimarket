@@ -2,6 +2,7 @@
 //! (D5), simulated against live state and stopped before broadcast.
 
 pub mod intent;
+pub mod safety;
 pub mod shadow;
 
 pub use intent::{Intent, LocalSigner};

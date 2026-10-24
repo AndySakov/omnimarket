@@ -28,6 +28,12 @@ fi
 if [[ -f contracts/foundry.toml ]]; then
   need forge
   (cd contracts && forge test)
+  # The probe's runtime code the API injects must be what its source builds (#89).
+  if [[ $(cd contracts && forge inspect SafetyProbe deployedBytecode) != "$(cat crates/execution/src/safety_probe.hex)" ]]; then
+    echo "verify: crates/execution/src/safety_probe.hex is stale: run" \
+      "(cd contracts && forge inspect SafetyProbe deployedBytecode) > crates/execution/src/safety_probe.hex" >&2
+    exit 1
+  fi
   ran=1
 fi
 
