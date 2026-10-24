@@ -296,3 +296,315 @@ async fn rest_quotes_on_the_pool_updates_topic() {
     let refused = http_post(&address, "/v1/quotes", &other).await;
     assert!(refused.starts_with("HTTP/1.1 422"), "{refused}");
 }
+
+/// MEME/WETH, MEME/USDC and USDC/WETH, the direct MEME/WETH pair `meme_reserve` deep at the
+/// same price, with MEME's decimals known and no WETH price.
+fn near_tie_in_weth(meme_reserve: u128) -> Quotes {
+    let mut quotes = Quotes::default();
+    for update in [
+        pair(
+            MEME_WETH,
+            (MEME, meme_reserve),
+            (WETH, meme_reserve * 4 / 1_000_000),
+        ),
+        pair(
+            DIRECT,
+            (MEME, 100_000_000 * e(18)),
+            (USDC, 1_000_000 * e(6)),
+        ),
+        pair(
+            WETH_USDC,
+            (WETH, 40_000 * e(18)),
+            (USDC, 100_000_000 * e(6)),
+        ),
+    ] {
+        quotes.apply_pool_update(&update);
+    }
+    quotes.apply_price(&price(MEME, "MEME", 18, 0.0, false));
+    quotes
+}
+
+#[test]
+fn gas_decides_a_near_tie_paid_in_weth() {
+    // Selling 1,000 MEME, two hops pay 5 · 10^11 wei more than the direct pair, less than the
+    // extra hop's 90,000 gas at 0.01 gwei (9 · 10^11 wei): the direct pair wins.
+    let quote = near_tie_in_weth(316_977_127_415_136_571_000_000)
+        .quote(&request("a", MEME, WETH, "1000"))
+        .unwrap();
+    assert_eq!(route(&quote).len(), 1);
+    // Paying 1.3 · 10^12 more, two hops win.
+    let quote = near_tie_in_weth(297_857_010_170_999_337_750_000)
+        .quote(&request("b", MEME, WETH, "1000"))
+        .unwrap();
+    assert_eq!(route(&quote).len(), 2);
+}
+
+/// USDC/WETH and WETH/MEME, and a direct USDC/MEME pair `usdc_reserve` deep at MEME's $0.01.
+fn near_tie_in_meme(usdc_reserve: u128) -> Quotes {
+    let mut quotes = Quotes::default();
+    for update in [
+        pair(
+            WETH_USDC,
+            (WETH, 40_000 * e(18)),
+            (USDC, 100_000_000 * e(6)),
+        ),
+        pair(MEME_WETH, (MEME, 100_000_000 * e(18)), (WETH, 400 * e(18))),
+        pair(DIRECT, (MEME, usdc_reserve * e(14)), (USDC, usdc_reserve)),
+    ] {
+        quotes.apply_pool_update(&update);
+    }
+    quotes.apply_price(&price(WETH, "WETH", 18, 2_500.0, false));
+    quotes.apply_price(&price(MEME, "MEME", 18, 0.01, false));
+    quotes
+}
+
+#[test]
+fn gas_decides_a_near_tie_paid_in_another_token_at_its_display_price() {
+    // Buying with 50 USDC, the extra hop's 9 · 10^11 wei is $0.00225 at WETH's $2,500, so
+    // 0.225 MEME at its $0.01. Two hops paying 0.1 MEME more lose; 0.3 MEME more win.
+    let quote = near_tie_in_meme(16_027_059_966)
+        .quote(&request("a", USDC, MEME, "50"))
+        .unwrap();
+    assert_eq!(route(&quote).len(), 1);
+    let quote = near_tie_in_meme(15_817_594_830)
+        .quote(&request("b", USDC, MEME, "50"))
+        .unwrap();
+    assert_eq!(route(&quote).len(), 2);
+}
+
+#[test]
+fn a_quote_shows_its_gas_impact_price_and_fee_in_usd() {
+    let quote = quotes(false)
+        .quote(&request("fields", USDC, MEME, "5000"))
+        .unwrap();
+    // Two v2 hops: 60,000 + 2 · 90,000 gas at 0.01 gwei, at WETH's $2,500.
+    assert_eq!(quote.gas_estimate_native, "0.0000024");
+    assert_eq!(quote.gas_estimate_usd, "0.006");
+    // 4,950 USDC routed for 489,601.29 MEME, against the display prices' 495,000: 1.09%.
+    assert_eq!(quote.price_impact_pct, "1.0906494089404473");
+    // The trade's own price, after our fee: MEME per USDC.
+    assert_eq!(quote.price, "97.92025708514896");
+    assert_eq!(quote.fee.as_ref().unwrap().value_usd, "50");
+}
+
+#[test]
+fn a_token_without_a_usd_price_quotes_without_impact_or_usd_values() {
+    let mut quotes = quotes(false);
+    quotes.apply_price(&price(WETH, "WETH", 18, 0.0, false));
+    quotes.apply_price(&price(MEME, "MEME", 18, 0.0, false));
+    let quote = quotes.quote(&request("x", USDC, MEME, "5000")).unwrap();
+    assert_eq!(
+        (
+            quote.price_impact_pct.as_str(),
+            quote.gas_estimate_usd.as_str()
+        ),
+        ("", "")
+    );
+    // A stablecoin needs no price record: it's pinned at $1 (D19).
+    assert_eq!(quote.fee.unwrap().value_usd, "50");
+}
+
+/// A v3 pool's discovery: tick 0, liquidity 1,000 between -10 and 10.
+fn v3_discovery() -> PoolUpdate {
+    use proto::pool::v1::{V3State, V3Tick};
+    PoolUpdate {
+        lineage: Some(Lineage {
+            id: vec![9; 16],
+            caused_by: vec![],
+        }),
+        chain_id: 8453,
+        pool: [0xd2; 20].to_vec(),
+        block_number: 100,
+        after: Some(PoolState {
+            state: Some(pool_state::State::V3(V3State {
+                initialized: true,
+                sqrt_price_x96: (U256::from(1u64) << 96usize).to_be_bytes_trimmed_vec(),
+                tick: 0,
+                liquidity: be(1_000),
+                ticks: vec![
+                    V3Tick {
+                        tick: -10,
+                        liquidity_gross: be(1_000),
+                        liquidity_net: 1_000i128.to_be_bytes().to_vec(),
+                    },
+                    V3Tick {
+                        tick: 10,
+                        liquidity_gross: be(1_000),
+                        liquidity_net: (-1_000i128).to_be_bytes().to_vec(),
+                    },
+                ],
+            })),
+        }),
+        key: Some(PoolKey {
+            venue: pool_key::Venue::UniswapV3.into(),
+            token0: MEME.to_vec(),
+            token1: WETH.to_vec(),
+            fee_pips: 500,
+            tick_spacing: 10,
+        }),
+        ..PoolUpdate::default()
+    }
+}
+
+#[test]
+fn the_mirror_keeps_a_v3_pools_price_liquidity_and_live_ticks() {
+    use proto::pool::v1::{V3State, V3Tick};
+    let mut quotes = Quotes::default();
+    quotes.apply_pool_update(&v3_discovery());
+    // A later update: the price moves, and a burn empties tick 10.
+    quotes.apply_pool_update(&PoolUpdate {
+        key: None,
+        block_number: 101,
+        after: Some(PoolState {
+            state: Some(pool_state::State::V3(V3State {
+                initialized: true,
+                sqrt_price_x96: (U256::from(2u64) << 96usize).to_be_bytes_trimmed_vec(),
+                tick: 6_931,
+                liquidity: be(400),
+                ticks: vec![V3Tick {
+                    tick: 10,
+                    liquidity_gross: vec![],
+                    liquidity_net: 0i128.to_be_bytes().to_vec(),
+                }],
+            })),
+        }),
+        ..v3_discovery()
+    });
+    let pool = &quotes.pools()[&types::chain::Address::from([0xd2; 20])];
+    let routing::PoolKind::V3(v3) = &pool.kind else {
+        panic!("a v3 pool");
+    };
+    assert_eq!((pool.token0, pool.token1), (MEME.into(), WETH.into()));
+    assert_eq!((v3.fee, v3.tick_spacing, v3.liquidity), (500, 10, 400));
+    let price = v3.price.unwrap();
+    assert_eq!(
+        (price.sqrt_price_x96, price.tick),
+        (U256::from(2u64) << 96usize, 6_931)
+    );
+    assert_eq!(v3.ticks.keys().copied().collect::<Vec<_>>(), vec![-10]);
+    assert_eq!(v3.ticks[&-10].net, 1_000);
+}
+
+/// The direct MEME/USDC pair drained to 10 MEME: a quote priced after it differs.
+fn drain(quotes: &mut Quotes) {
+    quotes.apply_pool_update(&PoolUpdate {
+        key: None,
+        block_number: 101,
+        ..pair(DIRECT, (MEME, 10 * e(18)), (USDC, 10_000 * e(6)))
+    });
+    quotes.apply_pool_update(&PoolUpdate {
+        key: None,
+        block_number: 101,
+        ..pair(MEME_WETH, (MEME, 10 * e(18)), (WETH, 400 * e(18)))
+    });
+}
+
+#[test]
+fn kept_quotes_expire_and_stay_within_their_limits() {
+    let mut quotes = quotes(false);
+    // A request ID of 64 characters is taken.
+    let long = quotes
+        .quote(&request(&"x".repeat(64), USDC, MEME, "1"))
+        .unwrap();
+    let kept = quotes.quote(&request("k", USDC, MEME, "1")).unwrap();
+    let unkept = quotes.quote(&request("", USDC, MEME, "1")).unwrap();
+    let first = quotes.quote(&request("first", USDC, MEME, "1")).unwrap();
+    drain(&mut quotes);
+    // Kept quotes come back as they were; one without a request ID is priced afresh.
+    assert_eq!(
+        quotes
+            .quote(&request(&"x".repeat(64), USDC, MEME, "1"))
+            .unwrap(),
+        long
+    );
+    assert_eq!(quotes.quote(&request("k", USDC, MEME, "1")).unwrap(), kept);
+    assert_ne!(quotes.quote(&request("", USDC, MEME, "1")).unwrap(), unkept);
+    // At most 10,000 are kept: a quote asked for with 10,000 held makes room by dropping the
+    // oldest.
+    for i in 0..9_999 {
+        quotes
+            .quote(&request(&format!("q{i}"), USDC, MEME, "1"))
+            .unwrap();
+    }
+    assert_ne!(
+        quotes.quote(&request("first", USDC, MEME, "1")).unwrap(),
+        first
+    );
+    // Once its block time passes its expiry, a kept quote is priced afresh too.
+    let mut quotes = self::quotes(false);
+    let kept = quotes.quote(&request("k", USDC, MEME, "1")).unwrap();
+    drain(&mut quotes);
+    quotes.apply_price(&PriceUpdate {
+        block_timestamp: 1_790_000_004,
+        ..price(WETH, "WETH", 18, 2_500.0, false)
+    });
+    let again = quotes.quote(&request("k", USDC, MEME, "1")).unwrap();
+    assert_ne!(again.amount_out, kept.amount_out);
+    assert_eq!(again.expires_at_ms, 1_790_000_008_000);
+}
+
+#[test]
+fn a_refused_quote_says_why() {
+    let mut quotes = quotes(false);
+    let refusal = |quotes: &mut Quotes, r: QuoteRequest| quotes.quote(&r).unwrap_err().to_string();
+    assert_eq!(
+        refusal(&mut quotes, request("a", USDC, MEME, "x")),
+        "amount_in doesn't parse"
+    );
+    assert_eq!(
+        refusal(&mut quotes, request("b", MEME, [0x50; 20], "1")),
+        "a token's decimals aren't known yet"
+    );
+    quotes.apply_price(&price([0x50; 20], "OTHER", 18, 1.0, false));
+    assert_eq!(
+        refusal(&mut quotes, request("c", MEME, [0x50; 20], "1")),
+        "one side must be WETH, USDC or USDT"
+    );
+    assert_eq!(
+        refusal(&mut quotes, request("d", [0x50; 20], WETH, "1")),
+        "no tracked pool can take this trade"
+    );
+}
+
+#[test]
+fn a_fee_in_weth_is_valued_at_weths_price_and_a_v3_leg_shows_its_fee_tier() {
+    use proto::pool::v1::{V3State, V3Tick};
+    let mut quotes = Quotes::default();
+    // MEME/WETH 0.05% at a price of 1, deep between ticks -1,000 and 1,000.
+    let deep: i128 = 10i128.pow(24);
+    quotes.apply_pool_update(&PoolUpdate {
+        after: Some(PoolState {
+            state: Some(pool_state::State::V3(V3State {
+                initialized: true,
+                sqrt_price_x96: (U256::from(1u64) << 96usize).to_be_bytes_trimmed_vec(),
+                tick: 0,
+                liquidity: be(deep as u128),
+                ticks: vec![
+                    V3Tick {
+                        tick: -1_000,
+                        liquidity_gross: be(deep as u128),
+                        liquidity_net: deep.to_be_bytes().to_vec(),
+                    },
+                    V3Tick {
+                        tick: 1_000,
+                        liquidity_gross: be(deep as u128),
+                        liquidity_net: (-deep).to_be_bytes().to_vec(),
+                    },
+                ],
+            })),
+        }),
+        ..v3_discovery()
+    });
+    quotes.apply_price(&price(MEME, "MEME", 18, 2_500.0, false));
+    quotes.apply_price(&price(WETH, "WETH", 18, 2_500.0, false));
+    let quote = quotes.quote(&request("v3", MEME, WETH, "1")).unwrap();
+    let leg = &quote.route[0];
+    assert_eq!((leg.venue.as_str(), leg.pool_fee_bps), ("uniswap-v3", 5));
+    // Selling into WETH, our 1% comes from the proceeds, valued at WETH's $2,500.
+    let fee = quote.fee.unwrap();
+    assert_eq!(fee.token.unwrap().symbol, "WETH");
+    let amount: f64 = fee.amount.parse().unwrap();
+    let value: f64 = fee.value_usd.parse().unwrap();
+    assert!((amount - 0.0099949).abs() < 1e-6, "{amount}");
+    assert!((value - amount * 2_500.0).abs() < 1e-9, "{value}");
+}
