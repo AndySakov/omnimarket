@@ -658,3 +658,154 @@ fn an_edit_moves_an_open_order_and_a_done_one_refuses() {
         Err(api::OrderError::UnknownOrder)
     );
 }
+
+#[test]
+fn an_edit_keeps_the_share_within_the_position() {
+    let account = holder();
+    let mut orders = api::Orders::default();
+    place(
+        &mut orders,
+        &account,
+        &exit("e", OrderKind::StopLoss, "50"),
+        USDC,
+    )
+    .unwrap();
+    for pct in ["0", "100.01"] {
+        let edit = proto::api::v1::UpdateOrderRequest {
+            order_id: "e".into(),
+            sell_pct: Some(pct.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            orders.update(&account, &edit, 1),
+            Err(api::OrderError::Bad("sell_pct")),
+            "{pct}"
+        );
+    }
+    let edit = proto::api::v1::UpdateOrderRequest {
+        order_id: "e".into(),
+        sell_pct: Some("100".into()),
+        ..Default::default()
+    };
+    assert_eq!(orders.update(&account, &edit, 1).unwrap().sell_pct, "100");
+}
+
+#[test]
+fn stored_orders_come_back_and_one_caught_firing_fails() {
+    let account = holder();
+    let mut orders = api::Orders::default();
+    place(
+        &mut orders,
+        &account,
+        &exit("open", OrderKind::StopLoss, "50"),
+        USDC,
+    )
+    .unwrap();
+    place(
+        &mut orders,
+        &account,
+        &exit("firing", OrderKind::StopLoss, "50"),
+        USDC,
+    )
+    .unwrap();
+    orders.finish("firing", triggers::State::Firing, "", 1);
+    let mut restored = api::Orders::default();
+    for (order, terms) in orders.stored() {
+        restored.restore(order, terms);
+    }
+    let state = |o: &api::Orders, id: &str| o.order(id).unwrap().status.unwrap();
+    assert_eq!(state(&restored, "open").state(), OrderState::Open);
+    let failed = state(&restored, "firing");
+    assert_eq!(
+        (failed.state(), failed.detail.as_str()),
+        (OrderState::Failed, "the server restarted while it fired")
+    );
+    // The open one still fires on the rebuilt book.
+    assert_eq!(restored.on_price(MEME.into(), 0.001, 1, 0).len(), 1);
+}
+
+#[test]
+fn a_refused_order_says_why() {
+    use api::OrderError::*;
+    assert_eq!(Bad("sell_pct").to_string(), "sell_pct doesn't parse");
+    assert_eq!(
+        NoPosition.to_string(),
+        "there's no open position in this token to sell"
+    );
+    assert_eq!(UnknownOrder.to_string(), "no such order");
+    assert_eq!(NotOpen.to_string(), "only an open order can change");
+    assert_eq!(
+        TooMany.to_string(),
+        "at most 50 open orders, and 500 in all, per account"
+    );
+    assert_eq!(
+        NeedsArming.to_string(),
+        "a wallet account's trigger orders need a signed arming, which isn't built yet"
+    );
+}
+
+#[tokio::test]
+async fn the_order_routes_edit_refuse_and_limit() {
+    let (_shared, address) = server(Demo::new(Sessions::new(b"s"), None)).await;
+    let (token, placed) = guest_with_a_stop(&address, "h").await;
+    // PATCH moves it.
+    let path = format!("/v1/orders/{}", placed.order_id);
+    let edit = proto::api::v1::UpdateOrderRequest {
+        level: Some(OrderLevel {
+            level: Some(Level::PriceUsd("0.006".into())),
+        }),
+        ..Default::default()
+    };
+    let (code, body) = http(
+        &address,
+        "PATCH",
+        &path,
+        Some(&token),
+        &serde_json::to_string(&edit).unwrap(),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Order>(&body)
+            .unwrap()
+            .level_price_usd,
+        "0.006"
+    );
+    // A token with no price record yet: refused.
+    let unpriced = PlaceOrderRequest {
+        token: hex(&[0x55; 20]),
+        ..exit("u", OrderKind::StopLoss, "50")
+    };
+    let (code, body) = http(
+        &address,
+        "POST",
+        "/v1/orders",
+        Some(&token),
+        &serde_json::to_string(&unpriced).unwrap(),
+    )
+    .await;
+    assert_eq!((code, body.as_str()), (422, "the token isn't priced yet"));
+    // Past 50 open orders: a 429.
+    for i in 1..api::MAX_OPEN_ORDERS {
+        let request = exit(&format!("x{i}"), OrderKind::TakeProfit, "10");
+        let (code, body) = http(
+            &address,
+            "POST",
+            "/v1/orders",
+            Some(&token),
+            &serde_json::to_string(&request).unwrap(),
+        )
+        .await;
+        assert_eq!(code, 200, "{body}");
+    }
+    let request = exit("over", OrderKind::TakeProfit, "10");
+    let (code, _) = http(
+        &address,
+        "POST",
+        "/v1/orders",
+        Some(&token),
+        &serde_json::to_string(&request).unwrap(),
+    )
+    .await;
+    assert_eq!(code, 429);
+}

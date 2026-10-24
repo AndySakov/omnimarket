@@ -120,3 +120,14 @@ fn a_firing_id_hashes_the_order_id_and_its_count() {
     assert_eq!(firing_id("stop", 1), keccak256(input).0);
     assert_ne!(firing_id("stop", 1), firing_id("stop", 2));
 }
+
+#[test]
+fn a_price_that_isnt_a_positive_number_fires_nothing() {
+    let mut book = Book::default();
+    book.insert(order("stop", Kind::StopLoss, 0.008));
+    book.insert(order("tp", Kind::TakeProfit, 0.012));
+    for price in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        assert_eq!(book.on_price(MEME, price, 1, 0), vec![], "{price}");
+    }
+    assert_eq!(book.get("stop").unwrap().state, State::Open);
+}
