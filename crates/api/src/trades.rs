@@ -103,10 +103,11 @@ impl Trades {
             .push_back((hash, finished.status.trade_id.clone()));
         self.finished.insert(hash, Some(finished));
         while self.order.len() > KEPT {
-            if let Some((hash, trade_id)) = self.order.pop_front() {
-                self.finished.remove(&hash);
-                self.by_trade_id.remove(&trade_id);
-            }
+            let Some((hash, trade_id)) = self.order.pop_front() else {
+                break;
+            };
+            self.finished.remove(&hash);
+            self.by_trade_id.remove(&trade_id);
         }
     }
 
