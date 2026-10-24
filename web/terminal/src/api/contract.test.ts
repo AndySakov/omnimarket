@@ -172,4 +172,13 @@ describe('candle series fixtures', () => {
     checkValues(CandleSeriesSchema, json, `candles/${interval}`, problems)
     expect(problems).toEqual([])
   })
+
+  it.each(intervals)('every candle in the %s series carries its quote view', (interval) => {
+    const series = fromJson(CandleSeriesSchema, candleSeriesFixturesJson[interval])
+    for (const candle of series.candles) {
+      const view = [candle.quoteAsset, candle.quoteSymbol, candle.openQuote, candle.highQuote, candle.lowQuote, candle.closeQuote, candle.volumeQuote]
+      expect(view.every((field) => field !== ''), `candle ${candle.openTimeMs}: ${view.join(', ')}`).toBe(true)
+      expect(candle.quoteTrades, `candle ${candle.openTimeMs} quote trades`).toBeGreaterThan(0n)
+    }
+  })
 })

@@ -11,6 +11,8 @@
 //! Candles are kept per pool, in the pool's quote asset, and priced in USD when served. A token's
 //! candle merges those of its pools counted in its latest price update (its main pool when none
 //! is), each quoted in USDC or USDT at $1, or in WETH at WETH's own USD close for that candle.
+//! It also carries a quote view (#149): in its main pool's quote asset, merged from those pools
+//! quoted in that asset alone, exact from the raw prices and amounts.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -51,19 +53,21 @@ enum Usd {
     Weth,
 }
 
-/// Base's quote assets (D102), with their decimals.
-const QUOTES: [(Address, i32, Usd); 3] = [
+/// Base's quote assets (D102), with their decimals and symbols.
+const QUOTES: [(Address, i32, Usd, &str); 3] = [
     (
         address!("833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
         6,
         Usd::Dollar,
+        "USDC",
     ),
     (
         address!("fde4C96c8593536E31F229EA8f37b2ADa2699bb2"),
         6,
         Usd::Dollar,
+        "USDT",
     ),
-    (WETH, 18, Usd::Weth),
+    (WETH, 18, Usd::Weth, "WETH"),
 ];
 
 /// The interval a label names.
@@ -155,6 +159,8 @@ struct Token {
     decimals: Option<u32>,
     /// Its pools counted toward the display price, or its main pool if none is.
     pools: Vec<Address>,
+    /// Its deepest pool (D18), whose quote asset the quote view is in.
+    main_pool: Option<Address>,
 }
 
 /// A token's candle in USD, before it becomes a `Candle`.
@@ -166,6 +172,17 @@ struct UsdCandle {
     trades: u64,
     /// Its latest trade's lineage ID.
     cause: Vec<u8>,
+}
+
+/// A token's candle in its main pool's quote asset: exact decimals.
+#[derive(Clone, Debug, PartialEq)]
+struct QuoteCandle {
+    quote: Address,
+    symbol: &'static str,
+    /// Open, high, low and close; unset when no trade in it has a price.
+    prices: Option<[String; 4]>,
+    volume: String,
+    trades: u64,
 }
 
 /// A trade the model hadn't counted before.
@@ -242,11 +259,9 @@ impl Candles {
             .filter(|p| p.counted)
             .filter_map(|p| Address::try_from(p.pool.as_slice()).ok())
             .collect();
+        let main_pool = Address::try_from(update.main_pool.as_slice()).ok();
         let pools = if counted.is_empty() {
-            Address::try_from(update.main_pool.as_slice())
-                .ok()
-                .into_iter()
-                .collect()
+            main_pool.into_iter().collect()
         } else {
             counted
         };
@@ -257,6 +272,7 @@ impl Candles {
                 chain_id: update.chain_id,
                 decimals,
                 pools,
+                main_pool,
             },
         );
         Ok(())
@@ -271,7 +287,8 @@ impl Candles {
     pub fn candle(&self, token: Address, interval: CandleInterval, open_ms: u64) -> Option<Candle> {
         let chain_id = self.tokens.get(&token)?.chain_id;
         let usd = self.usd(token, interval, open_ms)?;
-        Some(self.to_candle(chain_id, token, interval, open_ms, usd))
+        let quote = self.quote(token, interval, open_ms);
+        Some(self.to_candle(chain_id, token, interval, open_ms, usd, quote))
     }
 
     /// The token's candles opening in `from_ms..=to_ms`, oldest first, at most `MAX_SERIES` of
@@ -355,7 +372,7 @@ impl Candles {
             .iter()
             .filter_map(|pool| {
                 let (traded, quote) = self.pools.get(pool)?;
-                let (_, decimals, usd) = QUOTES.iter().find(|(q, _, _)| q == quote)?;
+                let (_, decimals, usd, _) = QUOTES.iter().find(|(q, _, _, _)| q == quote)?;
                 (*traded == token).then_some((*pool, *decimals, *usd))
             })
             .collect();
@@ -423,6 +440,48 @@ impl Candles {
         })
     }
 
+    /// The token's candle at `open_ms` in its main pool's quote asset: the candles of its pools
+    /// quoted in that asset, merged. Unset until the main pool has traded.
+    fn quote(&self, token: Address, interval: CandleInterval, open_ms: u64) -> Option<QuoteCandle> {
+        let info = self.tokens.get(&token)?;
+        let decimals = i32::try_from(info.decimals?).ok()?;
+        let (_, quote) = self.pools.get(&info.main_pool?)?;
+        let (_, quote_decimals, _, symbol) = QUOTES.iter().find(|(q, _, _, _)| q == quote)?;
+        let candles: Vec<&PoolCandle> = self
+            .pools_of(token)
+            .into_iter()
+            .filter(|(pool, _, _)| self.pools.get(pool).is_some_and(|(_, q)| q == quote))
+            .filter_map(|(pool, _, _)| self.candles.get(&(pool, interval, open_ms)))
+            .collect();
+        if candles.is_empty() {
+            return None;
+        }
+        // Every pool here has the same quote, so their raw prices compare as they are.
+        let priced: Vec<&Prices> = candles.iter().filter_map(|c| c.prices.as_ref()).collect();
+        let price_scale = 36 + quote_decimals - decimals;
+        let prices = match (
+            priced.iter().min_by_key(|p| p.open.0),
+            priced.iter().max_by_key(|p| p.close.0),
+            priced.iter().map(|p| p.high).max(),
+            priced.iter().map(|p| p.low).min(),
+        ) {
+            (Some(first), Some(last), Some(high), Some(low)) => {
+                Some([first.open.1, high, low, last.close.1].map(|raw| exact(raw, price_scale)))
+            }
+            _ => None,
+        };
+        let volume = candles
+            .iter()
+            .fold(U256::ZERO, |sum, c| sum.saturating_add(c.volume));
+        Some(QuoteCandle {
+            quote: *quote,
+            symbol,
+            prices,
+            volume: exact(volume, *quote_decimals),
+            trades: candles.iter().map(|c| c.trades).sum(),
+        })
+    }
+
     /// WETH's USD close for the candle opening at `open_ms`: its own candle's, else the latest
     /// earlier one's, else the earliest later one's, passing over any candle whose trades have
     /// no price.
@@ -465,6 +524,7 @@ impl Candles {
         interval: CandleInterval,
         open_ms: u64,
         usd: UsdCandle,
+        quote: Option<QuoteCandle>,
     ) -> Candle {
         let mut key = chain_id.to_le_bytes().to_vec();
         key.extend(token.as_slice());
@@ -472,6 +532,17 @@ impl Candles {
         key.extend(open_ms.to_le_bytes());
         key.extend(&usd.cause);
         let [open, high, low, close] = usd.prices.map_or_else(Default::default, |p| p.map(decimal));
+        let (quote_asset, quote_symbol, quote_prices, volume_quote, quote_trades) = match quote {
+            Some(q) => (
+                hex(q.quote.as_slice()),
+                q.symbol.to_string(),
+                q.prices.unwrap_or_default(),
+                q.volume,
+                q.trades,
+            ),
+            None => Default::default(),
+        };
+        let [open_quote, high_quote, low_quote, close_quote] = quote_prices;
         Candle {
             lineage: Some(Lineage {
                 id: LineageId::from_natural_key("candle", &key)
@@ -490,7 +561,25 @@ impl Candles {
             volume_usd: decimal(usd.volume),
             trades: usd.trades,
             closed: open_ms.saturating_add(length_ms(interval)) <= self.head_ms,
+            quote_asset,
+            quote_symbol,
+            open_quote,
+            high_quote,
+            low_quote,
+            close_quote,
+            volume_quote,
+            quote_trades,
         }
+    }
+}
+
+/// `raw` / 10^`scale`, exactly, as a decimal string.
+fn exact(raw: U256, scale: i32) -> String {
+    match u32::try_from(scale) {
+        Ok(scale) => scaled_decimal(&raw.to_be_bytes::<32>(), scale),
+        Err(_) => raw
+            .saturating_mul(U256::from(10u64).pow(U256::from(scale.unsigned_abs())))
+            .to_string(),
     }
 }
 
@@ -525,7 +614,7 @@ mod tests {
 
     #[test]
     fn the_quote_assets_are_the_engines() {
-        let quotes: Vec<Address> = QUOTES.iter().map(|(q, _, _)| *q).collect();
+        let quotes: Vec<Address> = QUOTES.iter().map(|(q, _, _, _)| *q).collect();
         assert_eq!(quotes, engine::EngineConfig::base().quote_assets);
     }
 
@@ -535,6 +624,13 @@ mod tests {
         assert_eq!(scaled(U256::from(12_345u64), 2), 123.45);
         // A token with more decimals than the quote has plus 36.
         assert_eq!(scaled(U256::from(3u64), -2), 300.0);
+    }
+
+    #[test]
+    fn exact_scaling_keeps_every_digit() {
+        assert_eq!(exact(U256::from(5u64), 1), "0.5");
+        assert_eq!(exact(U256::from(123_400u64), 2), "1234");
+        assert_eq!(exact(U256::from(3u64), -2), "300");
     }
 
     #[test]
