@@ -21,4 +21,4 @@ pub use crate::quotes::{QuoteError, Quotes};
 pub use crate::status::engine_status;
 pub use crate::stream::{Session, Topic, heartbeat, parse_topic, to_json};
 pub use crate::throttle::{MIN_GAP_MS, Throttle};
-pub use crate::trades::{GUEST_ACCOUNT, TradeError, Trades};
+pub use crate::trades::{GUEST_ACCOUNT, Prepared, Run, TradeError, Trades};

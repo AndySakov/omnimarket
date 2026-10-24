@@ -333,3 +333,59 @@ fn a_recorded_trade_replays_to_the_same_outcome() {
     ));
     assert_eq!(replayed, recorded);
 }
+
+#[test]
+fn the_intent_hash_is_the_quotes_terms_signed_by_its_signer() {
+    let signer = signer().address();
+    let expected = Intent {
+        signer,
+        tokenIn: USDC.parse().unwrap(),
+        maxAmountIn: U256::from(1_000_000_000u64),
+        tokenOut: WETH.parse().unwrap(),
+        minAmountOut: U256::from(388_000_000_000_000_000u64),
+        deadline: U256::from(1_790_000_064u64),
+        submitters: vec![intent::DEMO_EXECUTOR],
+        quoteId: B256::right_padding_from(&[0xab; 16]),
+    };
+    assert_eq!(
+        shadow::intent_hash(&buy(), signer),
+        Some(intent::hash(&expected, 8453))
+    );
+    // Another signer, or another quote, is another intent.
+    assert_ne!(
+        shadow::intent_hash(&buy(), Address::repeat_byte(9)),
+        shadow::intent_hash(&buy(), signer)
+    );
+    assert_ne!(
+        shadow::intent_hash(&sell(), signer),
+        shadow::intent_hash(&buy(), signer)
+    );
+}
+
+#[test]
+fn an_in_memory_sell_takes_no_second_fee() {
+    // In memory the fresh quote stands in for the simulation, and its output is already net
+    // of our fee.
+    let local = signer();
+    let finished = det::run_simulated(async {
+        let clock = SimClock::starting_at(START);
+        shadow::run(
+            request(&sell()),
+            || Ok(sell()),
+            Signer::Guest(&local),
+            Simulation::InMemory,
+            &clock,
+        )
+        .await
+    });
+    let receipt = finished.receipt.unwrap();
+    assert_eq!(receipt.amount_out, "2475");
+    assert!(receipt.simulated_in_memory);
+    assert_eq!(finished.status.steps[3].detail, "simulated in memory");
+}
+
+#[test]
+fn a_simulation_exactly_at_the_minimum_fills() {
+    let finished = trade(buy(), buy(), U256::from(388_000_000_000_000_000u64));
+    assert_eq!(finished.status.state(), State::Simulated);
+}
