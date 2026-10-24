@@ -360,3 +360,84 @@ async fn a_restart_mid_path_neither_fires_the_stop_again_nor_skips_it() {
         2
     );
 }
+
+fn limit_buy(id: usize) -> PlaceOrderRequest {
+    PlaceOrderRequest {
+        client_request_id: format!("b{id}"),
+        chain_id: 8453,
+        token: hex(&MEME),
+        kind: OrderKind::LimitBuy.into(),
+        level: Some(OrderLevel {
+            level: Some(Level::PriceUsd("0.005".into())),
+        }),
+        spend_amount: "1".into(),
+        spend_token: hex(&USDC),
+        ..PlaceOrderRequest::default()
+    }
+}
+
+fn token_ref(address: [u8; 20], symbol: &str, decimals: u32) -> proto::api::v1::TokenRef {
+    proto::api::v1::TokenRef {
+        chain_id: 8453,
+        address: hex(&address),
+        symbol: symbol.into(),
+        decimals,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn an_account_holds_a_bounded_number_of_orders() {
+    use proto::api::v1::account::Kind;
+    let account = api::AccountState::new("guest-1".into(), Kind::Guest, None, 0);
+    let mut orders = api::Orders::default();
+    let place = |orders: &mut api::Orders, i: usize| {
+        orders.place(
+            &account,
+            &limit_buy(i),
+            format!("o{i}"),
+            token_ref(MEME, "MEME", 18),
+            Some(token_ref(USDC, "USDC", 6)),
+            0,
+        )
+    };
+    // 50 open; cancelling them makes room for more, up to 500 in all.
+    for i in 0..api::MAX_ORDERS {
+        place(&mut orders, i).unwrap();
+        if i % api::MAX_OPEN_ORDERS == api::MAX_OPEN_ORDERS - 1 {
+            for j in i + 1 - api::MAX_OPEN_ORDERS..=i {
+                orders.cancel("guest-1", &format!("o{j}"), 0).unwrap();
+            }
+        }
+    }
+    assert_eq!(
+        place(&mut orders, api::MAX_ORDERS),
+        Err(api::OrderError::TooMany)
+    );
+    // And 50 open at once is the limit, whatever the total.
+    let mut orders = api::Orders::default();
+    for i in 0..api::MAX_OPEN_ORDERS {
+        place(&mut orders, i).unwrap();
+    }
+    assert_eq!(place(&mut orders, 99), Err(api::OrderError::TooMany));
+}
+
+#[test]
+fn a_wallet_accounts_order_waits_for_signed_arming() {
+    use proto::api::v1::account::Kind;
+    let account = api::AccountState::new(
+        "privy-1".into(),
+        Kind::Privy,
+        Some(types::chain::Address::repeat_byte(7)),
+        0,
+    );
+    let refused = api::Orders::default().place(
+        &account,
+        &limit_buy(0),
+        "o".into(),
+        token_ref(MEME, "MEME", 18),
+        Some(token_ref(USDC, "USDC", 6)),
+        0,
+    );
+    assert_eq!(refused, Err(api::OrderError::NeedsArming));
+}

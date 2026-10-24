@@ -19,6 +19,8 @@ use crate::model::{decimal, hex};
 
 /// Open orders one account may hold.
 pub const MAX_OPEN_ORDERS: usize = 50;
+/// Orders one account may have placed, open or done.
+pub const MAX_ORDERS: usize = 500;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OrderError {
@@ -29,6 +31,9 @@ pub enum OrderError {
     /// Only an open order can change.
     NotOpen,
     TooMany,
+    /// A Privy account's order needs its wallet's signature when it's placed (D42), which
+    /// isn't built yet; a server-signed firing would skip it.
+    NeedsArming,
 }
 
 impl std::fmt::Display for OrderError {
@@ -38,7 +43,14 @@ impl std::fmt::Display for OrderError {
             Self::NoPosition => write!(f, "there's no open position in this token to sell"),
             Self::UnknownOrder => write!(f, "no such order"),
             Self::NotOpen => write!(f, "only an open order can change"),
-            Self::TooMany => write!(f, "at most {MAX_OPEN_ORDERS} open orders per account"),
+            Self::TooMany => write!(
+                f,
+                "at most {MAX_OPEN_ORDERS} open orders, and {MAX_ORDERS} in all, per account"
+            ),
+            Self::NeedsArming => write!(
+                f,
+                "a wallet account's trigger orders need a signed arming, which isn't built yet"
+            ),
         }
     }
 }
@@ -118,12 +130,16 @@ impl Orders {
     ) -> Result<Order, OrderError> {
         let kind = kind_of(request.kind()).ok_or(OrderError::Bad("kind"))?;
         let address = parse_address(&token.address).ok_or(OrderError::Bad("token"))?;
-        let open = self
+        if account.wallet.is_some() {
+            return Err(OrderError::NeedsArming);
+        }
+        let mine: Vec<&triggers::Order> = self
             .book
             .orders()
-            .filter(|o| o.account_id == account.account_id && o.state == State::Open)
-            .count();
-        if open >= MAX_OPEN_ORDERS {
+            .filter(|o| o.account_id == account.account_id)
+            .collect();
+        let open = mine.iter().filter(|o| o.state == State::Open).count();
+        if open >= MAX_OPEN_ORDERS || mine.len() >= MAX_ORDERS {
             return Err(OrderError::TooMany);
         }
         let entry = account.entry_usd(address);

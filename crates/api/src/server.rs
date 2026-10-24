@@ -93,6 +93,8 @@ pub struct Shared {
     demo: crate::Demo,
     /// Firings waiting to trade, in the order they fired.
     firings: Mutex<std::collections::VecDeque<triggers::Firing>>,
+    /// Wakes the firing worker.
+    fired: tokio::sync::Notify,
 }
 
 /// The most trades running at once; another gets a 429.
@@ -150,7 +152,17 @@ impl Shared {
             running: Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING_TRADES)),
             demo,
             firings: Mutex::default(),
+            fired: tokio::sync::Notify::new(),
         })
+    }
+
+    /// Trades firings as they come, apart from the consumer, so a slow trade never holds up
+    /// the records behind it.
+    async fn fire_forever(self: Arc<Self>) {
+        loop {
+            self.fired.notified().await;
+            self.run_firings().await;
+        }
     }
 
     /// Trades every firing waiting, in order: each order's state and count are kept before
@@ -477,10 +489,13 @@ impl Shared {
                             update.block_number,
                             update.block_timestamp.saturating_mul(1000),
                         );
-                        self.firings
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .extend(firings);
+                        if !firings.is_empty() {
+                            self.firings
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .extend(firings);
+                            self.fired.notify_one();
+                        }
                     }
                     applied
                 }
@@ -710,6 +725,8 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
         .await
         .map_err(ServerError::Io)?;
     tracing::info!(listen = %config.listen, "serving");
+    #[allow(clippy::disallowed_methods)] // the firing worker: I/O around the trigger book
+    tokio::spawn(shared.clone().fire_forever());
     tokio::select! {
         biased;
         result = consume(&consumer, &shared) => result,
@@ -724,7 +741,6 @@ async fn consume(consumer: &StreamConsumer, shared: &Arc<Shared>) -> Result<(), 
         let message = consumer.recv().await.map_err(ServerError::Kafka)?;
         if let Some(payload) = message.payload() {
             shared.apply(message.topic(), payload);
-            shared.run_firings().await;
         }
     }
 }
@@ -968,6 +984,7 @@ fn order_refusal(error: crate::OrderError) -> Response {
         crate::OrderError::UnknownOrder => StatusCode::NOT_FOUND,
         crate::OrderError::NotOpen => StatusCode::CONFLICT,
         crate::OrderError::TooMany => StatusCode::TOO_MANY_REQUESTS,
+        crate::OrderError::NeedsArming => StatusCode::UNPROCESSABLE_ENTITY,
         _ => StatusCode::UNPROCESSABLE_ENTITY,
     };
     (code, error.to_string()).into_response()
