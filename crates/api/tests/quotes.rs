@@ -297,6 +297,121 @@ async fn rest_quotes_on_the_pool_updates_topic() {
     assert!(refused.starts_with("HTTP/1.1 422"), "{refused}");
 }
 
+#[tokio::test]
+async fn a_quoted_trade_runs_once_in_shadow_mode_and_keeps_its_receipt() {
+    use proto::api::v1::trade_status::State;
+    use proto::api::v1::{TradeReceipt, TradeRequest, TradeStatus, TradeStep};
+
+    let shared: Arc<Shared> = Shared::new();
+    let app = router(shared.clone(), "http://localhost:5173").unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    #[allow(clippy::disallowed_methods)] // the test's own server task
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    for update in [
+        pair(MEME_WETH, (MEME, 100_000_000 * e(18)), (WETH, 400 * e(18))),
+        pair(
+            WETH_USDC,
+            (WETH, 40_000 * e(18)),
+            (USDC, 100_000_000 * e(6)),
+        ),
+    ] {
+        shared.apply(engine::POOL_UPDATES_TOPIC, &update.encode_to_vec());
+    }
+    shared.apply(
+        engine::PRICES_TOPIC,
+        &price(MEME, "MEME", 18, 0.01, false).encode_to_vec(),
+    );
+    let body = serde_json::to_string(&request("trade", USDC, MEME, "5000")).unwrap();
+    let quoted = http_post(&address, "/v1/quotes", &body).await;
+    let quote: Quote = serde_json::from_str(quoted.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+
+    let trade = |id: &str| {
+        serde_json::to_string(&TradeRequest {
+            client_request_id: id.into(),
+            quote_id: quote.quote_id.clone(),
+            intent_signature: String::new(),
+        })
+        .unwrap()
+    };
+    let first = http_post(&address, "/v1/trades", &trade("t1")).await;
+    assert!(first.starts_with("HTTP/1.1 200"), "{first}");
+    let status: TradeStatus =
+        serde_json::from_str(first.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(status.state(), State::Simulated);
+    assert_eq!(
+        status.steps.iter().map(|s| s.step()).collect::<Vec<_>>(),
+        vec![
+            TradeStep::Quote,
+            TradeStep::Build,
+            TradeStep::Sign,
+            TradeStep::Simulate,
+            TradeStep::StopBeforeBroadcast
+        ]
+    );
+    assert_eq!(status.steps[3].detail, "simulated in memory");
+    // The same intent again, even under another request ID: the same trade, no second fill.
+    let again = http_post(&address, "/v1/trades", &trade("t2")).await;
+    let repeated: TradeStatus =
+        serde_json::from_str(again.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(repeated, status);
+
+    let receipt = http_get(&address, &format!("/v1/trades/{}/receipt", status.trade_id)).await;
+    assert!(receipt.starts_with("HTTP/1.1 200"), "{receipt}");
+    let receipt: TradeReceipt =
+        serde_json::from_str(receipt.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(
+        (
+            receipt.amount_out.as_str(),
+            receipt.signed_min_amount_out.as_str(),
+            receipt.quote_id.as_str()
+        ),
+        (
+            "489601.285425744753500141",
+            "474913.246862972410895136",
+            quote.quote_id.as_str()
+        )
+    );
+    assert!(receipt.simulated_in_memory && receipt.demo_intent);
+
+    let unknown = serde_json::to_string(&TradeRequest {
+        quote_id: "0x00".into(),
+        ..TradeRequest::default()
+    })
+    .unwrap();
+    assert!(
+        http_post(&address, "/v1/trades", &unknown)
+            .await
+            .starts_with("HTTP/1.1 404")
+    );
+    let signed = serde_json::to_string(&TradeRequest {
+        quote_id: quote.quote_id.clone(),
+        intent_signature: "0x12".into(),
+        ..TradeRequest::default()
+    })
+    .unwrap();
+    assert!(
+        http_post(&address, "/v1/trades", &signed)
+            .await
+            .starts_with("HTTP/1.1 422")
+    );
+    assert!(
+        http_get(&address, "/v1/trades/0x00/receipt")
+            .await
+            .starts_with("HTTP/1.1 404")
+    );
+}
+
+async fn http_get(address: &str, path: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let request = format!("GET {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await.unwrap();
+    response
+}
+
 /// MEME/WETH, MEME/USDC and USDC/WETH, the direct MEME/WETH pair `meme_reserve` deep at the
 /// same price, with MEME's decimals known and no WETH price.
 fn near_tie_in_weth(meme_reserve: u128) -> Quotes {

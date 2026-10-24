@@ -1,11 +1,12 @@
 //! The API server binary.
 //!
 //!   api --kafka BROKERS [--listen ADDR] [--cors-origin URL] [--group-id ID]
-//!       [--new-pool-window-ms MS] [--trending-min-depth-usd USD]
+//!       [--new-pool-window-ms MS] [--trending-min-depth-usd USD] [--call-rpc URL]
 //!
 //! Consumes `pool-updates.base`, `trades.base`, `trade-history.base`, `prices.base` and
 //! `status.base` from the start and serves contract v0 (D91): `/health`, `GET /v1/status`,
-//! `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery`, `GET /v1/candles` and the
+//! `GET /v1/tokens/{chain_id}/{address}`, `GET /v1/discovery`, `GET /v1/candles`, `POST /v1/quotes`,
+//! `POST /v1/trades`, `GET /v1/trades/{trade_id}/receipt` and the
 //! WebSocket stream at `/v1/stream`, and Prometheus metrics at `/metrics`.
 
 use std::net::SocketAddr;
@@ -33,6 +34,10 @@ struct Cli {
     /// The least ±2% depth, in USD, a token needs to trend (D24).
     #[arg(long, default_value_t = 10_000.0)]
     trending_min_depth_usd: f64,
+    /// Where shadow trades' simulations go (Uniswap's quoter at the quote's block). Unset, or
+    /// unusable at start: they simulate on the in-memory pool state.
+    #[arg(long)]
+    call_rpc: Option<String>,
 }
 
 #[tokio::main]
@@ -41,6 +46,7 @@ async fn main() -> ExitCode {
     let cli = Cli::parse();
     let config = Config {
         listen: cli.listen,
+        call_rpc: cli.call_rpc,
         kafka: cli.kafka,
         group_id: cli.group_id,
         cors_origin: cli.cors_origin,

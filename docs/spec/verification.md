@@ -154,6 +154,10 @@ Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 an
 - **Exact against Uniswap.** On pricing's reference-pools fixture (block 52,036,164), `routing` matches QuoterV2's `quoteExactInputSingle` to the unit for 11 swaps across the WETH/USDC 0.05% and 0.3% pools and WETH/USDT 0.05%, 0.01 to 20 WETH and 100 to 50,000 USDC, some crossing up to 4 initialized ticks. It also matches UniswapV2Router02's `getAmountsOut` on the WETH/USDC pair both ways (`crates/routing/tests/quoter.rs`).
 - **Latency.** Routing math over those four pools (direct and through WETH or USDC), 20,000 quotes in release on an Apple M1 Pro: p50 1.2µs, p99 3.4µs (`quote_latency`). The API adds a lock and building the `Quote` message. Each route search scans every mirrored pool, so the cost grows with the pool count. That's still far inside the 10ms budget at the hundreds of pools a session tracks **(verify)** at thousands.
 
+## Measured: shadow trades (#84)
+
+- **A live buy and sell.** On 2026-10-24, `live_trade.rs` read the WETH/USDC 0.05% pool's state at block 53,010,690 from mainnet.base.org (slot0, liquidity, and TickLens's ticks within 2 bitmap words of the price). It quoted 100 USDC to WETH and 0.05 WETH to USDC from that state and ran both as shadow trades simulated through QuoterV2 at the same block. Both simulated to exactly the quoted output: 0.041564943890880311 WETH, against a minimum of 0.041357119171425909, and 117.781413 USDC, against 117.192505. The simulation step took 230ms each and every other step under 3ms.
+
 ## Still to measure (needs live network access)
 
 - Real event rates on BNB and MegaETH (Base measured above), to size the RPC plan (D16).

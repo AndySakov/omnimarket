@@ -13,6 +13,7 @@ members = [
   "crates/pricing",
   "crates/api",
   "crates/routing",
+  "crates/execution",
 ]
 exclude = ["scripts/fixtures/determinism"]
 
@@ -28,6 +29,7 @@ proto = { path = "crates/proto" }
 telemetry = { path = "crates/telemetry" }
 chain-io = { path = "crates/chain-io" }
 engine = { path = "crates/engine" }
+execution = { path = "crates/execution" }
 venues = { path = "crates/venues" }
 pricing = { path = "crates/pricing" }
 routing = { path = "crates/routing" }
@@ -40,6 +42,7 @@ clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 object_store = { version = "0.14", default-features = false }
 getrandom = "0.4"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 opentelemetry = "0.33"
 pbjson = "0.9"
 pbjson-build = "0.9"
