@@ -10,6 +10,7 @@ mod feed;
 mod model;
 mod orders;
 mod quotes;
+mod safety;
 pub mod server;
 mod session;
 mod status;
@@ -26,6 +27,7 @@ pub use crate::feed::{DISCOVERY_TOPIC, Feed, Published, STATUS_TOPIC, token_topi
 pub use crate::model::{ModelError, ReadModel, decimal, hex, scaled_decimal};
 pub use crate::orders::{MAX_OPEN_ORDERS, MAX_ORDERS, OrderError, Orders, Terms};
 pub use crate::quotes::{QuoteError, Quotes};
+pub use crate::safety::{MAX_REASON, RECHECK_MS, Safety, WATCH_MS, report as safety_report};
 pub use crate::session::{Privy, PrivyError, PrivyUser, SESSION_MS, Sessions};
 pub use crate::status::engine_status;
 pub use crate::store::{Store, StoreError, Stored};

@@ -158,6 +158,10 @@ Caveats: this counts tokens whose pools *updated* in 15 minutes on Uniswap v2 an
 
 - **A live buy and sell.** On 2026-10-24, `live_trade.rs` read the WETH/USDC 0.05% pool's state at block 53,010,690 from mainnet.base.org (slot0, liquidity, and TickLens's ticks within 2 bitmap words of the price). It quoted 100 USDC to WETH and 0.05 WETH to USDC from that state and ran both as shadow trades simulated through QuoterV2 at the same block. Both simulated to exactly the quoted output: 0.041564943890880311 WETH, against a minimum of 0.041357119171425909, and 117.781413 USDC, against 117.192505. The simulation step took 230ms each and every other step under 3ms.
 
+## Measured: token safety (#89)
+
+- **State overrides on Base's free endpoints.** On 2026-10-24, an `eth_call` to an address holding injected code and a 1 ETH balance came back with that balance on mainnet.base.org, PublicNode, dRPC and 1RPC. All four apply `code` and `balance` overrides, which resolves D29's **(verify)** for Base.
+- **Live round trips.** At block 53,018,418, the probe round-tripped 0.01 WETH through DEGEN's and TOSHI's Uniswap v3 (0.3%) and v2 WETH pools with no tax either way: back 0.99401 and 0.99401 through v3, 0.99594 and 0.99663 through v2. The DEGEN v2 pair holds only 0.0209 WETH, so 0.01 WETH is half of it. A round trip that large keeps part of its own fee on the way back, and the 0.99594 matches constant-product math to the wei. The API's worker path, run against DEGEN's v2 pair, put that report on its token snapshot (`live_safety.rs`).
 ## Measured: a trigger on live Base (#86)
 
 - **Price record to receipt.** On 2026-10-24, `live_trigger.rs` read the USDC/cbBTC 0.01% pool's state at block 53,012,799 from mainnet.base.org. A guest bought cbBTC with 100 USDC, then set a stop-loss 1% above the price. The block's price record, applied to the API, crossed the stop:

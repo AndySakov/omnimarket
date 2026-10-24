@@ -14,6 +14,7 @@ use crate::candles::{Candles, INTERVALS, candles_topic};
 use crate::discovery::{Discovery, DiscoveryConfig};
 use crate::model::{ModelError, ReadModel, hex};
 use crate::quotes::Quotes;
+use crate::safety::Safety;
 use crate::status::engine_status;
 use crate::throttle::Throttle;
 
@@ -52,6 +53,8 @@ pub struct Feed {
     /// Quotes read pool state as it arrives: unlike discovery, they don't wait for a whole
     /// block across the topics.
     quotes: Quotes,
+    /// Token safety checks: their queue and their reports (#89).
+    safety: Safety,
     /// Tokens whose candles took history since the last live trade. Their candle topics get a
     /// fresh snapshot with the next live trade, rather than a delta per trade of history.
     history_changed: BTreeSet<Address>,
@@ -196,6 +199,25 @@ impl Feed {
     /// Takes one `pool-updates.base` record for the discovery read model.
     pub fn apply_pool_update(&mut self, update: &PoolUpdate) -> Vec<Published> {
         self.quotes.apply_pool_update(update);
+        // A newly discovered pool against WETH: its token gets a safety check.
+        if let Some(key) = &update.key {
+            let weth = crate::accounts::WETH;
+            let (Ok(a), Ok(b)) = (
+                Address::try_from(key.token0.as_slice()),
+                Address::try_from(key.token1.as_slice()),
+            ) else {
+                return self.queue_pool_update(update);
+            };
+            if a == weth {
+                self.safety.discovered(b);
+            } else if b == weth {
+                self.safety.discovered(a);
+            }
+        }
+        self.queue_pool_update(update)
+    }
+
+    fn queue_pool_update(&mut self, update: &PoolUpdate) -> Vec<Published> {
         self.pending.seen[0] = self.pending.seen[0].max(update.block_number);
         let at = self.pending.seen[0];
         self.pending.pools.push_back((at, update.clone()));
@@ -242,6 +264,10 @@ impl Feed {
 
     pub fn discovery(&self) -> &Discovery {
         &self.discovery
+    }
+
+    pub fn safety(&mut self) -> &mut Safety {
+        &mut self.safety
     }
 
     pub fn quotes(&mut self) -> &mut Quotes {

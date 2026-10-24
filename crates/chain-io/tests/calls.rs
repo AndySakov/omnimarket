@@ -283,3 +283,50 @@ fn a_slow_endpoint_gets_each_call_answered_without_a_retry() {
         assert_eq!(node.now(), Duration::from_millis(30_400));
     });
 }
+
+// indexer.md, "Calls with injected code": a revert the node answers with is the call's result;
+// anything else is a failure.
+#[test]
+fn a_call_with_injected_code_returns_a_revert_and_fails_on_anything_else() {
+    let call = EthCall {
+        to: Address::repeat_byte(5),
+        data: Bytes::new(),
+        block: HEAD,
+    };
+    let with_code = |node: &ScriptedNode| {
+        let chain = node.chain();
+        let call = call.clone();
+        async move {
+            chain
+                .call_with_code(
+                    &call,
+                    Address::repeat_byte(1),
+                    Address::repeat_byte(5),
+                    Bytes::from(vec![0u8]),
+                    alloy::primitives::U256::from(1u64),
+                )
+                .await
+        }
+    };
+    det::run_simulated(async {
+        let node = ScriptedNode::new(HEAD);
+        node.script(
+            Method::Call,
+            Script::Fail(RpcFailure {
+                code: 3,
+                message: "execution reverted: sells are disabled",
+            }),
+        );
+        assert_eq!(
+            with_code(&node).await.unwrap(),
+            CallResult::Failed("execution reverted: sells are disabled".into())
+        );
+        node.script(Method::Call, Script::Fail(RATE_LIMITED));
+        assert!(matches!(with_code(&node).await, Err(ChainError::Rpc(_))));
+        node.script(Method::Call, Script::Answer);
+        assert!(matches!(
+            with_code(&node).await,
+            Ok(CallResult::Returned(_))
+        ));
+    });
+}

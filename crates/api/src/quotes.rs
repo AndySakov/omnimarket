@@ -46,6 +46,8 @@ struct Token {
     decimals: Option<u32>,
     price_usd: f64,
     thin: bool,
+    /// Its deepest pool (D18).
+    main_pool: Option<Address>,
 }
 
 #[derive(Default)]
@@ -181,8 +183,28 @@ impl Quotes {
                 decimals: metadata.decimals,
                 price_usd: update.price_usd,
                 thin: update.thin,
+                main_pool: Address::try_from(update.main_pool.as_slice()).ok(),
             },
         );
+    }
+
+    /// A pool trading `token` against WETH, and whether it's v3: its main pool if that is one,
+    /// else the first the mirror holds. The safety probe trades through it (#89).
+    pub fn weth_pool(&self, token: Address) -> Option<(Address, bool)> {
+        let pairs_weth = |p: &Pool| {
+            p.token0.min(p.token1) == token.min(WETH) && p.token0.max(p.token1) == token.max(WETH)
+        };
+        let main = self.tokens.get(&token).and_then(|t| t.main_pool);
+        let pool = main
+            .and_then(|m| self.pools.get(&m))
+            .filter(|p| pairs_weth(p))
+            .or_else(|| self.pools.values().find(|p| pairs_weth(p)))?;
+        Some((pool.address, matches!(pool.kind, PoolKind::V3(_))))
+    }
+
+    /// A token's decimals, when known.
+    pub fn token_decimals(&self, token: Address) -> Option<u32> {
+        self.decimals(token)
     }
 
     /// The pools quotes are priced on.

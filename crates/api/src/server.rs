@@ -97,6 +97,30 @@ pub struct Shared {
     fired: tokio::sync::Notify,
 }
 
+/// Why a safety check didn't record a round trip.
+#[derive(Debug)]
+pub enum CheckError {
+    /// No pool trades the token against WETH: nothing to check.
+    NoPool,
+    /// The public reason, and the details for the server's log only: they can carry the
+    /// endpoint's URL and its key.
+    Failed(&'static str, String),
+}
+
+/// A random address, from the OS's randomness: the I/O shell's, never a core's (rule 1).
+fn random_address() -> types::chain::Address {
+    use det::Rng as _;
+    let mut rng = det::SeededRng::from_os();
+    let mut bytes = [0u8; 20];
+    for chunk in bytes.chunks_mut(8) {
+        chunk.copy_from_slice(&rng.next_u64().to_le_bytes()[..chunk.len()]);
+    }
+    types::chain::Address::from(bytes)
+}
+
+/// What the safety probe spends on its round trip: 0.01 WETH.
+const SAFETY_SPEND_WEI: u64 = 10_000_000_000_000_000;
+
 /// The most trades running at once; another gets a 429.
 const MAX_RUNNING_TRADES: usize = 8;
 /// How long a trade may run. Past it the trade is abandoned, and the same intent can run again.
@@ -392,6 +416,88 @@ impl Shared {
         self.trades
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Runs safety checks as they're queued, and every watched token's again once its report is
+    /// `RECHECK_MS` old, against `url` (#89).
+    async fn check_safety_forever(self: Arc<Self>, url: String) {
+        let Ok(chain) = chain_io::HttpChain::new(&url) else {
+            tracing::warn!(
+                url,
+                "the safety endpoint's URL doesn't parse: no safety checks"
+            );
+            return;
+        };
+        loop {
+            self.feed().safety().sweep(now_ms());
+            loop {
+                let next = self.feed().safety().next_due();
+                let Some(token) = next else { break };
+                match self.check_safety(&chain, token).await {
+                    Ok(()) => {}
+                    Err(CheckError::NoPool) => {}
+                    Err(CheckError::Failed(reason, details)) => {
+                        tracing::warn!(reason, details, token = %token, "a safety check failed");
+                        self.feed().safety().check_failed(token, reason, now_ms());
+                    }
+                }
+            }
+            #[allow(clippy::disallowed_methods)] // the worker's pacing, outside any core
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    /// One round trip of `SAFETY_SPEND_WEI` of WETH through a pool trading `token` against WETH,
+    /// at the latest block, recorded as the token's report. The probe sits at a fresh random
+    /// address, called from another, so a token can't single the check out.
+    pub async fn check_safety(
+        &self,
+        chain: &chain_io::HttpChain,
+        token: types::chain::Address,
+    ) -> Result<(), CheckError> {
+        let (pool, v3, decimals) = {
+            let mut feed = self.feed();
+            let quotes = feed.quotes();
+            let (pool, v3) = quotes.weth_pool(token).ok_or(CheckError::NoPool)?;
+            (pool, v3, quotes.token_decimals(token).unwrap_or(18))
+        };
+        let unanswered = |e: chain_io::ChainError| {
+            CheckError::Failed("the endpoint didn't answer", e.to_string())
+        };
+        let block = chain_io::ChainReader::latest_number(chain)
+            .await
+            .map_err(unanswered)?;
+        let (probe, from) = (random_address(), random_address());
+        let spent = alloy_primitives::U256::from(SAFETY_SPEND_WEI);
+        let call = types::chain::EthCall {
+            to: probe,
+            data: execution::safety::calldata(crate::accounts::WETH, token, pool, v3, spent),
+            block,
+        };
+        let answer = chain
+            .call_with_code(
+                &call,
+                from,
+                probe,
+                execution::safety::probe_code(),
+                execution::safety::probe_balance(),
+            )
+            .await
+            .map_err(unanswered)?;
+        let types::chain::CallResult::Returned(bytes) = answer else {
+            return Err(CheckError::Failed(
+                "the probe reverted",
+                format!("{answer:?}"),
+            ));
+        };
+        let trip = execution::safety::RoundTrip::decode(&bytes, spent).ok_or_else(|| {
+            CheckError::Failed("the probe's answer didn't decode", format!("{bytes}"))
+        })?;
+        let mut feed = self.feed();
+        let weth = feed.quotes().token_ref(8453, crate::accounts::WETH);
+        let report = crate::safety::report(token, &trip, pool, weth, decimals, block, now_ms());
+        feed.safety().record(token, report);
+        Ok(())
     }
 
     /// Runs a prepared trade to its end, on this thread: blocking, so call it off the server's
@@ -727,6 +833,21 @@ pub async fn serve(config: Config) -> Result<(), ServerError> {
     tracing::info!(listen = %config.listen, "serving");
     #[allow(clippy::disallowed_methods)] // the firing worker: I/O around the trigger book
     tokio::spawn(shared.clone().fire_forever());
+    match config.call_rpc.clone() {
+        Some(url) => {
+            // Chain I/O on its own thread and runtime, as chain-io's workers run (rule 6).
+            let checker = shared.clone();
+            #[allow(clippy::disallowed_methods)] // the safety worker: I/O around the read models
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("a current-thread runtime builds");
+                runtime.block_on(checker.check_safety_forever(url));
+            });
+        }
+        None => tracing::warn!("no --call-rpc: no token safety checks"),
+    }
     tokio::select! {
         biased;
         result = consume(&consumer, &shared) => result,
@@ -789,15 +910,27 @@ async fn token(
     State(shared): State<Arc<Shared>>,
     Path((chain_id, address)): Path<(u64, String)>,
 ) -> Response {
-    let feed = shared.feed();
-    let snapshot = feed
+    let mut feed = shared.feed();
+    let mut snapshot = feed
         .model()
         .token(&address.to_ascii_lowercase())
-        .filter(|s| s.token.as_ref().is_some_and(|t| t.chain_id == chain_id));
+        .filter(|s| s.token.as_ref().is_some_and(|t| t.chain_id == chain_id))
+        .cloned();
+    // An open token page keeps its safety check fresh (#89).
+    if let (Some(snapshot), Some(token)) = (
+        snapshot.as_mut(),
+        address
+            .to_ascii_lowercase()
+            .strip_prefix("0x")
+            .and_then(|h| h.parse::<types::chain::Address>().ok()),
+    ) {
+        feed.safety().watch(token, now_ms());
+        snapshot.safety = feed.safety().report(token).cloned();
+    }
     match snapshot {
         Some(snapshot) => (
             [(header::CONTENT_TYPE, "application/json")],
-            serde_json::to_string(snapshot).expect("generated messages always serialize"),
+            serde_json::to_string(&snapshot).expect("generated messages always serialize"),
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -813,7 +946,21 @@ async fn discovery(
     let Some(filters) = parse_filters(&params) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let feed = shared.feed().discovery().feed(&filters);
+    let feed = {
+        let mut model = shared.feed();
+        let mut feed = model.discovery().feed(&filters);
+        for row in &mut feed.rows {
+            if let Some(token) = row.token.as_ref().and_then(|t| {
+                t.address
+                    .strip_prefix("0x")?
+                    .parse::<types::chain::Address>()
+                    .ok()
+            }) {
+                row.safety = model.safety().summary(token);
+            }
+        }
+        feed
+    };
     (
         [(header::CONTENT_TYPE, "application/json")],
         serde_json::to_string(&feed).expect("generated messages always serialize"),
@@ -1303,4 +1450,14 @@ async fn connection(mut socket: WebSocket, shared: Arc<Shared>) {
 #[allow(clippy::disallowed_methods)]
 fn heartbeat_every_second() -> tokio::time::Interval {
     tokio::time::interval(Duration::from_secs(1))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn each_probe_runs_at_a_fresh_random_address() {
+        let (a, b) = (super::random_address(), super::random_address());
+        assert_ne!(a, b);
+        assert_ne!(a, types::chain::Address::ZERO);
+    }
 }

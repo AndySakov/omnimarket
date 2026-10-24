@@ -79,6 +79,23 @@ Log every decision + outcome (quoted vs filled, revert) to ClickHouse; replay or
 
 Policy: block buys on confirmed honeypots; warn on everything else; never block sells. GoPlus as an async second opinion on Base/BNB.
 
+**Round trip (built, #89).** `contracts/src/SafetyProbe.sol` is never deployed. One `eth_call` from the API puts its runtime code, with 1 ETH, at a throwaway address as a state override, and runs it:
+
+- It wraps 0.01 ETH into WETH and buys the token through a pool trading it against WETH: Uniswap v2 (a transfer, then `swap`) or v3 (`swap` with its callback). It then sells everything it received back through the same pool.
+- It reports the pool's own output for the buy against what arrived, the tokens it sent against what reached the pool, the WETH back, and the failing leg's revert reason.
+- **Taxes:** the buy tax is the share of the pool's output that didn't arrive, and the sell tax the share of the tokens sent that didn't reach the pool.
+- **Verdict:**
+  - *honeypot* when the sell reverts, or returns under half of what was spent (dust);
+  - *warning* for a tax of 1% or more either way, or a buy that fails;
+  - otherwise *passed*.
+- **The pool:** the token's main pool when that's a WETH pool, else any WETH pool the API mirrors. Tokens quoted only in a stablecoin aren't checked yet.
+- **Unrecognisable.** Each check puts the probe at a fresh random address and calls it from another, so a token can't recognise the check and act differently for it.
+- **A failed check.** If the probe reverts, its answer doesn't decode, or the endpoint fails, the token's report becomes a warning with a `check_failed` flag, so a pass is never left standing after a check that couldn't confirm it. A honeypot verdict stays and gains the flag: a failed check is no evidence the token got safer. The flag says only which of the three failed; the details, which can carry the endpoint's URL, go to the server log.
+- **Revert reasons** are the token's own words, shown as evidence and cut to 200 characters.
+- **Coverage gap:** a fee-on-transfer token can't be sold through a v3 pool at all, since the pool's balance check reverts. So a v3 check of such a token reads honeypot, which is true of that pool.
+
+The API's worker (`api --call-rpc URL`) checks a token once when a pool trading it against WETH is discovered, and on its page's first read. It checks again every 5 minutes while the page has been read in the last 30. The report is `TokenSnapshot.safety` and its summary is a discovery row's `safety`. The probe's committed runtime code (`crates/execution/src/safety_probe.hex`) is checked against its source in `scripts/verify.sh`.
+
 ## Open questions
 
 1. ~~Own router contract~~ → **decided (D26).**
@@ -87,4 +104,4 @@ Policy: block buys on confirmed honeypots; warn on everything else; never block 
 4. ~~Token safety checks~~ → **decided (D29).**
 5. **Penalty values** per cue: tuning, set from measurements via the logging loop, not decided up front.
 
-Still to verify: Permit2 on each chain (D26); `eth_call` state overrides on each provider and GoPlus MegaETH coverage (D29).
+Still to verify: Permit2 on each chain (D26); state overrides on BNB's and MegaETH's providers, and GoPlus MegaETH coverage (D29). On Base, mainnet.base.org, PublicNode, dRPC and 1RPC all apply them (verification.md).

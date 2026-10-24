@@ -18,6 +18,8 @@ The demo's first cut, in shadow mode only (D5): `crates/execution`, run by the A
 
 A trade is keyed by its account and its intent's hash (D71), and its ID derives from both. Guests' intents share the server's signer, so the hash alone would merge two guests' trades of one quote. A trade that failed can run again: only a fill is final. A trade a trigger order fired carries that firing's ID (D35) in its status and receipt (triggers.md). Since the intent comes from the quote, the same quote traded twice, under any request ID, is one trade: the second request gets the first's status (build rule 7). A request for the same intent while it runs gets a 409. At most 8 trades run at once (another gets a 429), and one still running after 20s is abandoned with a 504, so the same intent can run again. If the call worker gives up on its endpoint (D88), later trades simulate in memory. The last 10,000 finished trades are kept. The trade's clock reads and simulation answers come through `det`, so a recorded trade replays to the same status and receipt (`a_recorded_trade_replays_to_the_same_outcome`). The API doesn't keep the recordings yet.
 
+**Token safety (#89).** `execution::safety` builds the safety probe's call, decodes its answer, and gives D29's verdict on it. The probe and its rules are in routing.md's "Token safety".
+
 ## Submission (D30)
 
 | Chain | Path |

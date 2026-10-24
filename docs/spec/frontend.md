@@ -67,8 +67,8 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | Request | Response | Issue |
 |---|---|---|
 | `GET /v1/status` | `EngineStatus` | #79 |
-| `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=` | `DiscoveryFeed` | #81 |
-| `GET /v1/tokens/{chain_id}/{address}` | `TokenSnapshot` | #76 |
+| `GET /v1/discovery?list=&min_depth_usd=&max_age_ms=` | `DiscoveryFeed`; each row's `safety` summary is its token's latest check (#89). The `discovery` topic's rows don't carry it yet | #81, #89 |
+| `GET /v1/tokens/{chain_id}/{address}` | `TokenSnapshot`, with its `safety` report once the round trip has run (#89, routing.md "Token safety"). The read also keeps the token's check fresh. The `token:` topic's snapshot doesn't carry the report yet | #76, #89 |
 | `GET /v1/trades?chain_id=&token=&limit=` | `TradeList` | #77 |
 | `GET /v1/candles?chain_id=&token=&interval=&from_ms=&to_ms=` (`interval`: `1s`, `1m`, `5m`, `15m`, `1h`, `4h` or `1d`; `from_ms` and `to_ms` optional, bounding the open time) | `CandleSeries`: the newest 1,440 in range, oldest first; empty for a token without candles. Each candle is in USD and in its main pool's quote asset (`quote_asset`, `quote_symbol`, `open_quote` to `volume_quote`, `quote_trades`; data.md) | #80, #149 |
 | `POST /v1/session` | `Session` (built): a new guest account, or with `Authorization: Bearer <Privy identity token>` the Privy user's account, found again on return. 401 for a Privy token that doesn't verify, 422 with no Privy app configured, 429 past 20 an hour from one address | #85 |
