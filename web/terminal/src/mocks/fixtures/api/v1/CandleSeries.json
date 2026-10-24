@@ -26,7 +26,15 @@
       "closeUsd": "0.01211",
       "volumeUsd": "8120.4",
       "trades": "41",
-      "closed": true
+      "closed": true,
+      "quoteAsset": "0x4200000000000000000000000000000000000006",
+      "quoteSymbol": "WETH",
+      "openQuote": "0.000004792",
+      "highQuote": "0.00000486",
+      "lowQuote": "0.00000476",
+      "closeQuote": "0.000004844",
+      "volumeQuote": "3.24816",
+      "quoteTrades": "41"
     },
     {
       "lineage": {
@@ -45,7 +53,15 @@
       "closeUsd": "0.01229",
       "volumeUsd": "9433.18",
       "trades": "52",
-      "closed": true
+      "closed": true,
+      "quoteAsset": "0x4200000000000000000000000000000000000006",
+      "quoteSymbol": "WETH",
+      "openQuote": "0.000004844",
+      "highQuote": "0.000004944",
+      "lowQuote": "0.000004828",
+      "closeQuote": "0.000004916",
+      "volumeQuote": "3.773272",
+      "quoteTrades": "52"
     },
     {
       "lineage": {
@@ -63,7 +79,15 @@
       "lowUsd": "0.01225",
       "closeUsd": "0.01248",
       "volumeUsd": "3210.9",
-      "trades": "17"
+      "trades": "17",
+      "quoteAsset": "0x4200000000000000000000000000000000000006",
+      "quoteSymbol": "WETH",
+      "openQuote": "0.000004916",
+      "highQuote": "0.000005008",
+      "lowQuote": "0.0000049",
+      "closeQuote": "0.000004992",
+      "volumeQuote": "1.28436",
+      "quoteTrades": "17"
     }
   ]
 }

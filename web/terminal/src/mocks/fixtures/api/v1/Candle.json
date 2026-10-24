@@ -14,5 +14,13 @@
   "lowUsd": "0.01225",
   "closeUsd": "0.01248",
   "volumeUsd": "3210.9",
-  "trades": "17"
+  "trades": "17",
+  "quoteAsset": "0x4200000000000000000000000000000000000006",
+  "quoteSymbol": "WETH",
+  "openQuote": "0.000004916",
+  "highQuote": "0.000005008",
+  "lowQuote": "0.0000049",
+  "closeQuote": "0.000004992",
+  "volumeQuote": "1.28436",
+  "quoteTrades": "17"
 }

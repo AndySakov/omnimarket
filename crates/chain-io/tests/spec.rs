@@ -1,4 +1,7 @@
-//! The head follower against what indexer.md and D80 say it does, on a scripted chain.
+//! The head follower against what indexer.md and D80 say it does: on a scripted chain for
+//! reorgs, and on a scripted node for faults (build rule 8).
+
+mod scripted;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -8,8 +11,10 @@ use chain_io::{
     ChainError, ChainReader, FollowerConfig, Header, Start, check_block_endpoint, follow_head,
 };
 use futures::future::LocalBoxFuture;
+use scripted::{
+    BLOCK_NOT_FOUND, Method, NO_NODES, NO_NODES_ERROR, RATE_LIMITED, Script, ScriptedNode,
+};
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use types::chain::{B256, Block, Log};
 
 /// `tag` names the fork a block is on.
@@ -44,8 +49,6 @@ struct ScriptedChain {
     at_poll: RefCell<BTreeMap<usize, Vec<Entry>>>,
     /// Blocks that become canonical right after the header of block `n` is read.
     after_header: RefCell<BTreeMap<u64, Vec<Entry>>>,
-    poll_failures_left: Cell<u32>,
-    poll_failed_at: RefCell<Vec<Instant>>,
 }
 
 impl ScriptedChain {
@@ -69,12 +72,6 @@ impl ScriptedChain {
 impl ChainReader for ScriptedChain {
     fn latest_number(&self) -> LocalBoxFuture<'_, Result<u64, ChainError>> {
         Box::pin(async move {
-            if self.poll_failures_left.get() > 0 {
-                self.poll_failures_left
-                    .set(self.poll_failures_left.get() - 1);
-                self.poll_failed_at.borrow_mut().push(Instant::now());
-                return Err(ChainError::Rpc("over rate limit".into()));
-            }
             self.polls.set(self.polls.get() + 1);
             if let Some(entries) = self.at_poll.borrow_mut().remove(&self.polls.get()) {
                 self.apply(entries);
@@ -182,20 +179,6 @@ fn a_header_the_node_lacks_waits_for_the_next_poll() {
     );
 }
 
-// indexer.md: "a failed call is retried with backoff (250ms doubling to 8s), never skipped".
-#[test]
-fn a_failed_call_backs_off_from_250ms_doubling_to_8s() {
-    let chain = ScriptedChain::with(fork(b'a', b'a', 10..=10), vec![10]);
-    chain.poll_failures_left.set(8);
-    follow(&chain, Start::At(10), Duration::from_secs(60)).unwrap();
-    let failed_at = chain.poll_failed_at.borrow();
-    let gaps: Vec<u128> = failed_at
-        .windows(2)
-        .map(|w| (w[1] - w[0]).as_millis())
-        .collect();
-    assert_eq!(gaps, [250, 500, 1_000, 2_000, 4_000, 8_000, 8_000]);
-}
-
 // indexer.md: "the core sees every block in order". Block 11 is replaced between reading
 // its header and its logs, so the logs call by hash can never succeed. The follower must
 // move on to the new canonical 11 rather than retry a dead hash forever: stalled, it never
@@ -219,82 +202,72 @@ fn a_block_reorged_out_between_header_and_logs_does_not_stall_the_follower() {
     );
 }
 
-/// A node that answers for `answers` polls, its head one block further each time, then fails
-/// every read the way a dead endpoint does: refusing it, or, with `hangs`, taking it and never
-/// replying.
-struct DyingChain {
-    answers: usize,
-    hangs: bool,
-    polls: Cell<usize>,
-    died_at: Cell<Option<Instant>>,
+/// What a follower run against a scripted node did.
+struct Run {
+    result: Result<(), ChainError>,
+    /// When `follow_head` returned, by the node's clock.
+    returned: Duration,
+    blocks: Vec<Block>,
 }
 
-impl DyingChain {
-    fn new(answers: usize, hangs: bool) -> Self {
-        Self {
-            answers,
-            hangs,
-            polls: Cell::new(0),
-            died_at: Cell::new(None),
-        }
+/// Runs the follower against `node` from block 10 until it returns, `run_for` ends, or 300s
+/// pass. Call inside `det::run_simulated`, as the node is made.
+async fn follow_node(node: &ScriptedNode, run_for: Duration) -> Run {
+    let config = FollowerConfig {
+        poll: Duration::from_millis(500),
+        topics: vec![B256::repeat_byte(9)],
+        start: Start::At(10),
+        run_for: Some(run_for),
+    };
+    let (sender, mut receiver) = mpsc::channel(64);
+    let result = tokio::time::timeout(
+        Duration::from_secs(300),
+        follow_head(&node.chain(), &config, &sender),
+    )
+    .await
+    .expect("the follower neither gave up nor finished");
+    let returned = node.now();
+    drop(sender);
+    let mut blocks = Vec::new();
+    while let Some(block) = receiver.recv().await {
+        blocks.push(block);
     }
-
-    async fn dead(&self) -> Result<(), ChainError> {
-        if self.polls.get() <= self.answers {
-            return Ok(());
-        }
-        if self.died_at.get().is_none() {
-            self.died_at.set(Some(Instant::now()));
-        }
-        if self.hangs {
-            std::future::pending::<()>().await;
-        }
-        Err(ChainError::Rpc(
-            "error sending request: connection refused".into(),
-        ))
-    }
-}
-
-impl ChainReader for DyingChain {
-    fn latest_number(&self) -> LocalBoxFuture<'_, Result<u64, ChainError>> {
-        Box::pin(async move {
-            self.polls.set(self.polls.get() + 1);
-            self.dead().await?;
-            Ok(10 + self.polls.get() as u64)
-        })
-    }
-
-    fn header(&self, number: u64) -> LocalBoxFuture<'_, Result<Option<Header>, ChainError>> {
-        Box::pin(async move {
-            self.dead().await?;
-            Ok(Some(Header {
-                number,
-                hash: hash(b'a', number),
-                parent_hash: hash(b'a', number - 1),
-                timestamp: number * 2,
-            }))
-        })
-    }
-
-    fn logs<'a>(
-        &'a self,
-        _block_hash: B256,
-        _topics: &'a [B256],
-    ) -> LocalBoxFuture<'a, Result<Vec<Log>, ChainError>> {
-        Box::pin(async move {
-            self.dead().await?;
-            Ok(Vec::new())
-        })
+    Run {
+        result,
+        returned,
+        blocks,
     }
 }
 
-/// The last error a node that died `hangs` (or refused) leaves.
-fn last_error(hangs: bool) -> &'static str {
-    if hangs {
-        "no reply"
-    } else {
-        "connection refused"
+fn unanswered(result: Result<(), ChainError>) -> (&'static str, String) {
+    match result {
+        Err(ChainError::Unanswered { what, last, .. }) => (what, last),
+        other => panic!("expected the endpoint to go unanswered, got {other:?}"),
     }
+}
+
+fn millis(gaps: Vec<Duration>) -> Vec<u128> {
+    gaps.iter().map(Duration::as_millis).collect()
+}
+
+// indexer.md: "a failed call is retried with backoff (250ms doubling to 8s), never skipped".
+#[test]
+fn a_failed_call_backs_off_from_250ms_doubling_to_8s() {
+    det::run_simulated(async {
+        let node = ScriptedNode::new(10);
+        let rate_limited = Script::FailThenAnswer {
+            times: 8,
+            error: RATE_LIMITED,
+        };
+        node.script(Method::BlockNumber, rate_limited);
+        let run = follow_node(&node, Duration::from_secs(60)).await;
+        run.result.unwrap();
+        assert_eq!(
+            millis(node.retry_gaps(Method::BlockNumber)),
+            [250, 500, 1_000, 2_000, 4_000, 8_000, 8_000, 8_000]
+        );
+        assert_eq!(ids(&run.blocks), [(10, scripted::block_hash(10))]);
+    });
 }
 
 // indexer.md: "The check before a run reads what one poll reads, retried for up to 5s each, so
@@ -304,31 +277,35 @@ fn last_error(hangs: bool) -> &'static str {
 #[test]
 fn a_dead_block_endpoint_fails_the_check_within_8s() {
     let topics = [B256::repeat_byte(9)];
-    for hangs in [false, true] {
-        let (result, took) = det::run_simulated(async {
-            let chain = DyingChain::new(0, hangs);
-            let start = Instant::now();
+    for (dead, last_error) in [
+        (Script::Fail(NO_NODES), NO_NODES_ERROR),
+        (Script::Hang, "no reply within 5s"),
+    ] {
+        det::run_simulated(async {
+            let node = ScriptedNode::new(10);
+            node.script_all(dead);
             let result = tokio::time::timeout(
                 Duration::from_secs(300),
-                check_block_endpoint(&chain, &topics),
+                check_block_endpoint(&node.chain(), &topics),
             )
             .await
             .expect("the check never gave up on a dead endpoint");
-            (result, start.elapsed())
+            node.assert_gave_up_within(
+                Method::BlockNumber,
+                node.now(),
+                Duration::from_secs(5),
+                Duration::from_secs(3),
+            );
+            let (what, last) = unanswered(result);
+            assert_eq!((what, last.as_str()), ("latest block number", last_error));
         });
-        assert!(
-            (Duration::from_secs(5)..=Duration::from_secs(8)).contains(&took),
-            "hangs {hangs}: {took:?}"
-        );
-        let Err(ChainError::Unanswered { what, last, .. }) = result else {
-            panic!("expected the endpoint to go unanswered, got {result:?}");
-        };
-        assert_eq!(what, "latest block number");
-        assert!(last.contains(last_error(hangs)), "{last}");
     }
 
-    let working = ScriptedChain::with(fork(b'a', b'a', 10..=10), vec![10]);
-    det::run_simulated(async { check_block_endpoint(&working, &topics).await }).unwrap();
+    det::run_simulated(async {
+        let node = ScriptedNode::new(10);
+        check_block_endpoint(&node.chain(), &topics).await
+    })
+    .unwrap();
 }
 
 // indexer.md: "During a run, a read still unanswered after 60s, or a height still unreadable
@@ -337,103 +314,83 @@ fn a_dead_block_endpoint_fails_the_check_within_8s() {
 // flight."
 #[test]
 fn a_block_endpoint_that_dies_mid_run_stops_the_follower_after_60s() {
-    for hangs in [false, true] {
-        let chain = DyingChain::new(3, hangs);
-        let (result, blocks) = det::run_simulated(async {
-            let config = FollowerConfig {
-                poll: Duration::from_millis(500),
-                topics: vec![B256::repeat_byte(9)],
-                start: Start::At(10),
-                run_for: Some(Duration::from_secs(600)),
+    for (dead, last_error) in [
+        (Script::Fail(NO_NODES), NO_NODES_ERROR),
+        (Script::Hang, "no reply within 60s"),
+    ] {
+        det::run_simulated(async {
+            let node = ScriptedNode::new(13);
+            // The follower delivers 10 to 13 at once and polls every 500ms; the node dies
+            // between the polls at 500ms and 1s.
+            let dies = async {
+                tokio::time::sleep(Duration::from_millis(750)).await;
+                node.script_all(dead);
             };
-            let (sender, mut receiver) = mpsc::channel(64);
-            let result = tokio::time::timeout(
-                Duration::from_secs(300),
-                follow_head(&chain, &config, &sender),
-            )
-            .await
-            .expect("the follower never gave up on a dead endpoint");
-            drop(sender);
-            let mut blocks = Vec::new();
-            while let Some(block) = receiver.recv().await {
-                blocks.push(block);
-            }
-            (result, blocks)
+            let (run, ()) = futures::join!(follow_node(&node, Duration::from_secs(600)), dies);
+            let (what, last) = unanswered(run.result);
+            assert_eq!((what, last.as_str()), ("latest block number", last_error));
+            node.assert_gave_up_within(
+                Method::BlockNumber,
+                run.returned,
+                Duration::from_secs(60),
+                Duration::from_secs(8),
+            );
+            // Every block from before the endpoint died, in order: nothing skipped.
+            let numbers: Vec<u64> = run.blocks.iter().map(|b| b.number).collect();
+            assert_eq!(numbers, [10, 11, 12, 13]);
         });
-
-        let Err(ChainError::Unanswered { what, waited, last }) = result else {
-            panic!("expected the endpoint to go unanswered, got {result:?}");
-        };
-        assert_eq!(what, "latest block number");
-        assert!(last.contains(last_error(hangs)), "{last}");
-        assert!(
-            (Duration::from_secs(60)..=Duration::from_secs(68)).contains(&waited),
-            "hangs {hangs}: {waited:?}"
-        );
-        // Every block from before the endpoint died, in order: nothing skipped.
-        let numbers: Vec<u64> = blocks.iter().map(|b| b.number).collect();
-        assert_eq!(numbers, [10, 11, 12, 13]);
     }
 }
 
-/// A node that reports a header at every height but never knows its hash when the logs are
-/// read, the way a node stuck behind the others answers.
-struct ForgetfulChain;
-
-impl ChainReader for ForgetfulChain {
-    fn latest_number(&self) -> LocalBoxFuture<'_, Result<u64, ChainError>> {
-        Box::pin(async { Ok(10) })
-    }
-
-    fn header(&self, number: u64) -> LocalBoxFuture<'_, Result<Option<Header>, ChainError>> {
-        Box::pin(async move {
-            Ok(Some(Header {
-                number,
-                hash: hash(b'a', number),
-                parent_hash: hash(b'a', number - 1),
-                timestamp: number * 2,
-            }))
-        })
-    }
-
-    fn logs<'a>(
-        &'a self,
-        block_hash: B256,
-        _topics: &'a [B256],
-    ) -> LocalBoxFuture<'a, Result<Vec<Log>, ChainError>> {
-        Box::pin(async move {
-            Err(ChainError::Rpc(format!(
-                "block not found: hash {block_hash}"
-            )))
-        })
-    }
+// indexer.md: "If the node doesn't know a block's hash when its logs are read (`-32001 block not
+// found`), the block was either replaced after its header was read (a reorg) or a lagging node
+// hasn't got it yet; either way the follower backs off (250ms doubling to 8s), reads the
+// height's header again and continues with whatever is canonical now."
+#[test]
+fn a_block_the_node_lacks_is_read_again_with_backoff_until_it_has_it() {
+    det::run_simulated(async {
+        let node = ScriptedNode::new(10);
+        let lagging = Script::FailThenAnswer {
+            times: 4,
+            error: BLOCK_NOT_FOUND,
+        };
+        node.script(Method::Logs, lagging);
+        let run = follow_node(&node, Duration::from_secs(5)).await;
+        run.result.unwrap();
+        assert_eq!(
+            millis(node.retry_gaps(Method::Logs)),
+            [250, 500, 1_000, 2_000]
+        );
+        // The height's header is read again before each read of its logs.
+        assert_eq!(node.requests(Method::BlockByNumber).len(), 5);
+        assert_eq!(ids(&run.blocks), [(10, scripted::block_hash(10))]);
+    });
 }
 
 // D88: reading a height again when the node doesn't know its hash "is bounded by the same 60s".
 #[test]
 fn a_node_that_never_knows_the_hash_stops_the_follower_after_60s() {
-    let result = det::run_simulated(async {
-        let config = FollowerConfig {
-            poll: Duration::from_millis(500),
-            topics: vec![B256::repeat_byte(9)],
-            start: Start::At(10),
-            run_for: Some(Duration::from_secs(600)),
-        };
-        let (sender, _receiver) = mpsc::channel(64);
-        tokio::time::timeout(
-            Duration::from_secs(300),
-            follow_head(&ForgetfulChain, &config, &sender),
-        )
-        .await
-        .expect("the follower never gave up reading the height again")
+    det::run_simulated(async {
+        let node = ScriptedNode::new(10);
+        node.script(Method::Logs, Script::Fail(BLOCK_NOT_FOUND));
+        let run = follow_node(&node, Duration::from_secs(600)).await;
+        let (what, last) = unanswered(run.result);
+        assert_eq!(what, "block logs");
+        assert_eq!(
+            last,
+            format!("block not found: {} at height 10", scripted::block_hash(10))
+        );
+        node.assert_backs_off(
+            Method::Logs,
+            Duration::from_millis(250),
+            Duration::from_secs(8),
+        );
+        node.assert_gave_up_within(
+            Method::Logs,
+            run.returned,
+            Duration::from_secs(60),
+            Duration::from_secs(8),
+        );
+        assert!(run.blocks.is_empty(), "{:?}", ids(&run.blocks));
     });
-    let Err(ChainError::Unanswered { what, waited, last }) = result else {
-        panic!("expected the logs to go unanswered, got {result:?}");
-    };
-    assert_eq!(what, "block logs");
-    assert!(last.contains("block not found"), "{last}");
-    assert!(
-        (Duration::from_secs(60)..=Duration::from_secs(68)).contains(&waited),
-        "{waited:?}"
-    );
 }
