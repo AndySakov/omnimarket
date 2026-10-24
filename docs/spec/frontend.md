@@ -75,7 +75,7 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `GET /v1/account` | `Account` | #85 |
 | `GET /v1/positions` | `PositionList` | #85 |
 | `GET /v1/history` | `TradeHistory` | #85 |
-| `POST /v1/quotes` (`QuoteRequest`) | `Quote` | #83 |
+| `POST /v1/quotes` (`QuoteRequest`) | `Quote` (built, routing.md "Quoting"); 400 for a body or field that doesn't parse, 422 with the reason for a pair it can't quote | #83 |
 | `POST /v1/trades` (`TradeRequest`) | `TradeStatus` | #84 |
 | `GET /v1/trades/{trade_id}/receipt` | `TradeReceipt` | #84 |
 | `GET /v1/orders` | `OrderList` | #86 |

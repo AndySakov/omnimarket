@@ -41,6 +41,7 @@ fn pool_update(pool: u8, block: u64, reserves: &[u8]) -> PoolUpdate {
                 reserve1: reserves.to_vec(),
             })),
         }),
+        key: None,
     }
 }
 

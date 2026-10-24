@@ -21,7 +21,7 @@
 
 | Topic | Key | Retention |
 |---|---|---|
-| `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery | pool | ≥ 24h |
+| `pool-updates.<chain>`: `omnimarket.pool.v1.PoolUpdate`, state before (unset when the pool was just discovered) and after (D12). v2: reserves. v3: price, tick, active liquidity and the ticks the update touched, or every initialized tick on discovery. The discovery update alone also carries the pool's key (venue, token0, token1, fee in pips, tick spacing), so a reader can quote through it (#83) | pool | ≥ 24h |
 | `trades.<chain>`: `omnimarket.trade.v1.Trade`, one per Swap on a tracked pool (D102): the token and its quote asset, side, both amounts in base units, execution price (quote base units per token base unit × 10^36), sender, recipient, tx hash, block and log index. No USD and no `tx.from` | pool | 7 days |
 | `trade-history.<chain>`: `omnimarket.trade.v1.Trade`, the same records as `trades.<chain>`, for the Swaps in the window before each pool was first seen (#80, D103; `engine follow --history-hours`, default 6). Read when the pool becomes tracked, up to 50 pools a read (the most recently tracked first), newest 500 blocks first, so a pool's history arrives newest range first and each range in block order | pool | 7 days |
 | `prices.<chain>`: `omnimarket.price.v1.PriceUpdate`, a token's display price after a canonical block (D18, D77, D100): USD price, ±2% depth, thin flag, main pool and the price in its quote asset, FDV, token metadata, and each pool's own price and depth. Prices are doubles (D100) | token | 24h |

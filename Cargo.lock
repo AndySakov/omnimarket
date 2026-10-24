@@ -727,6 +727,7 @@ dependencies = [
  "prost",
  "proto",
  "rdkafka",
+ "routing",
  "serde_json",
  "telemetry",
  "tokio",
@@ -735,6 +736,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
+ "venues",
 ]
 
 [[package]]
@@ -4091,6 +4093,15 @@ checksum = "bb919243f34364b6bd2fc10ef797edbfa75f33c252e7998527479c6d6b47e1ec"
 dependencies = [
  "bytes",
  "rustc-hex",
+]
+
+[[package]]
+name = "routing"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "pricing",
+ "venues",
 ]
 
 [[package]]

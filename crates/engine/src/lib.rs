@@ -19,7 +19,7 @@ use types::chain::B256;
 pub use crate::core::Engine;
 pub use crate::metrics::EngineMetrics;
 pub use crate::outbox::{
-    InMemoryOutbox, KafkaOutbox, KafkaTopics, Outbox, PoolState, PoolUpdate, PriceUpdate,
+    InMemoryOutbox, KafkaOutbox, KafkaTopics, Outbox, PoolKey, PoolState, PoolUpdate, PriceUpdate,
     PricedPool, V3State,
 };
 pub use crate::prices::Coverage;

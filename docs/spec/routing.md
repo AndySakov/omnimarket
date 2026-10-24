@@ -2,6 +2,19 @@
 
 **Status:** Draft. Decisions: D25–D29, D42, D58–D59.
 
+## Quoting (built, #83)
+
+`POST /v1/quotes` answers from the API's own mirror of every tracked pool, kept from `pool-updates.base`. A pool's discovery update carries its key (venue, tokens, fee, tick spacing) and full state, and later updates carry the state and the ticks they touched. Quotes run in the API process rather than the engine because the API already consumes the topic. That way a quote costs no hop to the engine, and the engine's core stays a single-threaded state machine (rule 6). The mirror lags the engine by the topic's delivery time.
+
+- **Math (`crates/routing`).** v2 is `getAmountOut` with the pair's 0.3%. v3 is `UniswapV3Pool.swap`'s exact-input loop: `SwapMath.computeSwapStep`, `SqrtPriceMath` and `TickMath`, with 512-bit `mulDiv`. It steps at most one bitmap word at a time, as the pool does, because each step rounds on its own. A pool that can't take the whole amount gives no quote. verification.md has the check against the on-chain quoter.
+- **Routes.** Every direct pool, plus two hops through WETH or USDC. No splits or penalty cues yet (D25).
+- **Selection.** The route with the most output net of gas. Gas is a rough per-hop estimate: 60k for the transaction, plus 90k per v2 hop and 130k per v3 hop, at 0.01 gwei. It's converted to the output token at the display prices, or ignored when they're unknown. #84 replaces the estimate with a simulation.
+- **Fee (D28).** 1%, from the input when it's WETH, USDC or USDT (a buy), otherwise from the output (a sell). A pair with neither is refused.
+- **Slippage (D27).** Defaults when the request sets none: 0.5% between two quote assets, 3% for an established token, 15% for a thin one or one with no price yet. The reason goes in the quote.
+- **Price impact.** The route's own price before our fee, against the display prices of both sides. Stablecoins count at $1.
+- **Expiry and repeats.** A quote expires 4s (2 blocks) after the latest price update's block time. Until then, the same request with the same client request ID gets the same quote. A different request reusing the ID gets its own, so one client can't read or pin another's. IDs are at most 64 bytes, and at most 10,000 unexpired quotes are kept. Scoping repeats to a session comes with accounts (#85).
+- **Not yet.** The on-chain shadow check of sampled quotes, counted in the engine status, and re-quotes on the `account` topic (#85) are left for later.
+
 ## Route shapes (D25)
 
 | Shape | Example | Used when |

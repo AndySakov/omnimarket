@@ -13,7 +13,7 @@ use venues::v2::Reserves;
 use venues::v3::{Price, TickLiquidity};
 
 use crate::status::{EngineStatus, Run};
-use crate::trades::Trade;
+use crate::trades::{Trade, Venue};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolState {
@@ -45,6 +45,20 @@ pub struct PoolUpdate {
     /// `None` when the pool was just discovered.
     pub before: Option<PoolState>,
     pub after: PoolState,
+    /// Set on the update that discovers the pool.
+    pub key: Option<PoolKey>,
+}
+
+/// What a pool trades and at what fee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoolKey {
+    pub venue: Venue,
+    pub token0: Address,
+    pub token1: Address,
+    /// Hundredths of a basis point: 3000 is 0.3%.
+    pub fee_pips: u32,
+    /// 0 for v2.
+    pub tick_spacing: i32,
 }
 
 impl PoolUpdate {
@@ -79,6 +93,14 @@ impl PoolUpdate {
             log_index,
             before,
             after,
+            key: None,
+        }
+    }
+
+    pub fn discovering(self, key: PoolKey) -> Self {
+        Self {
+            key: Some(key),
+            ..self
         }
     }
 
@@ -95,6 +117,20 @@ impl PoolUpdate {
             log_index: self.log_index,
             before: self.before.as_ref().map(state_to_proto),
             after: Some(state_to_proto(&self.after)),
+            key: self.key.map(|key| {
+                use proto::pool::v1::pool_key::Venue as Wire;
+                proto::pool::v1::PoolKey {
+                    venue: match key.venue {
+                        Venue::UniswapV2 => Wire::UniswapV2,
+                        Venue::UniswapV3 => Wire::UniswapV3,
+                    }
+                    .into(),
+                    token0: key.token0.to_vec(),
+                    token1: key.token1.to_vec(),
+                    fee_pips: key.fee_pips,
+                    tick_spacing: key.tick_spacing,
+                }
+            }),
         }
     }
 }
@@ -477,5 +513,43 @@ mod tests {
         assert_eq!((a.id, a.caused_by), (b.id, b.caused_by));
         assert_ne!(a.id, other_pool.id);
         assert_eq!(a.caused_by, other_pool.caused_by);
+    }
+
+    #[test]
+    fn a_discovery_names_the_pools_tokens_and_fee_and_later_updates_dont() {
+        use proto::pool::v1::pool_key::Venue as Wire;
+        let after = PoolState::V2(Reserves {
+            reserve0: 1,
+            reserve1: 2,
+        });
+        let update = PoolUpdate::new(
+            8453,
+            Address::repeat_byte(9),
+            (5, B256::ZERO, 3),
+            None,
+            after.clone(),
+        );
+        assert_eq!(update.to_proto().key, None);
+        let key = update
+            .discovering(PoolKey {
+                venue: Venue::UniswapV3,
+                token0: Address::repeat_byte(1),
+                token1: Address::repeat_byte(2),
+                fee_pips: 500,
+                tick_spacing: 10,
+            })
+            .to_proto()
+            .key
+            .unwrap();
+        assert_eq!(
+            (
+                key.venue(),
+                key.token0,
+                key.token1,
+                key.fee_pips,
+                key.tick_spacing
+            ),
+            (Wire::UniswapV3, vec![1; 20], vec![2; 20], 500, 10)
+        );
     }
 }

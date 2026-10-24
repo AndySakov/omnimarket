@@ -17,6 +17,25 @@ message PoolUpdate {
   // Unset when the pool was just discovered.
   PoolState before = 7;
   PoolState after = 8;
+  // Set on the update that discovers the pool, and only there: what it trades and at what fee,
+  // so a reader can price swaps through it (#83).
+  PoolKey key = 9;
+}
+
+message PoolKey {
+  enum Venue {
+    VENUE_UNSPECIFIED = 0;
+    VENUE_UNISWAP_V2 = 1;
+    VENUE_UNISWAP_V3 = 2;
+  }
+  Venue venue = 1;
+  bytes token0 = 2;
+  bytes token1 = 3;
+  // The swap fee in hundredths of a basis point, as v3 pools state it: 3000 is 0.3%, a v2
+  // pair's.
+  uint32 fee_pips = 4;
+  // Unset for v2.
+  sint32 tick_spacing = 5;
 }
 
 message PoolState {

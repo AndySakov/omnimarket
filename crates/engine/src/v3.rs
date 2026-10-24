@@ -10,7 +10,7 @@ use types::chain::{Address, B256, Block, Bytes, CallResult, EthCall};
 use venues::multicall;
 use venues::v3::{self, Deployment, Pool, Price, TickLiquidity};
 
-use crate::outbox::{PoolState, PoolUpdate, V3State};
+use crate::outbox::{PoolKey, PoolState, PoolUpdate, V3State};
 use crate::state::{Effects, Pending, Stats};
 use crate::trades::{SwapSeen, Trade, Venue};
 
@@ -430,13 +430,22 @@ impl V3Pools {
             liquidity: pool.liquidity,
             ticks: pool.ticks.iter().map(|(t, l)| (*t, *l)).collect(),
         };
-        effects.updates.push(PoolUpdate::new(
-            chain_id,
-            address,
-            bootstrap.first,
-            None,
-            PoolState::V3(discovered),
-        ));
+        effects.updates.push(
+            PoolUpdate::new(
+                chain_id,
+                address,
+                bootstrap.first,
+                None,
+                PoolState::V3(discovered),
+            )
+            .discovering(PoolKey {
+                venue: Venue::UniswapV3,
+                token0: pool.token0,
+                token1: pool.token1,
+                fee_pips: pool.fee,
+                tick_spacing: pool.tick_spacing,
+            }),
+        );
         for (key, event) in bootstrap.later {
             effects.updates.push(apply(chain_id, &mut pool, key, event));
         }
