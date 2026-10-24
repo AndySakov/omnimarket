@@ -170,7 +170,7 @@ impl Pool {
                 lower,
                 upper,
                 amount,
-            } => self.change_position(lower, upper, -(amount as i128)),
+            } => self.change_position(lower, upper, (amount as i128).wrapping_neg()),
         }
         let after = self.snapshot(&touched);
         (before, after)
@@ -183,7 +183,7 @@ impl Pool {
             return;
         }
         self.change_tick(lower, delta, delta);
-        self.change_tick(upper, delta, -delta);
+        self.change_tick(upper, delta, delta.wrapping_neg());
         if let Some(price) = self.price
             && lower <= price.tick
             && price.tick < upper
