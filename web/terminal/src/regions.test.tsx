@@ -135,6 +135,9 @@ describe('every streamed region, on hostile contract values', () => {
     (_names, region) => {
       expect(hostileFailures(region.render, region.reveal)).toEqual([])
     },
+    // A page renders once per hostile variant of each of its topics: the token page about 230
+    // times, which takes several seconds on a loaded runner.
+    60_000,
   )
 
   const topic = `token:${canonicalWorkspaceAddress}`
