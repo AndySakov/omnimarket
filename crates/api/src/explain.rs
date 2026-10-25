@@ -409,12 +409,7 @@ pub fn explain(
             out.receipt = Some(receipt.clone());
         }
     }
-    let key = if out.firing_id.is_empty() {
-        &out.trade_id
-    } else {
-        &out.firing_id
-    };
-    let mut natural = key.as_bytes().to_vec();
+    let mut natural = out.firing_id.as_bytes().to_vec();
     natural.extend(out.trade_id.as_bytes());
     out.lineage = Some(Lineage {
         id: LineageId::from_natural_key("firing_explanation", &natural)
