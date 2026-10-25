@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use alloy_primitives::B256;
 use execution::shadow::{self, Finished};
+use proto::api::v1::firing_explanation::RouteDecision;
 use proto::api::v1::{Quote, QuoteRequest, TradeReceipt, TradeRequest, TradeStatus};
 use types::LineageId;
 use types::chain::Address;
@@ -43,6 +44,15 @@ pub struct Run {
     pub hash: B256,
     pub quote: Quote,
     pub quote_request: QuoteRequest,
+    /// Why its quote took the route it did.
+    pub decision: Option<Decided>,
+}
+
+/// A quote's route decision (D53), with the quote it decided.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Decided {
+    pub quote_id: String,
+    pub decision: RouteDecision,
 }
 
 impl Run {
@@ -63,6 +73,8 @@ pub struct Trades {
     /// signer, so the hash alone doesn't tell two accounts' trades apart.
     finished: BTreeMap<(String, B256), Option<Finished>>,
     by_trade_id: BTreeMap<String, (String, B256)>,
+    /// Each trade's route decision, by trade ID, kept as long as the trade.
+    decisions: BTreeMap<String, Decided>,
     /// Finished trades, oldest first.
     order: VecDeque<((String, B256), String)>,
 }
@@ -96,6 +108,10 @@ impl Trades {
         natural.extend(hash.as_slice());
         let trade_id = hex(LineageId::from_natural_key("trade", &natural).as_bytes());
         self.by_trade_id.insert(trade_id.clone(), key);
+        let decision = quotes.decision(&request.quote_id).map(|decision| Decided {
+            quote_id: request.quote_id.clone(),
+            decision: decision.clone(),
+        });
         Ok(Prepared::Run(Box::new(Run {
             trade_id,
             client_request_id: request.client_request_id.clone(),
@@ -103,18 +119,24 @@ impl Trades {
             hash,
             quote: quote.clone(),
             quote_request: quote_request.clone(),
+            decision,
         })))
     }
 
     pub fn finish(&mut self, run: &Run, finished: Finished) {
         self.order.push_back((run.key(), run.trade_id.clone()));
         self.finished.insert(run.key(), Some(finished));
+        if let Some(decision) = &run.decision {
+            self.decisions
+                .insert(run.trade_id.clone(), decision.clone());
+        }
         while self.order.len() > KEPT {
             let Some((key, trade_id)) = self.order.pop_front() else {
                 break;
             };
             self.finished.remove(&key);
             self.by_trade_id.remove(&trade_id);
+            self.decisions.remove(&trade_id);
         }
     }
 
@@ -128,10 +150,20 @@ impl Trades {
 
     /// A trade's receipt, for its own account only.
     pub fn receipt(&self, trade_id: &str, account_id: &str) -> Option<&TradeReceipt> {
+        self.finished(trade_id, account_id)?.receipt.as_ref()
+    }
+
+    /// How a finished trade went, for its own account only.
+    pub fn finished(&self, trade_id: &str, account_id: &str) -> Option<&Finished> {
         let key = self.by_trade_id.get(trade_id)?;
         if key.0 != account_id {
             return None;
         }
-        self.finished.get(key)?.as_ref()?.receipt.as_ref()
+        self.finished.get(key)?.as_ref()
+    }
+
+    /// The route decision behind a trade.
+    pub fn decision(&self, trade_id: &str) -> Option<&Decided> {
+        self.decisions.get(trade_id)
     }
 }
