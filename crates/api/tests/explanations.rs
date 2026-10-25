@@ -36,15 +36,18 @@ const WETH_USDC_THIN: [u8; 20] = [0xc2; 20];
 
 /// Block 100's time; a block every two seconds.
 const BLOCK_100_S: u64 = 1_790_000_000;
-/// The server's clock, fixed: every session, order and trade step reads it.
+/// When the server's clock starts: every session, order and trade step reads it.
 const NOW_MS: u64 = 1_790_000_010_000;
 
-struct Fixed;
+/// A clock a millisecond on at each reading, so each step of a trade has its own time, and a
+/// server that reads it in the same order reads the same times.
+struct Ticking(std::sync::atomic::AtomicU64);
 
-impl det::Clock for Fixed {
+impl det::Clock for Ticking {
     fn now(&self) -> Timestamp {
+        let ms = NOW_MS + self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Timestamp {
-            unix_nanos: NOW_MS * 1_000_000,
+            unix_nanos: ms * 1_000_000,
         }
     }
 }
@@ -266,7 +269,12 @@ async fn fired() -> (String, String, String, Order) {
         .open(None, "guest-explained".into(), None, NOW_MS)
         .await
         .unwrap();
-    let shared = Shared::with_clock(api::DiscoveryConfig::default(), None, demo, Arc::new(Fixed));
+    let shared = Shared::with_clock(
+        api::DiscoveryConfig::default(),
+        None,
+        demo,
+        Arc::new(Ticking(std::sync::atomic::AtomicU64::new(0))),
+    );
     let app = router(shared.clone(), "http://localhost:5173").unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
@@ -380,6 +388,14 @@ async fn a_firing_is_explained_from_the_swap_that_moved_the_price_to_its_receipt
         .map(|s| (s.kind(), s.at_ms, s.lineage_id.clone(), s.summary.as_str()))
         .collect();
     let block_101_ms = (BLOCK_100_S + 2) * 1000;
+    // The trade's steps are timed by the receipt: the quote's start, the simulation's end, the
+    // last step's end.
+    let timed =
+        |step: proto::api::v1::TradeStep| receipt.steps.iter().find(|s| s.step() == step).unwrap();
+    let quoted_ms = timed(proto::api::v1::TradeStep::Quote).started_at_ms;
+    let simulated_ms = timed(proto::api::v1::TradeStep::Simulate).finished_at_ms;
+    let filled_ms = receipt.steps.last().unwrap().finished_at_ms;
+    assert!(NOW_MS < quoted_ms && quoted_ms < simulated_ms && simulated_ms < filled_ms);
     let fired_summary = format!(
         "Order {} fired, firing 1 ({})",
         order.order_id, status.last_firing_id
@@ -414,19 +430,19 @@ async fn a_firing_is_explained_from_the_swap_that_moved_the_price_to_its_receipt
             ),
             (
                 Kind::RouteDecision,
-                NOW_MS,
+                quoted_ms,
                 unhex(&receipt.quote_id),
                 "Route through 2 pools, over 1 other route"
             ),
             (
                 Kind::Simulation,
-                NOW_MS,
+                simulated_ms,
                 steps_lineage(&explained, Kind::Simulation),
                 "Simulated at block 101: 386.993008 out"
             ),
             (
                 Kind::Receipt,
-                NOW_MS,
+                filled_ms,
                 receipt_lineage.clone(),
                 "Shadow fill: 49179.005029296297437105 MEME for 386.993008 USDC"
             ),
@@ -447,6 +463,16 @@ async fn a_firing_is_explained_from_the_swap_that_moved_the_price_to_its_receipt
             vec![0xd2; 16]
         )
     );
+    // Priced in WETH from its own amounts, and in USD at the block's display price.
+    assert_eq!(
+        (
+            swap.price_quote.as_str(),
+            swap.price_usd.as_str(),
+            swap.value_usd.as_str()
+        ),
+        ("0.0000035777087599936253", "0.008", "94427.192")
+    );
+    assert_eq!(explained.firing_id, status.last_firing_id);
     let pool = explained.pool_change.clone().unwrap();
     assert_eq!(
         (

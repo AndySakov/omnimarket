@@ -490,3 +490,74 @@ fn api_trade(swap: &proto::trade::v1::Trade, price: &PriceUpdate, quotes: &Quote
         block_time_ms: swap.block_timestamp.saturating_mul(1000),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_kept_map_drops_its_oldest_past_its_cap() {
+        let mut kept = Kept::new(2);
+        for key in [1u8, 2, 3] {
+            kept.insert(key, key);
+        }
+        kept.insert(2, 20);
+        assert_eq!(
+            (kept.get(&1), kept.get(&2), kept.get(&3)),
+            (None, Some(&20), Some(&3))
+        );
+    }
+
+    fn pool_update(id: u8, pool: u8, block: u64) -> PoolUpdate {
+        PoolUpdate {
+            lineage: Some(Lineage {
+                id: vec![id; 16],
+                caused_by: vec![vec![id ^ 0xff; 16]],
+            }),
+            pool: vec![pool; 20],
+            block_number: block,
+            ..PoolUpdate::default()
+        }
+    }
+
+    #[test]
+    fn a_firing_takes_the_main_pools_update_in_its_block_as_what_moved_the_price() {
+        let mut explanations = Explanations::default();
+        // Another pool moved in the same block, and the main pool also moved a block earlier.
+        explanations.record_pool_update(&pool_update(1, 0xaa, 101));
+        explanations.record_pool_update(&pool_update(2, 0xbb, 100));
+        explanations.record_pool_update(&pool_update(3, 0xbb, 101));
+        let price = PriceUpdate {
+            lineage: Some(Lineage {
+                id: vec![9; 16],
+                caused_by: vec![vec![1; 16], vec![2; 16], vec![3; 16]],
+            }),
+            token: vec![0x30; 20],
+            block_number: 101,
+            main_pool: vec![0xbb; 20],
+            ..PriceUpdate::default()
+        };
+        explanations.record_price(&price);
+        let firing = triggers::Firing {
+            firing_id: [7; 32],
+            order_id: "order".into(),
+            firing_count: 1,
+            level_usd: 1.0,
+            price_usd: 0.5,
+            block_number: 101,
+            block_time_ms: 0,
+        };
+        explanations.record_firing(&firing, "account", &price);
+        let fired = explanations.firing(&hex(&[7; 32]), "account").unwrap();
+        let (id, link) = fired.moved.as_ref().unwrap();
+        assert_eq!(
+            (*id, link.pool.clone(), link.chain_event),
+            ([3; 16], vec![0xbb; 20], Some([0xfc; 16]))
+        );
+        assert!(
+            explanations
+                .firing(&hex(&[7; 32]), "another account")
+                .is_none()
+        );
+    }
+}

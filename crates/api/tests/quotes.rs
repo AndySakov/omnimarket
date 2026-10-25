@@ -765,3 +765,45 @@ fn a_fee_in_weth_is_valued_at_weths_price_and_a_v3_leg_shows_its_fee_tier() {
     assert!((amount - 0.0099949).abs() < 1e-6, "{amount}");
     assert!((value - amount * 2_500.0).abs() < 1e-9, "{value}");
 }
+
+#[test]
+fn a_quote_keeps_the_route_it_chose_and_the_ones_it_beat_until_its_id_is_reused() {
+    let mut quotes = quotes(false);
+    let first = quotes
+        .quote(&request("decided", USDC, MEME, "5000"))
+        .unwrap();
+    let decision = quotes.decision(&first.quote_id).unwrap().clone();
+    let pools = |c: &proto::api::v1::firing_explanation::Candidate| {
+        c.route.iter().map(|l| l.pool.clone()).collect::<Vec<_>>()
+    };
+    let chosen = decision.chosen.unwrap();
+    assert_eq!(
+        (
+            pools(&chosen),
+            chosen.amount_out.as_str(),
+            chosen.rejected_because.as_str()
+        ),
+        (
+            vec![hex(&WETH_USDC), hex(&MEME_WETH)],
+            "489601.285425744753500141",
+            ""
+        )
+    );
+    assert_eq!(
+        decision
+            .alternatives
+            .iter()
+            .map(|c| (pools(c), c.amount_out.clone(), c.rejected_because.clone()))
+            .collect::<Vec<_>>(),
+        [(
+            vec![hex(&DIRECT)],
+            "330438.596197560787805947".to_string(),
+            "159162.464228183965694194 MEME less after gas".to_string()
+        )]
+    );
+    // The same ID asked for something else: the old quote's decision goes with it.
+    let second = quotes.quote(&request("decided", USDC, MEME, "10")).unwrap();
+    assert_ne!(second.quote_id, first.quote_id);
+    assert!(quotes.decision(&first.quote_id).is_none());
+    assert!(quotes.decision(&second.quote_id).is_some());
+}
