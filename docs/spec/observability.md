@@ -20,6 +20,14 @@
 
 Stored as edges in ClickHouse; walk backwards for root cause, forwards for blast radius.
 
+**Explanations (built, #87).** `GET /v1/firings/{firing_id}/explanation` and `GET /v1/trades/{trade_id}/explanation` answer "why did this fire?" with a `FiringExplanation`: chain event, pool update, price update, trigger check, route decision, simulation and receipt, each with its time, its record's lineage ID and a one-line summary. The API assembles it by following the IDs the records carry, never by rebuilding from current state:
+- The consumer keeps each price update (and the one before it for the same token), each pool update's link to its chain event, and each swap by its chain event. Each kind is bounded: the newest 20,000 price updates, and 50,000 pool updates and swaps.
+- When an order fires, the firing keeps the price update it fired on, the one before it, and the pool update in that block that moved the price: the main pool's if it moved, else the first. They're found among the price update's `caused_by`.
+- When asked, the swap is joined through that pool update's chain event, which the swap record names too, and the trade's route decision, simulation and receipt come from the trade. A quote keeps its route decision (D53): the route chosen and each route it beat, with how much less that one returned after gas.
+- A manual trade's explanation starts at the route decision.
+
+Chain-side steps are timed at the block's time and the rest by the trade's own steps. Those read the server's `det::Clock`, so the same records on the same clock readings give the same explanation, which a test checks.
+
 **Wide, typed events** (Protobuf), one per unit of work. **Decision records** keep the alternatives considered.
 
 **Sampling:** money paths 100%; everything else keeps slow/failed traces + 1%.

@@ -79,6 +79,8 @@ Every wide event carries `omnimarket.lineage.v1.Lineage { id, caused_by[] }`, wi
 | Trade | `omnimarket.trade.v1.Trade` | `trade` | chain id (u64), block hash (32 bytes), log index (u64) | the chain event (the Swap log) |
 | Engine status | `omnimarket.status.v1.EngineStatus` | `engine_status` | chain id (u64), block hash (32 bytes) | (none: a block has no lineage ID of its own) |
 | Price update | `omnimarket.price.v1.PriceUpdate` | `price_update` | chain id (u64), token (20 bytes), block hash (32 bytes) | the latest update of each pool it was priced from, then the native token's price update if a pool quotes in it (sorted by ID) |
+| Firing | `omnimarket.api.v1.Firing` | `firing` | firing ID (32 bytes, D35) | the price update it fired on |
+| Explanation | `omnimarket.api.v1.FiringExplanation` | `firing_explanation` | firing ID (hex, empty for a manual trade), then trade ID (hex) | each of its steps' records, in order |
 
 Chain events will key on (chain, block hash, log index), firings on the firing ID (D35) and intents on their hash, as each schema lands.
 

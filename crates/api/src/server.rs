@@ -95,6 +95,10 @@ pub struct Shared {
     firings: Mutex<std::collections::VecDeque<triggers::Firing>>,
     /// Wakes the firing worker.
     fired: tokio::sync::Notify,
+    /// The records each firing's and trade's explanation is assembled from (#87).
+    explanations: Mutex<crate::Explanations>,
+    /// The server's time: sessions, orders and each trade's steps read it (rule 1).
+    clock: Arc<dyn Clock + Send + Sync>,
 }
 
 /// Why a safety check didn't record a round trip.
@@ -163,6 +167,16 @@ impl Shared {
         calls: Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>,
         demo: crate::Demo,
     ) -> Arc<Self> {
+        Self::with_clock(discovery, calls, demo, Arc::new(SystemClock))
+    }
+
+    /// On `clock`'s time: a replay hands it the recorded one.
+    pub fn with_clock(
+        discovery: DiscoveryConfig,
+        calls: Option<tokio::sync::mpsc::UnboundedSender<chain_io::CallRequest>>,
+        demo: crate::Demo,
+        clock: Arc<dyn Clock + Send + Sync>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             feed: Mutex::new(Feed::new(discovery)),
             ticks: broadcast::channel(CONNECTION_BACKLOG).0,
@@ -177,7 +191,19 @@ impl Shared {
             demo,
             firings: Mutex::default(),
             fired: tokio::sync::Notify::new(),
+            explanations: Mutex::default(),
+            clock,
         })
+    }
+
+    pub fn now_ms(&self) -> u64 {
+        self.clock.now().unix_nanos / 1_000_000
+    }
+
+    fn explanations(&self) -> MutexGuard<'_, crate::Explanations> {
+        self.explanations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Trades firings as they come, apart from the consumer, so a slow trade never holds up
@@ -215,7 +241,7 @@ impl Shared {
                 shared
                     .demo
                     .orders()
-                    .finish(&order_id, state, &detail, now_ms());
+                    .finish(&order_id, state, &detail, shared.now_ms());
                 if let Err(error) = shared.demo.keep_order(&order_id).await {
                     tracing::warn!(%error, order = %order_id, "an order's state wasn't kept");
                 }
@@ -281,9 +307,15 @@ impl Shared {
                 .map_err(|e| e.to_string())?
         };
         let run = match prepared {
-            crate::trades::Prepared::Done(status) => return Ok(status.trade_id),
+            crate::trades::Prepared::Done(status) => {
+                self.explanations()
+                    .traded(&hex_firing(firing), &status.trade_id);
+                return Ok(status.trade_id);
+            }
             crate::trades::Prepared::Run(run) => run,
         };
+        self.explanations()
+            .traded(&hex_firing(firing), &run.trade_id);
         let finished = self
             .execute(run, account_id, None, &hex_firing(firing))
             .await
@@ -310,7 +342,10 @@ impl Shared {
         let token_in = run.quote.token_in.clone().unwrap_or_default();
         let amount_in = execution::intent::base_units(&run.quote.amount_in, token_in.decimals)
             .unwrap_or_default();
-        if let Err(error) = self.demo.admit(account_id, &token_in, amount_in, now_ms()) {
+        if let Err(error) = self
+            .demo
+            .admit(account_id, &token_in, amount_in, self.now_ms())
+        {
             self.trades().abandon(&run);
             let code = match error {
                 crate::DemoError::Limited(_) => StatusCode::TOO_MANY_REQUESTS,
@@ -360,7 +395,7 @@ impl Shared {
 
     /// The account a request's bearer token is a session of.
     fn account_of(&self, headers: &axum::http::HeaderMap) -> Option<String> {
-        self.demo.account_id(bearer(headers)?, now_ms())
+        self.demo.account_id(bearer(headers)?, self.now_ms())
     }
 
     /// The fill a shadow trade's receipt books: what it moved, valued by its quote-asset side
@@ -429,7 +464,7 @@ impl Shared {
             return;
         };
         loop {
-            self.feed().safety().sweep(now_ms());
+            self.feed().safety().sweep(self.now_ms());
             loop {
                 let next = self.feed().safety().next_due();
                 let Some(token) = next else { break };
@@ -438,7 +473,9 @@ impl Shared {
                     Err(CheckError::NoPool) => {}
                     Err(CheckError::Failed(reason, details)) => {
                         tracing::warn!(reason, details, token = %token, "a safety check failed");
-                        self.feed().safety().check_failed(token, reason, now_ms());
+                        self.feed()
+                            .safety()
+                            .check_failed(token, reason, self.now_ms());
                     }
                 }
             }
@@ -495,7 +532,8 @@ impl Shared {
         })?;
         let mut feed = self.feed();
         let weth = feed.quotes().token_ref(8453, crate::accounts::WETH);
-        let report = crate::safety::report(token, &trip, pool, weth, decimals, block, now_ms());
+        let report =
+            crate::safety::report(token, &trip, pool, weth, decimals, block, self.now_ms());
         feed.safety().record(token, report);
         Ok(())
     }
@@ -545,7 +583,7 @@ impl Shared {
                 None => execution::Signer::Guest(&self.signer),
             },
             simulation,
-            &SystemClock,
+            self.clock.as_ref(),
         );
         // The I/O shell's bound on a trade, outside its core: a call endpoint that takes the
         // calls and never answers must not hold a trade, or its intent, for ever.
@@ -584,6 +622,9 @@ impl Shared {
             engine::PRICES_TOPIC => match proto::price::v1::PriceUpdate::decode(payload) {
                 Ok(update) => {
                     let applied = feed.apply_price(&update).map_err(|e| format!("{e:?}"));
+                    if applied.is_ok() {
+                        self.explanations().record_price(&update);
+                    }
                     // Triggers check each canonical block's price (D77): `prices.base` carries
                     // nothing else.
                     if applied.is_ok()
@@ -595,6 +636,14 @@ impl Shared {
                             update.block_number,
                             update.block_timestamp.saturating_mul(1000),
                         );
+                        for firing in &firings {
+                            if let Some(account_id) =
+                                self.demo.orders().account_of(&firing.order_id)
+                            {
+                                self.explanations()
+                                    .record_firing(firing, &account_id, &update);
+                            }
+                        }
                         if !firings.is_empty() {
                             self.firings
                                 .lock()
@@ -608,7 +657,10 @@ impl Shared {
                 Err(e) => Err(e.to_string()),
             },
             engine::TRADES_TOPIC => proto::trade::v1::Trade::decode(payload)
-                .map(|trade| feed.apply_trade(&trade))
+                .map(|trade| {
+                    self.explanations().record_swap(&trade);
+                    feed.apply_trade(&trade)
+                })
                 .map_err(|e| e.to_string()),
             engine::TRADE_HISTORY_TOPIC => match proto::trade::v1::Trade::decode(payload) {
                 Ok(trade) => feed
@@ -618,7 +670,10 @@ impl Shared {
                 Err(e) => Err(e.to_string()),
             },
             engine::POOL_UPDATES_TOPIC => proto::pool::v1::PoolUpdate::decode(payload)
-                .map(|update| feed.apply_pool_update(&update))
+                .map(|update| {
+                    self.explanations().record_pool_update(&update);
+                    feed.apply_pool_update(&update)
+                })
                 .map_err(|e| e.to_string()),
             engine::STATUS_TOPIC => match proto::status::v1::EngineStatus::decode(payload) {
                 Ok(status) => feed.apply_status(&status).map_err(|e| format!("{e:?}")),
@@ -732,6 +787,11 @@ pub fn router(shared: Arc<Shared>, cors_origin: &str) -> Result<Router, ServerEr
             axum::routing::patch(update_order).delete(cancel_order),
         )
         .route("/v1/trades/{trade_id}/receipt", get(receipt))
+        .route("/v1/trades/{trade_id}/explanation", get(trade_explanation))
+        .route(
+            "/v1/firings/{firing_id}/explanation",
+            get(firing_explanation),
+        )
         .route("/v1/stream", get(stream))
         .layer(middleware::from_fn_with_state(
             shared.clone(),
@@ -924,7 +984,7 @@ async fn token(
             .strip_prefix("0x")
             .and_then(|h| h.parse::<types::chain::Address>().ok()),
     ) {
-        feed.safety().watch(token, now_ms());
+        feed.safety().watch(token, shared.now_ms());
         snapshot.safety = feed.safety().report(token).cloned();
     }
     match snapshot {
@@ -1045,10 +1105,6 @@ pub fn parse_candles_query(params: &BTreeMap<String, String>) -> Option<CandlesQ
 /// The session secret when none is configured: fine on a laptop, never on a public server.
 pub const DEV_SESSION_SECRET: &str = "omnimarket-dev-session-secret";
 
-fn now_ms() -> u64 {
-    SystemClock.now().unix_nanos / 1_000_000
-}
-
 /// A request's `Authorization: Bearer` token.
 fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
     headers
@@ -1079,7 +1135,7 @@ async fn open_session(State(shared): State<Arc<Shared>>, request: Request) -> Re
     let guest_id = format!("guest-{:016x}", det::SeededRng::from_os().seed());
     let opened = shared
         .demo
-        .open(privy.as_deref(), guest_id, ip, now_ms())
+        .open(privy.as_deref(), guest_id, ip, shared.now_ms())
         .await;
     match opened {
         Ok(opened) => {
@@ -1196,7 +1252,7 @@ async fn place_order(
             order_id.clone(),
             token,
             spend_token,
-            now_ms(),
+            shared.now_ms(),
         )
     });
     match placed {
@@ -1231,7 +1287,10 @@ async fn update_order(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let updated = shared.demo.with_account(&account_id, |account| {
-        shared.demo.orders().update(account, &request, now_ms())
+        shared
+            .demo
+            .orders()
+            .update(account, &request, shared.now_ms())
     });
     match updated {
         Some(Ok(order)) => {
@@ -1258,7 +1317,7 @@ async fn cancel_order(
     let cancelled = shared
         .demo
         .orders()
-        .cancel(&account_id, &order_id, now_ms());
+        .cancel(&account_id, &order_id, shared.now_ms());
     match cancelled {
         Ok(order) => {
             if let Err(error) = shared.demo.keep_order(&order.order_id).await {
@@ -1390,6 +1449,70 @@ async fn receipt(
     }
 }
 
+/// `GET /v1/firings/{firing_id}/explanation`: why the account's order fired, swap to receipt.
+async fn firing_explanation(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    Path(firing_id): Path<String>,
+) -> Response {
+    let Some(account_id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    // In the consumer's order: the feed, then the explanations, then the trades.
+    let mut feed = shared.feed();
+    let explanations = shared.explanations();
+    let trades = shared.trades();
+    let Some(fired) = explanations.firing(&firing_id, &account_id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let trade_id = fired.firing.trade_id.clone();
+    let explanation = crate::explain(
+        &explanations,
+        Some(fired),
+        &trade_id,
+        trades.finished(&trade_id, &account_id),
+        trades.decision(&trade_id),
+        feed.quotes(),
+    );
+    json_response(&explanation)
+}
+
+/// `GET /v1/trades/{trade_id}/explanation`: why the account's trade went as it did, from its
+/// firing's swap when a firing made it, else from its route.
+async fn trade_explanation(
+    State(shared): State<Arc<Shared>>,
+    headers: axum::http::HeaderMap,
+    Path(trade_id): Path<String>,
+) -> Response {
+    let Some(account_id) = shared.account_of(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let mut feed = shared.feed();
+    let explanations = shared.explanations();
+    let trades = shared.trades();
+    let Some(finished) = trades.finished(&trade_id, &account_id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let fired = explanations.firing(&finished.status.firing_id, &account_id);
+    let explanation = crate::explain(
+        &explanations,
+        fired,
+        &trade_id,
+        Some(finished),
+        trades.decision(&trade_id),
+        feed.quotes(),
+    );
+    json_response(&explanation)
+}
+
+fn json_response<T: serde::Serialize>(message: &T) -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(message).expect("generated messages always serialize"),
+    )
+        .into_response()
+}
+
 async fn stream(ws: WebSocketUpgrade, State(shared): State<Arc<Shared>>) -> Response {
     ws.on_upgrade(move |socket| connection(socket, shared))
 }
@@ -1424,7 +1547,7 @@ async fn connection(mut socket: WebSocket, shared: Arc<Shared>) {
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
                 _ = beat.tick() => {
-                    let now_ms = SystemClock.now().unix_nanos / 1_000_000;
+                    let now_ms = shared.now_ms();
                     vec![heartbeat(now_ms, shared.feed().model())]
                 }
             };

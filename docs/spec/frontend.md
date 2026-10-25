@@ -82,7 +82,7 @@ The messages the demo (#62) needs, in `proto/omnimarket/api/v1`: `common.proto` 
 | `POST /v1/orders` (`PlaceOrderRequest`) | `Order` (built; triggers.md "Built for the demo"); the same client request ID gets the same order. 422 for terms that don't hold (no position to sell, a token not priced yet), 429 past 50 open orders | #86 |
 | `PATCH /v1/orders/{order_id}` (`UpdateOrderRequest`) | `Order` (built); 404 for another account's order, 409 for one no longer open | #86 |
 | `DELETE /v1/orders/{order_id}` (`CancelOrderRequest`) | `Order` (built); 404 for another account's, 409 for one no longer open | #86 |
-| `GET /v1/firings/{firing_id}/explanation`, `GET /v1/trades/{trade_id}/explanation` | `FiringExplanation` | #87 |
+| `GET /v1/firings/{firing_id}/explanation`, `GET /v1/trades/{trade_id}/explanation` | `FiringExplanation` (built, observability.md "Explanations"), for the session's own firings and trades; 404 for another account's or an unknown one, 401 without a session. A manual trade's starts at the route decision | #87 |
 
 Account requests send the session token as `Authorization: Bearer <session_token>`. A Privy user signs the quote's `intent_typed_data` and sends the signature in `TradeRequest`; a guest's intent is signed by the server, in shadow mode only.
 

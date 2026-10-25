@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use alloy_primitives::{U256, address};
+use proto::api::v1::firing_explanation::{Candidate, RouteDecision};
 use proto::api::v1::{Fee, Quote, QuoteRequest, RouteLeg, Slippage, TokenRef};
 use proto::lineage::v1::Lineage;
 use proto::pool::v1::{PoolUpdate, pool_key, pool_state};
@@ -63,6 +64,8 @@ pub struct Quotes {
     issued_order: VecDeque<String>,
     /// Each kept quote's client request ID, by quote ID.
     by_quote_id: BTreeMap<String, String>,
+    /// Each kept quote's route decision (D53), by quote ID: the route chosen and the ones it beat.
+    decisions: BTreeMap<String, RouteDecision>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +234,7 @@ impl Quotes {
                 && let Some((_, quote)) = self.issued.remove(&oldest)
             {
                 self.by_quote_id.remove(&quote.quote_id);
+                self.decisions.remove(&quote.quote_id);
             }
         }
         if let Some((asked, quote)) = self.issued.get(&request.client_request_id)
@@ -238,16 +242,20 @@ impl Quotes {
         {
             return Ok(quote.clone());
         }
-        let quote = self.price(request)?;
+        let (quote, decision) = self.priced(request)?;
         if !request.client_request_id.is_empty() {
             self.by_quote_id
                 .insert(quote.quote_id.clone(), request.client_request_id.clone());
+            self.decisions.insert(quote.quote_id.clone(), decision);
             match self.issued.insert(
                 request.client_request_id.clone(),
                 (request.clone(), quote.clone()),
             ) {
                 Some((_, replaced)) => {
                     self.by_quote_id.remove(&replaced.quote_id);
+                    if replaced.quote_id != quote.quote_id {
+                        self.decisions.remove(&replaced.quote_id);
+                    }
                     self.by_quote_id
                         .insert(quote.quote_id.clone(), request.client_request_id.clone());
                 }
@@ -265,9 +273,19 @@ impl Quotes {
         (quote.expires_at_ms > self.head_ms).then_some((request, quote))
     }
 
+    /// The route decision behind a kept quote: the route chosen and the ones it beat.
+    pub fn decision(&self, quote_id: &str) -> Option<&RouteDecision> {
+        self.decisions.get(quote_id)
+    }
+
     /// `request` priced again on the latest state, without keeping it: a trade's re-quote at
     /// send time (D27).
     pub fn price(&self, request: &QuoteRequest) -> Result<Quote, QuoteError> {
+        self.priced(request).map(|(quote, _)| quote)
+    }
+
+    /// `request`'s quote, and the decision record of the route it takes.
+    fn priced(&self, request: &QuoteRequest) -> Result<(Quote, RouteDecision), QuoteError> {
         let token_in = parse_address(&request.token_in).ok_or(QuoteError::Bad("token_in"))?;
         let token_out = parse_address(&request.token_out).ok_or(QuoteError::Bad("token_out"))?;
         if token_in == token_out {
@@ -292,10 +310,20 @@ impl Quotes {
             amount_in
         };
         let gas_out = |route: &Route| self.gas_in(route, token_out, decimals_out);
-        let route = routing::routes(&self.pools, token_in, token_out, routed_in, &HUBS)
-            .into_iter()
-            .max_by_key(|route| route.amount_out().saturating_sub(gas_out(route)))
+        let mut routes: Vec<(U256, Route)> =
+            routing::routes(&self.pools, token_in, token_out, routed_in, &HUBS)
+                .into_iter()
+                .map(|route| (route.amount_out().saturating_sub(gas_out(&route)), route))
+                .collect();
+        // The last of equal bests, as `max_by_key` picks; the rest are the alternatives, best first.
+        let best = routes
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, (net, _))| *net)
+            .map(|(index, _)| index)
             .ok_or(QuoteError::NoRoute)?;
+        let (best_net, route) = routes.remove(best);
+        routes.sort_by_key(|(net, _)| std::cmp::Reverse(*net));
         let routed_out = route.amount_out();
         let (fee, amount_out) = if fee_from_input {
             (fee_of(amount_in), routed_out)
@@ -333,7 +361,55 @@ impl Quotes {
             }
             _ => String::new(),
         };
-        let gas_usd = usd(WETH).map_or_else(String::new, |p| decimal(whole(gas_native, 18) * p));
+        let gas_usd_of = |route: &Route| {
+            let wei = U256::from(self::gas_units(&self.pools, route)) * U256::from(GAS_PRICE_WEI);
+            usd(WETH).map_or_else(String::new, |p| decimal(whole(wei, 18) * p))
+        };
+        let gas_usd = gas_usd_of(&route);
+        let legs = |route: &Route| -> Vec<RouteLeg> {
+            route
+                .legs
+                .iter()
+                .map(|leg| {
+                    let pool = &self.pools[&leg.pool];
+                    let (venue, fee_bps) = match &pool.kind {
+                        PoolKind::V2 { .. } => ("uniswap-v2", 30),
+                        PoolKind::V3(p) => ("uniswap-v3", p.fee / 100),
+                    };
+                    let decimals = |t| self.decimals(t).unwrap_or_default();
+                    RouteLeg {
+                        pool: hex(leg.pool.as_slice()),
+                        venue: venue.into(),
+                        pool_fee_bps: fee_bps,
+                        token_in: Some(self.token_ref(request.chain_id, leg.token_in)),
+                        token_out: Some(self.token_ref(request.chain_id, leg.token_out)),
+                        amount_in: exact(leg.amount_in, decimals(leg.token_in)),
+                        amount_out: exact(leg.amount_out, decimals(leg.token_out)),
+                    }
+                })
+                .collect()
+        };
+        let symbol_out = self.token_ref(request.chain_id, token_out).symbol;
+        let decision = RouteDecision {
+            chosen: Some(Candidate {
+                route: legs(&route),
+                amount_out: exact(route.amount_out(), decimals_out),
+                gas_estimate_usd: gas_usd.clone(),
+                rejected_because: String::new(),
+            }),
+            alternatives: routes
+                .iter()
+                .map(|(net, alternative)| Candidate {
+                    route: legs(alternative),
+                    amount_out: exact(alternative.amount_out(), decimals_out),
+                    gas_estimate_usd: gas_usd_of(alternative),
+                    rejected_because: format!(
+                        "{} {symbol_out} less after gas",
+                        exact(best_net - *net, decimals_out)
+                    ),
+                })
+                .collect(),
+        };
         let mut key = request.client_request_id.as_bytes().to_vec();
         key.extend(request.chain_id.to_le_bytes());
         key.extend(block_number.to_le_bytes());
@@ -341,7 +417,7 @@ impl Quotes {
         key.extend(token_out.as_slice());
         key.extend(amount_in.to_be_bytes::<32>());
         let id = LineageId::from_natural_key("quote", &key);
-        Ok(Quote {
+        let quote = Quote {
             lineage: Some(Lineage {
                 id: id.as_bytes().to_vec(),
                 caused_by: route
@@ -370,31 +446,12 @@ impl Quotes {
                     .map_or_else(String::new, |p| decimal(whole(fee, fee_decimals) * p)),
             }),
             slippage: Some(slippage),
-            route: route
-                .legs
-                .iter()
-                .map(|leg| {
-                    let pool = &self.pools[&leg.pool];
-                    let (venue, fee_bps) = match &pool.kind {
-                        PoolKind::V2 { .. } => ("uniswap-v2", 30),
-                        PoolKind::V3(p) => ("uniswap-v3", p.fee / 100),
-                    };
-                    let decimals = |t| self.decimals(t).unwrap_or_default();
-                    RouteLeg {
-                        pool: hex(leg.pool.as_slice()),
-                        venue: venue.into(),
-                        pool_fee_bps: fee_bps,
-                        token_in: Some(self.token_ref(request.chain_id, leg.token_in)),
-                        token_out: Some(self.token_ref(request.chain_id, leg.token_out)),
-                        amount_in: exact(leg.amount_in, decimals(leg.token_in)),
-                        amount_out: exact(leg.amount_out, decimals(leg.token_out)),
-                    }
-                })
-                .collect(),
+            route: legs(&route),
             gas_estimate_native: exact(gas_native, 18),
             gas_estimate_usd: gas_usd,
             intent_typed_data: String::new(),
-        })
+        };
+        Ok((quote, decision))
     }
 
     /// A token's display price in USD: its latest price update's, or $1 for a reference
