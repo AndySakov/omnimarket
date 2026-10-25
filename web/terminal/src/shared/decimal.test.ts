@@ -15,8 +15,11 @@ describe('parseDecimal', () => {
     }
   })
 
-  it('reads an unset field as undefined', () => {
-    expect(parseOptionalDecimal('')).toBeUndefined()
+  it('reads an unset or malformed field as undefined', () => {
+    for (const missing of ['', 'abc', '1e400', 'NaN', 'Infinity', '0x10']) {
+      expect(parseOptionalDecimal(missing), missing).toBeUndefined()
+    }
     expect(parseOptionalDecimal('2')?.toFixed()).toBe('2')
+    expect(parseOptionalDecimal('-1.5')?.toFixed()).toBe('-1.5')
   })
 })

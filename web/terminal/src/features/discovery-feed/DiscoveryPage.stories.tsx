@@ -79,5 +79,7 @@ export const Loading: Story = { decorators: [withFeed({ connection: 'connecting'
 export const Live: Story = { decorators: [withFeed({ connection: 'open', snapshot: true })] }
 export const Inserting: Story = { decorators: [withFeed({ connection: 'open', snapshot: true, insert: true })] }
 export const Stale: Story = { decorators: [withFeed({ connection: 'stale', snapshot: true })] }
+export const Reconnecting: Story = { decorators: [withFeed({ connection: 'reconnecting', snapshot: true })] }
+export const Unavailable: Story = { decorators: [withFeed({ connection: 'unavailable', snapshot: false })] }
 export const Empty: Story = { args: { state: 'empty' }, decorators: [withFeed({ connection: 'open', snapshot: true })] }
 export const Error: Story = { args: { state: 'error' }, decorators: [withFeed({ connection: 'open', snapshot: true })] }
