@@ -17,7 +17,10 @@ export function parseDecimal(value: string): Decimal {
   return new Decimal(value)
 }
 
-/** Like `parseDecimal`, but an empty string (an unset proto3 field) is `undefined`. */
+/**
+ * An amount to show: `undefined` for an empty string (an unset proto3 field) or anything that isn't
+ * a contract decimal string, so a region shows it as missing rather than failing (#139).
+ */
 export function parseOptionalDecimal(value: string): Decimal | undefined {
-  return value === '' ? undefined : parseDecimal(value)
+  return DECIMAL_STRING.test(value) ? new Decimal(value) : undefined
 }

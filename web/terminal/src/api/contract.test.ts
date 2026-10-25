@@ -7,6 +7,7 @@ import { file_omnimarket_api_v1_stream } from './generated/omnimarket/api/v1/str
 import { file_omnimarket_api_v1_trading } from './generated/omnimarket/api/v1/trading_pb'
 import { LineageSchema } from './generated/omnimarket/lineage/v1/lineage_pb'
 import { apiFixturesJson, candleSeriesFixturesJson } from '../mocks/fixtures/api'
+import { decimalField } from '../test/wire'
 
 // The API contract v0 (#75, D91): proto/omnimarket/api/v1, as generated here.
 const apiFiles = [
@@ -48,8 +49,6 @@ const notRecords = new Set([
   'OrderLevel',
 ])
 
-// Fields holding amounts, prices, USD values or percentages: decimal strings on the wire.
-const decimalField = /(^|_)(usd|pct|amount|price|supply|native|bought|returned|spent|quote)$|^amount_|_amount_|^pct_/
 const decimalValue = /^-?(0|[1-9]\d*)(\.\d+)?$/
 // Fields holding addresses or hashes: lowercase 0x hex.
 const hexField = /^(address|pool|token|token_in|token_out|spend_token|sender|recipient|wallet_address|tx_hash|block_hash|head_block_hash|intent_hash|firing_id|last_firing_id)$/

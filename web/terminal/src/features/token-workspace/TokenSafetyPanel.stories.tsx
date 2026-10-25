@@ -14,6 +14,8 @@ type Story = StoryObj<typeof meta>
 
 export const NotChecked: Story = {}
 
+export const Live: Story = { args: { state: 'ready' } }
+
 export const Loading: Story = { args: { state: 'loading' } }
 
 export const Empty: Story = { args: { state: 'empty' } }
@@ -21,6 +23,12 @@ export const Empty: Story = { args: { state: 'empty' } }
 export const Stale: Story = { args: { state: 'stale' } }
 
 export const Error: Story = { args: { state: 'error' } }
+
+// The workspace shows evidence kept from before a drop as stale while it reconnects, and an
+// unavailable topic as an error.
+export const Reconnecting: Story = { args: { state: 'stale' } }
+
+export const Unavailable: Story = { args: { state: 'error' } }
 
 export const Passed: Story = {
   args: {

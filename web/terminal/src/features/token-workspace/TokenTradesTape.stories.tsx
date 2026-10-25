@@ -17,3 +17,7 @@ export const Loading: Story = { args: { state: 'loading' } }
 export const Empty: Story = { args: { rows: [], state: 'empty' } }
 export const Stale: Story = { args: { state: 'stale' } }
 export const Error: Story = { args: { rows: [], state: 'error' } }
+// The workspace shows trades kept from before a drop as stale while it reconnects, and an
+// unavailable topic as an error.
+export const Reconnecting: Story = { args: { state: 'stale' } }
+export const Unavailable: Story = { args: { rows: [], state: 'error' } }

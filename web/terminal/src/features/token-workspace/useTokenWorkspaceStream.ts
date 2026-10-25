@@ -135,7 +135,7 @@ function tokenSnapshotToFixture(base: TokenWorkspaceFixture, snapshot: TokenSnap
     fdv: marketCap ? formatUsdCompact(marketCap) : '—',
     totalSupply: formatTokenAmount(snapshot.totalSupply),
     thin: snapshot.thin,
-    volume24h: stats?.volumeUsd ? formatUsdCompact(new Decimal(stats.volumeUsd)) : '—',
+    volume24h: formatOptional(stats?.volumeUsd, formatUsdCompact),
     pools: snapshot.pools.map((pool) => ({
       venue: pool.venue,
       feeTier: `${new Decimal(pool.poolFeeBps).div(100).toFixed(2)}%`,
@@ -152,10 +152,10 @@ function mapTrades(trades: Trade[], token: TokenWorkspaceFixture, serverTimeMs: 
     id: `${trade.blockHash}:${trade.logIndex.toString()}`,
     side: trade.side === Trade_Side.BUY ? 'Buy' as const : 'Sell' as const,
     amount: `${trade.tokenAmount} ${trade.token?.symbol ?? token.symbol}`,
-    value: trade.valueUsd ? formatUsdCompact(new Decimal(trade.valueUsd)) : '—',
+    value: formatOptional(trade.valueUsd, formatUsdCompact),
     wallet: shortenHash(trade.sender),
     time: serverTimeMs === undefined ? '—' : formatAge(serverTimeMs - trade.blockTimeMs) + ' ago',
-    price: trade.priceUsd ? formatUsdPrice(new Decimal(trade.priceUsd)) : '—',
+    price: formatOptional(trade.priceUsd, formatUsdPrice),
     marketCap: token.marketCap,
     gas: '—',
     trader: shortenHash(trade.sender),
@@ -167,18 +167,25 @@ function mapTrades(trades: Trade[], token: TokenWorkspaceFixture, serverTimeMs: 
 
 function mapCandles(candles: Candle[]): TokenChartData {
   const sorted = candles.slice().sort((a, b) => (a.openTimeMs < b.openTimeMs ? -1 : a.openTimeMs > b.openTimeMs ? 1 : 0))
+  // The chart draws numbers. A candle whose prices don't parse is left out rather than drawn wrong.
+  const drawn = sorted.flatMap((candle) => {
+    const [open, high, low, close] = [candle.openUsd, candle.highUsd, candle.lowUsd, candle.closeUsd].map(parseOptionalDecimal)
+    if (!open || !high || !low || !close) return []
+    const volume = parseOptionalDecimal(candle.volumeUsd)
+    return [{ time: candle.openTimeMs.toString(), open, high, low, close, volume }]
+  })
   return {
-    candles: sorted.map((candle) => ({
-      time: candle.openTimeMs.toString(),
-      open: Number(candle.openUsd),
-      high: Number(candle.highUsd),
-      low: Number(candle.lowUsd),
-      close: Number(candle.closeUsd),
+    candles: drawn.map((candle) => ({
+      time: candle.time,
+      open: candle.open.toNumber(),
+      high: candle.high.toNumber(),
+      low: candle.low.toNumber(),
+      close: candle.close.toNumber(),
     })),
-    volume: sorted.map((candle) => ({
-      time: candle.openTimeMs.toString(),
-      value: Number(candle.volumeUsd),
-      tone: Number(candle.closeUsd) >= Number(candle.openUsd) ? 'up' as const : 'down' as const,
+    volume: drawn.map((candle) => ({
+      time: candle.time,
+      value: candle.volume?.toNumber() ?? 0,
+      tone: candle.close.gte(candle.open) ? 'up' as const : 'down' as const,
     })),
   }
 }
@@ -218,6 +225,11 @@ function formatTokenAmount(value: string): string {
   if (decimal.gte('1e6')) return `${decimal.div('1e6').toDecimalPlaces(1).toFixed()}M`
   if (decimal.gte('1e3')) return `${decimal.div('1e3').toDecimalPlaces(1).toFixed()}K`
   return decimal.toFixed()
+}
+
+function formatOptional(value: string | undefined, format: (amount: Decimal) => string): string {
+  const amount = parseOptionalDecimal(value ?? '')
+  return amount ? format(amount) : '—'
 }
 
 function shortenHash(value: string): string {
